@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { type FDAFood } from '@/lib/recipe-store';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
+import PWAInstallPrompt from '@/components/pwa-install-prompt';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -648,6 +649,9 @@ export default function HomePage() {
           NutriLabel — Nutrition data sourced from FDA FoodData Central (USDA). Labels follow FDA formatting guidelines.
         </div>
       </footer>
+
+      {/* PWA Install Prompt (mobile/tablet only) */}
+      <PWAInstallPrompt />
     </div>
   );
 }

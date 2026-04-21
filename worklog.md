@@ -81,3 +81,29 @@ Stage Summary:
 - `/src/app/page.tsx` - Complete single-page application
 - Built-in fallback database at `/src/lib/fallback-foods.ts` (40 common foods)
 - Full FDA API integration with graceful fallback
+
+---
+Task ID: 6
+Agent: Main
+Task: Add Tauri v2 desktop wrapper + PWA mobile support
+
+Work Log:
+- Installed Rust toolchain (rustc 1.95.0, cargo 1.95.0)
+- Created Tauri v2 project at src-tauri/ with Cargo.toml, build.rs, tauri.conf.json
+- Built Rust sidecar launcher that finds node/bun runtime and starts Next.js standalone server
+- Added health-check polling for server readiness
+- Created production server.js that works both locally and inside Tauri bundle
+- Created build scripts: scripts/build-tauri.sh (Linux/Mac), scripts/build-tauri.ps1 (Windows), scripts/dev-tauri.sh
+- Generated app icons (emerald chef hat) for both Tauri and PWA formats
+- Added PWA manifest.json with installability metadata
+- Added service worker (sw.js) with network-first for API, stale-while-revalidate for static
+- Added PWA install prompt component (detects beforeinstallprompt event)
+- Updated layout.tsx with PWA metadata, service worker registration, apple-web-app support
+- Updated .env with user's FDA API key
+- Added npm scripts: tauri:dev, tauri:build, icons
+
+Stage Summary:
+- Tauri desktop: Ready to build for Linux (.deb/.AppImage) and Windows (.exe/.msi)
+- PWA: Installable on any mobile browser (Android/iOS) via "Add to Home Screen"
+- Build flow: bun run build → copy assets → cargo tauri build
+- Key files: src-tauri/src/lib.rs, server.js, public/manifest.json, public/sw.js
