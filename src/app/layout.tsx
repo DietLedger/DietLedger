@@ -22,8 +22,8 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "NutriLabel - Recipe Storage with FDA Nutrition Labels",
-  description: "Store your recipes and automatically generate FDA-compliant nutrition facts labels using data from the FDA FoodData Central database.",
-  keywords: ["recipe", "nutrition", "FDA", "nutrition label", "food data", "cooking", "meal prep"],
+  description: "Standalone recipe storage with FDA-compliant nutrition labels. No server required - runs entirely on your device.",
+  keywords: ["recipe", "nutrition", "FDA", "nutrition label", "food data", "cooking", "meal prep", "offline", "standalone"],
   authors: [{ name: "NutriLabel" }],
   manifest: "/manifest.json",
   icons: {
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "NutriLabel - Recipe Storage with FDA Nutrition Labels",
-    description: "Store your recipes and auto-generate FDA nutrition labels from the USDA food database.",
+    description: "Standalone recipe tool that auto-generates FDA nutrition labels. No server, no hosting costs.",
     type: "website",
   },
   appleWebApp: {
@@ -58,25 +58,6 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
-        {/* Service Worker Registration */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) {
-                      console.log('[NutriLabel] SW registered:', registration.scope);
-                    },
-                    function(err) {
-                      console.log('[NutriLabel] SW registration failed:', err);
-                    }
-                  );
-                });
-              }
-            `,
-          }}
-        />
       </body>
     </html>
   );

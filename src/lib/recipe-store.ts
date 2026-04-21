@@ -1,4 +1,20 @@
 import { create } from "zustand";
+import {
+  getAllRecipes,
+  getRecipe,
+  createRecipe as dbCreateRecipe,
+  updateRecipe as dbUpdateRecipe,
+  deleteRecipe as dbDeleteRecipe,
+  addIngredient as dbAddIngredient,
+  removeIngredient as dbRemoveIngredient,
+  getStoredApiKey,
+  setStoredApiKey as dbSetApiKey,
+  type RecipeRecord,
+  type IngredientRecord,
+} from "@/lib/storage";
+import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
+
+// ── Public Types ──────────────────────────────────────────────────────
 
 interface Ingredient {
   id: string;
@@ -59,6 +75,39 @@ interface FDAFood {
   };
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function toPublicRecipe(r: RecipeRecord): Recipe {
+  return {
+    ...r,
+    ingredients: r.ingredients.map((i) => ({ ...i })),
+  };
+}
+
+function toPublicFDAFood(r: FDASearchResult): FDAFood {
+  return { ...r };
+}
+
+// ── Unit conversion to grams ──────────────────────────────────────────
+
+const UNIT_TO_GRAMS: Record<string, number> = {
+  g: 1,
+  oz: 28.35,
+  lb: 453.6,
+  cup: 240,    // approximate for water-like density
+  tbsp: 15,
+  tsp: 5,
+  ml: 1,
+  whole: 100,  // approximate; user should adjust amount
+};
+
+function convertToGrams(amount: number, unit: string): number {
+  const factor = UNIT_TO_GRAMS[unit.toLowerCase()] || 1;
+  return amount * factor;
+}
+
+// ── Store Interface ───────────────────────────────────────────────────
+
 interface RecipeState {
   recipes: Recipe[];
   activeRecipe: Recipe | null;
@@ -67,6 +116,7 @@ interface RecipeState {
   searchSource: 'fda' | 'fallback' | null;
   isLoading: boolean;
   error: string | null;
+  apiKey: string;
 
   fetchRecipes: () => Promise<void>;
   createRecipe: (name: string) => Promise<void>;
@@ -97,7 +147,11 @@ interface RecipeState {
     iron: number;
     potassium: number;
   };
+  setApiKey: (key: string) => void;
+  loadApiKey: () => void;
 }
+
+// ── Store Implementation ─────────────────────────────────────────────
 
 export const useRecipeStore = create<RecipeState>((set, get) => ({
   recipes: [],
@@ -107,14 +161,22 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   searchSource: null,
   isLoading: false,
   error: null,
+  apiKey: 'DEMO_KEY',
+
+  loadApiKey: () => {
+    set({ apiKey: getStoredApiKey() });
+  },
+
+  setApiKey: (key: string) => {
+    dbSetApiKey(key);
+    set({ apiKey: key || 'DEMO_KEY' });
+  },
 
   fetchRecipes: async () => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch("/api/recipes");
-      if (!res.ok) throw new Error("Failed to fetch recipes");
-      const recipes: Recipe[] = await res.json();
-      set({ recipes, isLoading: false });
+      const recipes = await getAllRecipes();
+      set({ recipes: recipes.map(toPublicRecipe), isLoading: false });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -126,16 +188,11 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   createRecipe: async (name: string) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch("/api/recipes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error("Failed to create recipe");
-      const recipe: Recipe = await res.json();
+      const recipe = await dbCreateRecipe(name);
+      const publicRecipe = toPublicRecipe(recipe);
       set((state) => ({
-        recipes: [...state.recipes, recipe],
-        activeRecipe: recipe,
+        recipes: [publicRecipe, ...state.recipes],
+        activeRecipe: publicRecipe,
         isLoading: false,
       }));
     } catch (err) {
@@ -149,10 +206,9 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   selectRecipe: async (id: string) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/recipes/${id}`);
-      if (!res.ok) throw new Error("Failed to fetch recipe");
-      const recipe: Recipe = await res.json();
-      set({ activeRecipe: recipe, isLoading: false });
+      const recipe = await getRecipe(id);
+      if (!recipe) throw new Error("Recipe not found");
+      set({ activeRecipe: toPublicRecipe(recipe), isLoading: false });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -166,16 +222,13 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     if (!activeRecipe) return;
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/recipes/${activeRecipe.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to update recipe");
-      const updated: Recipe = await res.json();
+      const updated = await dbUpdateRecipe(activeRecipe.id, data);
+      const publicUpdated = toPublicRecipe(updated);
       set((state) => ({
-        activeRecipe: updated,
-        recipes: state.recipes.map((r) => (r.id === updated.id ? updated : r)),
+        activeRecipe: publicUpdated,
+        recipes: state.recipes.map((r) =>
+          r.id === publicUpdated.id ? publicUpdated : r
+        ),
         isLoading: false,
       }));
     } catch (err) {
@@ -189,8 +242,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   deleteRecipe: async (id: string) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/recipes/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete recipe");
+      await dbDeleteRecipe(id);
       set((state) => ({
         recipes: state.recipes.filter((r) => r.id !== id),
         activeRecipe: state.activeRecipe?.id === id ? null : state.activeRecipe,
@@ -207,12 +259,12 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   searchFDA: async (query: string) => {
     set({ isSearching: true, error: null, searchResults: [], searchSource: null });
     try {
-      const res = await fetch(`/api/fda/search?query=${encodeURIComponent(query)}`);
-      if (!res.ok) throw new Error("Failed to search FDA foods");
-      const data = await res.json();
-      const results: FDAFood[] = data.foods || [];
-      const source = data.source === 'fallback' ? 'fallback' as const : 'fda' as const;
-      set({ searchResults: results, searchSource: source, isSearching: false });
+      const result = await searchFDAFoods(query);
+      set({
+        searchResults: result.foods.map(toPublicFDAFood),
+        searchSource: result.source === 'fallback' ? 'fallback' : 'fda',
+        isSearching: false,
+      });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -227,38 +279,45 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     if (!activeRecipe) return;
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/recipes/${activeRecipe.id}/ingredients`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fdcId: food.fdcId,
-          name: food.description,
-          amount,
-          unit,
-          calories: food.nutrients.calories,
-          totalFat: food.nutrients.totalFat,
-          saturatedFat: food.nutrients.saturatedFat,
-          transFat: food.nutrients.transFat,
-          cholesterol: food.nutrients.cholesterol,
-          sodium: food.nutrients.sodium,
-          totalCarbs: food.nutrients.totalCarbs,
-          dietaryFiber: food.nutrients.dietaryFiber,
-          totalSugars: food.nutrients.totalSugars,
-          addedSugars: food.nutrients.addedSugars,
-          protein: food.nutrients.protein,
-          vitaminD: food.nutrients.vitaminD,
-          calcium: food.nutrients.calcium,
-          iron: food.nutrients.iron,
-          potassium: food.nutrients.potassium,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to add ingredient");
-      const ingredient: Ingredient = await res.json();
+      // Scale nutrients: FDA data is per 100g, so convert amount to grams first
+      const grams = convertToGrams(amount, unit);
+      const scaleFactor = grams / 100;
+
+      const scaleVal = (val: number) => {
+        const v = parseFloat(String(val)) || 0;
+        return Math.round(v * scaleFactor * 100) / 100;
+      };
+
+      const ingredientData = {
+        fdcId: food.fdcId,
+        name: food.description,
+        amount,
+        unit,
+        calories: scaleVal(food.nutrients.calories),
+        totalFat: scaleVal(food.nutrients.totalFat),
+        saturatedFat: scaleVal(food.nutrients.saturatedFat),
+        transFat: scaleVal(food.nutrients.transFat),
+        cholesterol: scaleVal(food.nutrients.cholesterol),
+        sodium: scaleVal(food.nutrients.sodium),
+        totalCarbs: scaleVal(food.nutrients.totalCarbs),
+        dietaryFiber: scaleVal(food.nutrients.dietaryFiber),
+        totalSugars: scaleVal(food.nutrients.totalSugars),
+        addedSugars: scaleVal(food.nutrients.addedSugars),
+        protein: scaleVal(food.nutrients.protein),
+        vitaminD: scaleVal(food.nutrients.vitaminD),
+        calcium: scaleVal(food.nutrients.calcium),
+        iron: scaleVal(food.nutrients.iron),
+        potassium: scaleVal(food.nutrients.potassium),
+      };
+
+      const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
+
       const updatedRecipe: Recipe = {
         ...activeRecipe,
-        ingredients: [...activeRecipe.ingredients, ingredient],
+        ingredients: [...activeRecipe.ingredients, { ...newIngredient }],
         updatedAt: new Date().toISOString(),
       };
+
       set((state) => ({
         activeRecipe: updatedRecipe,
         recipes: state.recipes.map((r) =>
@@ -279,11 +338,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     if (!activeRecipe) return;
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(
-        `/api/recipes/${activeRecipe.id}/ingredients/${ingredientId}`,
-        { method: "DELETE" }
-      );
-      if (!res.ok) throw new Error("Failed to remove ingredient");
+      await dbRemoveIngredient(activeRecipe.id, ingredientId);
       const updatedRecipe: Recipe = {
         ...activeRecipe,
         ingredients: activeRecipe.ingredients.filter(
@@ -310,21 +365,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     const { activeRecipe } = get();
     if (!activeRecipe || activeRecipe.ingredients.length === 0) {
       return {
-        calories: 0,
-        totalFat: 0,
-        saturatedFat: 0,
-        transFat: 0,
-        cholesterol: 0,
-        sodium: 0,
-        totalCarbs: 0,
-        dietaryFiber: 0,
-        totalSugars: 0,
-        addedSugars: 0,
-        protein: 0,
-        vitaminD: 0,
-        calcium: 0,
-        iron: 0,
-        potassium: 0,
+        calories: 0, totalFat: 0, saturatedFat: 0, transFat: 0,
+        cholesterol: 0, sodium: 0, totalCarbs: 0, dietaryFiber: 0,
+        totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0,
+        calcium: 0, iron: 0, potassium: 0,
       };
     }
 
@@ -347,21 +391,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         potassium: totals.potassium + ingredient.potassium,
       }),
       {
-        calories: 0,
-        totalFat: 0,
-        saturatedFat: 0,
-        transFat: 0,
-        cholesterol: 0,
-        sodium: 0,
-        totalCarbs: 0,
-        dietaryFiber: 0,
-        totalSugars: 0,
-        addedSugars: 0,
-        protein: 0,
-        vitaminD: 0,
-        calcium: 0,
-        iron: 0,
-        potassium: 0,
+        calories: 0, totalFat: 0, saturatedFat: 0, transFat: 0,
+        cholesterol: 0, sodium: 0, totalCarbs: 0, dietaryFiber: 0,
+        totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0,
+        calcium: 0, iron: 0, potassium: 0,
       }
     );
   },

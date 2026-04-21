@@ -4,7 +4,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { type FDAFood } from '@/lib/recipe-store';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
-import PWAInstallPrompt from '@/components/pwa-install-prompt';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,6 +22,12 @@ import {
   Loader2,
   BookOpen,
   UtensilsCrossed,
+  Settings,
+  HardDrive,
+  Key,
+  Check,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -33,6 +38,7 @@ export default function HomePage() {
     searchResults,
     searchSource,
     isLoading,
+    apiKey,
     fetchRecipes,
     createRecipe,
     selectRecipe,
@@ -42,6 +48,8 @@ export default function HomePage() {
     addIngredient,
     removeIngredient,
     getTotalNutrition,
+    setApiKey,
+    loadApiKey,
   } = useRecipeStore();
 
   const [newRecipeName, setNewRecipeName] = useState('');
@@ -55,10 +63,14 @@ export default function HomePage() {
   const [editingServings, setEditingServings] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const [servingsValue, setServingsValue] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeySaved, setApiKeySaved] = useState(false);
 
   useEffect(() => {
+    loadApiKey();
     fetchRecipes();
-  }, [fetchRecipes]);
+  }, [loadApiKey, fetchRecipes]);
 
   const handleCreateRecipe = useCallback(async () => {
     if (!newRecipeName.trim()) return;
@@ -108,6 +120,12 @@ export default function HomePage() {
     await updateRecipe({ instructions: value });
   }, [activeRecipe, updateRecipe]);
 
+  const handleSaveApiKey = useCallback(() => {
+    setApiKey(apiKeyInput);
+    setApiKeySaved(true);
+    setTimeout(() => setApiKeySaved(false), 2000);
+  }, [apiKeyInput, setApiKey]);
+
   const totalNutrition = getTotalNutrition();
 
   const nutritionData: NutritionData = {
@@ -147,14 +165,121 @@ export default function HomePage() {
               NutriLabel
             </h1>
             <p className="text-xs text-stone-500">
-              Recipe storage with FDA nutrition labels
+              Standalone recipe storage with FDA nutrition labels
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Badge variant="secondary" className="text-xs">
-              <Salad className="w-3 h-3 mr-1" />
-              FDA FoodData Central
+            <Badge variant="secondary" className="text-xs gap-1">
+              <HardDrive className="w-3 h-3" />
+              Local Storage
             </Badge>
+            <Badge
+              variant={apiKey === 'DEMO_KEY' ? 'outline' : 'secondary'}
+              className={`text-xs gap-1 ${apiKey !== 'DEMO_KEY' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : ''}`}
+            >
+              {apiKey === 'DEMO_KEY' ? (
+                <><WifiOff className="w-3 h-3" />Demo Key</>
+              ) : (
+                <><Wifi className="w-3 h-3" />API Key Set</>
+              )}
+            </Badge>
+            <Dialog open={settingsOpen} onOpenChange={(open) => {
+              setSettingsOpen(open);
+              if (open) {
+                setApiKeyInput(apiKey);
+                setApiKeySaved(false);
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400 hover:text-stone-600">
+                  <Settings className="w-4 h-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[440px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Settings className="w-4 h-4 text-emerald-600" />
+                    Settings
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-5 mt-4">
+                  {/* API Key Section */}
+                  <div>
+                    <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
+                      <Key className="w-3.5 h-3.5 text-emerald-600" />
+                      FDA FoodData Central API Key
+                    </label>
+                    <p className="text-xs text-stone-400 mb-3">
+                      Required for live food search. Get a free key at{' '}
+                      <a
+                        href="https://api.data.gov/signup/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-600 underline hover:text-emerald-700"
+                      >
+                        api.data.gov
+                      </a>
+                      . Without your own key, you&apos;re limited to 50 searches/day with the demo key.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Enter your API key..."
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        className="flex-1 text-sm"
+                      />
+                      <Button
+                        onClick={handleSaveApiKey}
+                        className="bg-emerald-600 hover:bg-emerald-700 gap-1"
+                        size="sm"
+                      >
+                        {apiKeySaved ? (
+                          <><Check className="w-3.5 h-3.5" />Saved</>
+                        ) : (
+                          'Save'
+                        )}
+                      </Button>
+                    </div>
+                    {apiKey === 'DEMO_KEY' && (
+                      <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                        <WifiOff className="w-3 h-3" />
+                        Currently using demo key (rate-limited to 50 requests/day)
+                      </p>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Storage Info */}
+                  <div>
+                    <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
+                      <HardDrive className="w-3.5 h-3.5 text-emerald-600" />
+                      Local Storage
+                    </label>
+                    <p className="text-xs text-stone-400">
+                      All your recipes are stored locally in your browser&apos;s IndexedDB.
+                      No data is sent to any server. Your recipes are completely private and offline-ready.
+                    </p>
+                    <div className="mt-2 p-2 bg-stone-50 rounded-md text-xs text-stone-500">
+                      {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} stored locally
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* About */}
+                  <div className="text-xs text-stone-400">
+                    <p className="font-medium text-stone-500 mb-1">About NutriLabel</p>
+                    <p>
+                      A fully standalone recipe tool that generates FDA-compliant nutrition labels.
+                      No server required — everything runs locally on your device.
+                      Can be packaged as a desktop app (Tauri) or mobile app (Capacitor).
+                    </p>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </header>
@@ -336,7 +461,7 @@ export default function HomePage() {
                         <div className="space-y-4 mt-2">
                           {searchSource === 'fallback' && (
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                              <strong>Note:</strong> FDA API is currently rate-limited. Showing results from built-in food database. Get your own free API key at <a href="https://api.data.gov/signup/" target="_blank" rel="noopener noreferrer" className="underline">api.data.gov</a> for unlimited access.
+                              <strong>Note:</strong> FDA API is currently rate-limited. Showing results from built-in food database. Add your own free API key in <strong>Settings</strong> (gear icon) for unlimited access.
                             </div>
                           )}
                           <div className="flex gap-2">
@@ -646,12 +771,9 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t bg-white mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 text-center text-xs text-stone-400">
-          NutriLabel — Nutrition data sourced from FDA FoodData Central (USDA). Labels follow FDA formatting guidelines.
+          NutriLabel — 100% local, no server required. Data from FDA FoodData Central (USDA). Labels follow FDA formatting guidelines.
         </div>
       </footer>
-
-      {/* PWA Install Prompt (mobile/tablet only) */}
-      <PWAInstallPrompt />
     </div>
   );
 }
