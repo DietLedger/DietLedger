@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchFallbackFoods } from '@/lib/fallback-foods';
 
-const FDA_API_KEY = 'DEMO_KEY';
+const FDA_API_KEY = process.env.FDA_API_KEY || 'DEMO_KEY';
 const FDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
 
 export async function GET(request: NextRequest) {
