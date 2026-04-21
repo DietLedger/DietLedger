@@ -1,0 +1,73 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-schema/main/tauri.schema.json",
+  "productName": "NutriLabel",
+  "version": "1.0.0",
+  "identifier": "com.nutrilabel.app",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../.next"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NutriLabel - Recipe Storage & FDA Nutrition Labels",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      {
+        "path": "../.next/standalone/**/*",
+        "target": "server/"
+      },
+      {
+        "path": "../.next/static/**/*",
+        "target": "server/.next/static/"
+      },
+      {
+        "path": "../public/**/*",
+        "target": "server/public/"
+      },
+      {
+        "path": "../db/custom.db",
+        "target": "server/db/custom.db"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
