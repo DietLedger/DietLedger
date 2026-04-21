@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Recipe {
+  id          String       @id @default(cuid())
+  name        String
+  servings    Int          @default(1)
+  instructions String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  ingredients Ingredient[]
+}
+
+model Ingredient {
+  id            String   @id @default(cuid())
+  recipeId      String
+  fdcId         Int
+  name          String
+  amount        Float
+  unit          String
+  calories      Float    @default(0)
+  totalFat      Float    @default(0)
+  saturatedFat  Float    @default(0)
+  transFat      Float    @default(0)
+  cholesterol   Float    @default(0)
+  sodium        Float    @default(0)
+  totalCarbs    Float    @default(0)
+  dietaryFiber  Float    @default(0)
+  totalSugars   Float    @default(0)
+  addedSugars   Float    @default(0)
+  protein       Float    @default(0)
+  vitaminD      Float    @default(0)
+  calcium       Float    @default(0)
+  iron          Float    @default(0)
+  potassium     Float    @default(0)
+  recipe        Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+}
