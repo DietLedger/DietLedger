@@ -1,8 +1,4 @@
-// Client-side FDA FoodData Central API search
-// Direct browser-to-FDA API calls - no server needed
-// Falls back to built-in food database on failure
-
-import { searchFallbackFoods } from '@/lib/fallback-foods';
+import { searchFallbackFoodsAsResult } from '@/lib/fallback-foods';
 import { getStoredApiKey } from '@/lib/storage';
 
 const FDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
@@ -35,10 +31,24 @@ export interface FDASearchResult {
 
 export interface FDASearchResponse {
   foods: FDASearchResult[];
-  source: 'fda' | 'fallback';
+  source: 'fda' | 'fallback' | 'local';
 }
 
 export async function searchFDAFoods(query: string): Promise<FDASearchResponse> {
+  try {
+    const localResponse = await fetch(
+      `/api/foods/search?query=${encodeURIComponent(query)}`
+    );
+    if (localResponse.ok) {
+      const localData = await localResponse.json();
+      if (localData.foods && localData.foods.length > 0) {
+        return { foods: localData.foods, source: localData.source };
+      }
+    }
+  } catch {
+    // Server unavailable (offline mode) - fall through to direct FDA API
+  }
+
   const apiKey = getStoredApiKey();
 
   try {
@@ -60,7 +70,7 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
       console.log(
         `FDA API returned ${response.status}, using fallback database`
       );
-      const fallbackFoods = searchFallbackFoods(query);
+      const fallbackFoods = searchFallbackFoodsAsResult(query);
       return { foods: fallbackFoods, source: 'fallback' };
     }
 
@@ -80,8 +90,6 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
           return n ? n.value || 0 : 0;
         };
 
-        // For Branded foods, nutrients are per serving; normalize to per 100g
-        // For Foundation/SR Legacy, nutrients are already per 100g
         const dataType = food.dataType as string;
         const servingSize = (food.servingSize as number) || 100;
         const servingSizeUnit = (food.servingSizeUnit as string) || 'g';
@@ -92,7 +100,7 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
           servingSizeUnit === 'g' &&
           servingSize > 0
         ) {
-          scale = 100 / servingSize; // Convert per-serving to per-100g
+          scale = 100 / servingSize;
         }
 
         const scaleVal = (v: number) => Math.round(v * scale * 100) / 100;
@@ -125,10 +133,18 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
       }
     );
 
+    if (foods.length > 0) {
+      fetch('/api/foods/cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ foods }),
+      }).catch(() => {});
+    }
+
     return { foods, source: 'fda' };
   } catch (error) {
     console.error('FDA search error, using fallback:', error);
-    const fallbackFoods = searchFallbackFoods(query);
+    const fallbackFoods = searchFallbackFoodsAsResult(query);
     return { foods: fallbackFoods, source: 'fallback' };
   }
 }

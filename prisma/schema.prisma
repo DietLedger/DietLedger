@@ -43,3 +43,52 @@ model Ingredient {
 
   @@index([recipeId])
 }
+
+model FoodItem {
+  id              Int      @id @default(autoincrement())
+  fdcId           Int      @unique
+  description     String
+  dataType        String
+  brandOwner      String?
+  gtinUpc         String?
+  servingSize     Float    @default(100)
+  servingSizeUnit String   @default("g")
+
+  calories      Float @default(0)
+  totalFat      Float @default(0)
+  saturatedFat  Float @default(0)
+  transFat      Float @default(0)
+  cholesterol   Float @default(0)
+  sodium        Float @default(0)
+  totalCarbs    Float @default(0)
+  dietaryFiber  Float @default(0)
+  totalSugars   Float @default(0)
+  addedSugars   Float @default(0)
+  protein       Float @default(0)
+  vitaminD      Float @default(0)
+  calcium       Float @default(0)
+  iron          Float @default(0)
+  potassium     Float @default(0)
+
+  source    String   @default("usda")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([description])
+  @@index([dataType])
+  @@index([gtinUpc])
+}
+
+model SeedJob {
+  id           Int      @id @default(autoincrement())
+  dataType     String
+  releaseDate  String
+  fileName     String
+  recordCount  Int      @default(0)
+  status       String   @default("pending")
+  progress     Float    @default(0)
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+}

@@ -355,3 +355,7 @@ export function searchFallbackFoods(query: string): FallbackFood[] {
     food.description.toLowerCase().includes(lowerQuery)
   ).slice(0, 25);
 }
+
+export function searchFallbackFoodsAsResult(query: string): Array<FallbackFood & { brandOwner: string | null }> {
+  return searchFallbackFoods(query).map((food) => ({ ...food, brandOwner: null as string | null }));
+}

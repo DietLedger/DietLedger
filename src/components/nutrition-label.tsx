@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { fmt } from '@/lib/format';
 
 export interface NutritionData {
   servings: number;
@@ -24,6 +25,7 @@ export interface NutritionData {
 interface NutritionLabelProps {
   data: NutritionData;
   servingDescription?: string;
+  servingsPerContainer?: number;
 }
 
 const DV_REFERENCE: Record<string, number> = {
@@ -66,7 +68,7 @@ function isAllZero(data: NutritionData): boolean {
   );
 }
 
-export default function NutritionLabel({ data, servingDescription }: NutritionLabelProps) {
+export default function NutritionLabel({ data, servingDescription, servingsPerContainer }: NutritionLabelProps) {
   if (isAllZero(data)) {
     return (
       <div style={styles.container}>
@@ -87,13 +89,15 @@ export default function NutritionLabel({ data, servingDescription }: NutritionLa
 
       {/* Serving info */}
       <div style={styles.servingInfo}>
+        {servingsPerContainer !== undefined && servingsPerContainer > 1 && (
+          <div style={styles.servingSizeRow}>
+            <span style={{ fontWeight: 700 }}>Servings Per Container:</span>{' '}
+            {servingsPerContainer}
+          </div>
+        )}
         <div style={styles.servingSizeRow}>
           <span style={{ fontWeight: 700 }}>Serving Size:</span>{' '}
           {servingSizeText}
-        </div>
-        <div style={styles.servingsPerContainerRow}>
-          <span style={{ fontWeight: 700 }}>Servings Per Container:</span>{' '}
-          {data.servings}
         </div>
       </div>
 
@@ -106,7 +110,7 @@ export default function NutritionLabel({ data, servingDescription }: NutritionLa
       {/* Calories */}
       <div style={styles.caloriesRow}>
         <span style={{ fontWeight: 700, fontSize: 13 }}>Calories</span>
-        <span style={{ fontWeight: 900, fontSize: 24 }}>{data.calories}</span>
+        <span style={{ fontWeight: 900, fontSize: 24 }}>{fmt(data.calories)}</span>
       </div>
 
       {/* Thick rule before %DV header */}
@@ -353,7 +357,7 @@ function NutrientRow({ name, value, unit, dv, bold, indent, noDV }: NutrientRowP
         {bold && <span style={{ marginRight: -4 }}>&nbsp;</span>}
         {name}
         {' '}
-        <span style={{ fontWeight: bold ? 700 : 400 }}>{value}{unit}</span>
+        <span style={{ fontWeight: bold ? 700 : 400 }}>{fmt(value)}{unit}</span>
       </span>
       {!noDV && dv !== undefined && (
         <span
@@ -417,10 +421,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   servingSizeRow: {
-    fontSize: 13,
-  },
-
-  servingsPerContainerRow: {
     fontSize: 13,
   },
 
