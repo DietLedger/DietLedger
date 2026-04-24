@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRecipeStore } from '@/lib/recipe-store';
+import { useBookStore } from '@/lib/book-store';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,7 @@ import {
   GripVertical,
   FolderOpen,
   Link2,
+  Tag,
 } from 'lucide-react';
 import Link from 'next/link';
 import { fmt } from '@/lib/format';
@@ -141,6 +143,18 @@ export default function HomePage() {
     moveInstructionToGroup,
   } = useRecipeStore();
 
+  const {
+    categories,
+    recipeCategories,
+    fetchCategories,
+    fetchRecipeCategories,
+    assignCategory,
+    unassignCategory,
+  } = useBookStore();
+
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [categoryDialogRecipeId, setCategoryDialogRecipeId] = useState<string | null>(null);
+
   const [newRecipeName, setNewRecipeName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
@@ -184,7 +198,14 @@ export default function HomePage() {
   useEffect(() => {
     loadApiKey();
     fetchRecipes();
-  }, [loadApiKey, fetchRecipes]);
+    fetchCategories();
+  }, [loadApiKey, fetchRecipes, fetchCategories]);
+
+  useEffect(() => {
+    if (activeRecipe) {
+      fetchRecipeCategories(activeRecipe.id);
+    }
+  }, [activeRecipe?.id, fetchRecipeCategories]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftRef.current = true; };
@@ -449,6 +470,16 @@ export default function HomePage() {
                 <Database className="w-3.5 h-3.5" />Food DB
               </Button>
             </Link>
+            <Link href="/books">
+              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs text-stone-500 hover:text-emerald-700">
+                <BookOpen className="w-3.5 h-3.5" />Books
+              </Button>
+            </Link>
+            <Link href="/categories">
+              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs text-stone-500 hover:text-emerald-700">
+                <Tag className="w-3.5 h-3.5" />Categories
+              </Button>
+            </Link>
             <Badge variant="secondary" className="text-xs gap-1"><HardDrive className="w-3 h-3" />Local Storage</Badge>
             <Badge
               variant={apiKey === 'DEMO_KEY' ? 'outline' : 'secondary'}
@@ -550,6 +581,23 @@ export default function HomePage() {
                             <div className="text-xs text-stone-400 mt-0.5">
                               {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''} · {recipe.servings} {recipe.servingName || 'serving'}
                             </div>
+                            {(() => {
+                              const cats = recipeCategories.get(recipe.id);
+                              if (!cats || cats.length === 0) return null;
+                              return (
+                                <div className="flex gap-1 mt-1 flex-wrap">
+                                  {cats.map((rc) => {
+                                    const cat = categories.find((c) => c.id === rc.categoryId);
+                                    if (!cat) return null;
+                                    return (
+                                      <Badge key={rc.id} variant="outline" className="text-[9px] h-4 px-1 gap-0.5 bg-emerald-50 text-emerald-700 border-emerald-200">
+                                        <Tag className="w-2 h-2" />{cat.name}
+                                      </Badge>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
                           </div>
                           {deleteConfirmId === recipe.id ? (
                             <div className="flex items-center gap-1 ml-2">
@@ -598,7 +646,19 @@ export default function HomePage() {
                         </p>
                       )}
                     </div>
-                    <Dialog open={searchDialogOpen} onOpenChange={(open) => {
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs"
+                        onClick={() => {
+                          setCategoryDialogRecipeId(activeRecipe.id);
+                          setCategoryDialogOpen(true);
+                        }}
+                      >
+                        <Tag className="w-3.5 h-3.5" />Categories
+                      </Button>
+                      <Dialog open={searchDialogOpen} onOpenChange={(open) => {
                       setSearchDialogOpen(open);
                       if (open) {
                         setSelectedFood(null);
@@ -741,6 +801,7 @@ export default function HomePage() {
                         </Tabs>
                       </DialogContent>
                     </Dialog>
+                    </div>
                   </div>
                 </CardHeader>
 
@@ -1038,6 +1099,52 @@ export default function HomePage() {
                 <Check className="w-3.5 h-3.5" />Create Group
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Assignment Dialog */}
+      <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-emerald-600" />Manage Categories
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 mt-2 max-h-[400px] overflow-y-auto">
+            {categories.length === 0 ? (
+              <p className="text-sm text-stone-400 text-center py-4">
+                No categories yet.{' '}
+                <Link href="/categories" className="text-emerald-600 underline" onClick={() => setCategoryDialogOpen(false)}>
+                  Create some
+                </Link>.
+              </p>
+            ) : (
+              categories.map((cat) => {
+                const isAssigned = categoryDialogRecipeId
+                  ? (recipeCategories.get(categoryDialogRecipeId) || []).some((rc) => rc.categoryId === cat.id)
+                  : false;
+                return (
+                  <label
+                    key={cat.id}
+                    className="flex items-center gap-2 p-2 rounded-md hover:bg-stone-50 cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={isAssigned}
+                      onCheckedChange={async (checked) => {
+                        if (!categoryDialogRecipeId) return;
+                        if (checked) {
+                          await assignCategory(categoryDialogRecipeId, cat.id);
+                        } else {
+                          await unassignCategory(categoryDialogRecipeId, cat.id);
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-stone-700">{cat.name}</span>
+                  </label>
+                );
+              })
+            )}
           </div>
         </DialogContent>
       </Dialog>

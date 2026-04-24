@@ -92,3 +92,79 @@ model SeedJob {
   completedAt  DateTime?
   createdAt    DateTime @default(now())
 }
+
+model RecipeBook {
+  id          String    @id @default(cuid())
+  title       String
+  description String    @default("")
+  coverColor  String    @default("#059669")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  chapters    Chapter[]
+
+  @@index([updatedAt])
+}
+
+model Chapter {
+  id             String         @id @default(cuid())
+  bookId         String
+  title          String
+  position       Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  book           RecipeBook     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapterRecipes ChapterRecipe[]
+  chapterPages   ChapterPage[]
+
+  @@index([bookId])
+  @@index([position])
+}
+
+model ChapterRecipe {
+  id        String  @id @default(cuid())
+  chapterId String
+  recipeId  String
+  position  Int     @default(0)
+  chapter   Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([chapterId, recipeId])
+  @@index([chapterId])
+  @@index([recipeId])
+}
+
+model ChapterPage {
+  id        String   @id @default(cuid())
+  chapterId String
+  title     String
+  content   String   @default("")
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@index([chapterId])
+  @@index([position])
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  parentId  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Category[] @relation("CategoryTree")
+
+  @@index([parentId])
+}
+
+model RecipeCategory {
+  id         String   @id @default(cuid())
+  recipeId   String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  @@unique([recipeId, categoryId])
+  @@index([recipeId])
+  @@index([categoryId])
+}

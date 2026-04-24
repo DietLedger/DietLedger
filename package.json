@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "build:static": "next build",
+    "dev": "next dev -p 3000 --webpack",
+    "build": "next build --webpack",
+    "build:static": "next build --webpack",
     "lint": "eslint .",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

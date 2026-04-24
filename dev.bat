@@ -10,22 +10,18 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/3] Installing dependencies...
-if exist bun.lock del bun.lock
-call bun install --no-save
-if %errorlevel% neq 0 (
-    echo ERROR: bun install failed
-    pause
-    exit /b 1
+if not exist node_modules (
+    echo [1/2] Installing dependencies...
+    call bun install
+    if %errorlevel% neq 0 (
+        echo ERROR: bun install failed
+        pause
+        exit /b 1
+    )
+) else (
+    echo [1/2] Dependencies already installed.
 )
 
 echo.
-echo [2/3] Starting Next.js dev server...
-start "NutriLabel Next.js" cmd /c "bun run dev"
-timeout /t 5 /nobreak >nul
-
-echo.
-echo [3/3] Launching Tauri dev window...
-cd src-tauri
-call cargo tauri dev
-cd ..
+echo [2/2] Starting Next.js dev server...
+call bun run dev

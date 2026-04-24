@@ -1,368 +1,192 @@
-# USDA Food Database Seeding + Local-First Search
-
-## Architecture Decision
-
-**Hybrid storage model:**
-- **SQLite** (via Prisma) for the food ingredient database — handles millions of records with indexed search
-- **IndexedDB** (existing) for user recipes — keeps the web version working offline for recipe editing
-- **Next.js API routes** for all food database operations (search, seed, cache)
-- **Tauri** can use the same SQLite database natively via `tauri-plugin-sql`
-
----
-
-## Phase 1: Prisma Schema Extension & Migration
-
-**File: `prisma/schema.prisma`**
-
-Add new models alongside the existing `Recipe` and `Ingredient`:
-
-```prisma
-model FoodItem {
-  id              Int      @id @default(autoincrement())
-  fdcId           Int      @unique
-  description     String
-  dataType        String   // Foundation, SR Legacy, Survey (FNDDS), Branded
-  brandOwner      String?
-  gtinUpc         String?  // UPC/barcode (Branded foods)
-  servingSize     Float    @default(100)
-  servingSizeUnit String   @default("g")
-
-  // FDA Nutrition Label nutrients (per 100g, normalized)
-  calories      Float @default(0)
-  totalFat      Float @default(0)
-  saturatedFat  Float @default(0)
-  transFat      Float @default(0)
-  cholesterol   Float @default(0)
-  sodium        Float @default(0)
-  totalCarbs    Float @default(0)
-  dietaryFiber  Float @default(0)
-  totalSugars   Float @default(0)
-  addedSugars   Float @default(0)
-  protein       Float @default(0)
-  vitaminD      Float @default(0)
-  calcium       Float @default(0)
-  iron          Float @default(0)
-  potassium     Float @default(0)
-
-  source    String   @default("usda") // usda, fda_api, manual
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([description])
-  @@index([dataType])
-  @@index([gtinUpc])
-}
-
-model SeedJob {
-  id           Int      @id @default(autoincrement())
-  dataType     String   // Foundation, SR Legacy, FNDDS, Branded, Full
-  releaseDate  String   // e.g. "2025-12-18"
-  fileName     String
-  recordCount  Int      @default(0)
-  status       String   @default("pending") // pending, downloading, extracting, importing, completed, failed
-  progress     Float    @default(0)
-  error        String?
-  startedAt    DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime @default(now())
-}
-```
-
-**Raw SQL migration** to add FTS5 virtual table for fast text search on `description`:
-
-```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS food_item_fts USING fts5(
-  description,
-  content='FoodItem',
-  content_rowid='id'
-);
-
--- Triggers to keep FTS in sync
-CREATE TRIGGER IF NOT EXISTS food_item_ai AFTER INSERT ON FoodItem BEGIN
-  INSERT INTO food_item_fts(rowid, description) VALUES (new.id, new.description);
-END;
-CREATE TRIGGER IF NOT EXISTS food_item_ad AFTER DELETE ON FoodItem BEGIN
-  INSERT INTO food_item_fts(food_item_fts, rowid, description) VALUES('delete', old.id, old.description);
-END;
-```
-
----
-
-## Phase 2: USDA Download & Import Engine
-
-**New file: `src/lib/usda-import.ts`** — Server-side module for:
-- Downloading USDA zip files via Node.js `fetch` (no CORS issues server-side)
-- Extracting JSON/CSV from zip (using `adm-zip` or Node `zlib`)
-- Streaming parse & normalize food records
-- Batch insert into SQLite via Prisma (chunks of 500-1000 for performance)
-- Nutrient extraction using the same ID mapping already in `fda-client.ts:78-122`
-
-**New file: `src/lib/usda-datasets.ts`** — Dataset configuration:
-
-```typescript
-export const USDA_DATASETS = {
-  foundation: {
-    name: 'Foundation Foods',
-    url: 'https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2025-12-18.zip',
-    releaseDate: '2025-12-18',
-    format: 'json',
-    estimatedSize: '467K zipped / 6.5M',
-    description: 'Analytically derived data on ~400 commodity foods',
-  },
-  srLegacy: {
-    name: 'SR Legacy',
-    url: 'https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip',
-    releaseDate: '2018-04',
-    format: 'json',
-    estimatedSize: '12.3M zipped / 205M',
-    description: 'Historic Standard Reference data (~7,800 foods)',
-  },
-  fndds: {
-    name: 'FNDDS',
-    url: 'https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip',
-    releaseDate: '2024-10-31',
-    format: 'json',
-    estimatedSize: '3.7M zipped / 64M',
-    description: 'Survey foods for dietary studies (~8,600 foods)',
-  },
-  branded: {
-    name: 'Branded Foods',
-    url: 'https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2025-12-18.zip',
-    releaseDate: '2025-12-18',
-    format: 'json',
-    estimatedSize: '195M zipped / 3.1G',
-    description: 'Branded food products (~1.8M products with UPCs)',
-  },
-  full: {
-    name: 'Full Download (All Data Types)',
-    url: 'https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_csv_2025-12-18.zip',
-    releaseDate: '2025-12-18',
-    format: 'csv',
-    estimatedSize: '458M zipped / 3.1G',
-    description: 'All data types combined (CSV format only)',
-  },
-};
-```
-
-**New file: `src/lib/nutrient-map.ts`** — Centralized nutrient ID mapping:
-
-```typescript
-// Maps USDA nutrient IDs to our field names
-// Currently tracks the 15 nutrients on the FDA Nutrition Facts label
-// Designed to be easily extensible if the label changes
-export const NUTRIENT_MAP = {
-  1008: 'calories',
-  1004: 'totalFat',
-  1258: 'saturatedFat',
-  1257: 'transFat',
-  1253: 'cholesterol',
-  1093: 'sodium',
-  1005: 'totalCarbs',
-  1079: 'dietaryFiber',
-  2000: 'totalSugars',
-  1235: 'addedSugars',
-  1003: 'protein',
-  1114: 'vitaminD',
-  1087: 'calcium',
-  1089: 'iron',
-  1092: 'potassium',
-} as const;
-
-export type NutrientField = typeof NUTRIENT_MAP[keyof typeof NUTRIENT_MAP];
-```
-
-This replaces the duplicate `getNutrient()` logic in both `fda-client.ts` and the API route.
-
-**Note on Glycemic Index**: USDA FoodData Central does not include glycemic index data. The field can be added to the schema later if a complementary data source (e.g., University of Sydney GI Database) is integrated.
-
----
-
-## Phase 3: API Routes
-
-### Seed Management
-
-**New file: `src/app/api/foods/seed/route.ts`**
-
-- `GET /api/foods/seed` — Returns current seed status (which datasets loaded, record counts, version info from `SeedJob` table)
-- `POST /api/foods/seed` — Starts a seed job:
-  - Body: `{ dataset: 'foundation' | 'srLegacy' | 'fndds' | 'branded' | 'full' }`
-  - Downloads zip, extracts, parses, imports into SQLite
-  - Returns job ID for progress tracking
-
-**New file: `src/app/api/foods/seed/[jobId]/route.ts`**
-
-- `GET /api/foods/seed/[jobId]` — Polls seed job progress (status, progress %, record count, errors)
-- `DELETE /api/foods/seed/[jobId]` — Cancels an in-progress seed job
-
-**New file: `src/app/api/foods/seed/upload/route.ts`** — Manual upload endpoint
-
-- `POST /api/foods/seed/upload` — Accepts multipart form data with a `.zip` file
-  - Body: `{ file: File, dataType: string }`
-  - Extracts and imports the uploaded file
-  - Same parsing/import pipeline as the download route
-
-### Food Search
-
-**New file: `src/app/api/foods/search/route.ts`** — Local-first food search
-
-- `GET /api/foods/search?query=chicken&limit=25`
-  1. Search SQLite first using FTS5: `SELECT * FROM FoodItem WHERE id IN (SELECT rowid FROM food_item_fts WHERE description MATCH ?)`
-  2. If results found, return `{ foods: [...], source: 'local' }`
-  3. If no results, fall back to FDA API search
-  4. If FDA API results found, **cache them** by inserting into `FoodItem` table with `source: 'fda_api'`
-  5. Return `{ foods: [...], source: 'fda' }`
-
-**New file: `src/app/api/foods/upc/route.ts`** — UPC/barcode lookup
-
-- `GET /api/foods/upc?code=041196020524`
-  - Queries `FoodItem` by `gtinUpc` index
-  - Returns single food item or 404
-
-**New file: `src/app/api/foods/stats/route.ts`** — Database statistics
-
-- `GET /api/foods/stats` — Returns counts by dataType, total records, last seed dates
-
-**New file: `src/app/api/foods/cache/route.ts`** — Cache endpoint
-
-- `POST /api/foods/cache` — Upserts food items from FDA API results into SQLite
-
----
-
-## Phase 4: Search Flow Update
-
-**Modify: `src/lib/fda-client.ts`** — Change from direct FDA API calls to local-first via API routes:
-
-```typescript
-export async function searchFDAFoods(query: string): Promise<FDASearchResponse> {
-  // Step 1: Check local SQLite database first
-  try {
-    const localResponse = await fetch(`/api/foods/search?query=${encodeURIComponent(query)}`);
-    if (localResponse.ok) {
-      const localData = await localResponse.json();
-      if (localData.foods && localData.foods.length > 0) {
-        return { foods: localData.foods, source: localData.source };
-      }
-    }
-  } catch {
-    // Server unavailable (offline mode) - fall through to direct FDA API
-  }
-
-  // Step 2: Fall back to direct FDA API (existing logic)
-  // ... existing code ...
-
-  // Step 3: Cache results back to local DB
-  if (result.source === 'fda') {
-    try {
-      await fetch('/api/foods/cache', {
-        method: 'POST',
-        body: JSON.stringify({ foods: result.foods }),
-      });
-    } catch {
-      // Cache failure is non-critical
-    }
-  }
-}
-```
-
-**Modify: `src/lib/recipe-store.ts`** — Update `searchSource` type to include `'local'`:
-
-```typescript
-searchSource: 'fda' | 'fallback' | 'local' | null;
-```
-
----
-
-## Phase 5: Seed UI (Dedicated Page)
-
-A dedicated `/food-database` page rather than extending the Settings dialog — the seed process involves progress tracking, dataset selection, and stats that are too complex for the existing small settings dialog. A "Food Database" link will be added in settings and header nav.
-
-**New file: `src/app/food-database/page.tsx`**
-
-UI Components:
-
-1. **Dataset Selection Panel** — Cards for each dataset with:
-   - Checkbox to select
-   - Name, description, estimated size, record count
-   - Current status (not imported / imported v2025-12-18 / updating...)
-   - "Seed" button or "Update" button
-
-2. **Seed Progress Panel** — Active job progress:
-   - Progress bar with percentage
-   - Records imported count
-   - Estimated time remaining
-   - Cancel button
-   - Uses polling to `/api/foods/seed/[jobId]`
-
-3. **Manual Upload Panel** — Alternative for CORS-blocked environments:
-   - File input for `.zip` upload
-   - Data type selector
-   - Upload progress bar
-
-4. **Database Statistics Panel**:
-   - Total foods by data type (e.g., Foundation: 400, SR Legacy: 7,800, Branded: 1.8M)
-   - Storage usage
-   - Last updated dates
-   - "Clear Database" button with confirmation
-
-5. **Search Test Panel** — Quick search to verify the database works:
-   - Search input → shows results from local DB with source badge
-
----
-
-## Phase 6: UI Updates to Main Page
-
-**Modify: `src/app/page.tsx`**:
-
-- Update the search dialog to show result source: `Local DB`, `FDA API`, or `Fallback`
-- Add a badge or indicator showing local database status (e.g., "1.8M foods indexed" next to the search)
-- Add nav link to the Food Database management page
-- If searching offline and local DB has data, skip FDA API entirely
-
----
-
-## Phase 7: Tauri Integration (Optional Enhancement)
-
-For the desktop app, bypass the Next.js server entirely:
-
-- **New file: `src-tauri/src/food_db.rs`** — Direct SQLite access via Rust
-- Register Tauri commands for `search_foods`, `seed_database`, `get_seed_status`
-- Client detects Tauri environment and calls Tauri commands instead of API routes
-- This gives native performance for the 1.8M record Branded Foods search
-
----
-
-## File Change Summary
-
-| Action | File | Description |
-|--------|------|-------------|
-| **Modify** | `prisma/schema.prisma` | Add `FoodItem`, `SeedJob` models |
-| **New** | `prisma/migrations/.../migration.sql` | FTS5 virtual table + triggers |
-| **New** | `src/lib/nutrient-map.ts` | Centralized nutrient ID→field mapping |
-| **New** | `src/lib/usda-datasets.ts` | Dataset URLs, sizes, metadata |
-| **New** | `src/lib/usda-import.ts` | Download, extract, parse, import pipeline |
-| **New** | `src/app/api/foods/search/route.ts` | Local-first food search |
-| **New** | `src/app/api/foods/upc/route.ts` | UPC/barcode lookup |
-| **New** | `src/app/api/foods/stats/route.ts` | Database statistics |
-| **New** | `src/app/api/foods/seed/route.ts` | Start seed job |
-| **New** | `src/app/api/foods/seed/[jobId]/route.ts` | Poll seed progress |
-| **New** | `src/app/api/foods/seed/upload/route.ts` | Manual file upload |
-| **New** | `src/app/api/foods/cache/route.ts` | Cache FDA API results |
-| **Modify** | `src/lib/fda-client.ts` | Local-first search flow, use nutrient-map |
-| **Modify** | `src/lib/recipe-store.ts` | Add `'local'` search source |
-| **New** | `src/app/food-database/page.tsx` | Food Database management UI |
-| **Modify** | `src/app/page.tsx` | Source badges, nav link to food DB page |
-| **New** | `src/app/api/foods/route.ts` | Base foods API route |
-
----
-
-## Implementation Order
-
-1. **Schema + Migration** — FoodItem, SeedJob, FTS5 (foundation for everything)
-2. **nutrient-map.ts + usda-datasets.ts** — Shared config modules
-3. **usda-import.ts** — Core import engine
-4. **Seed API routes** — `/api/foods/seed/*`
-5. **Search + Cache API routes** — `/api/foods/search`, `/api/foods/cache`, `/api/foods/upc`, `/api/foods/stats`
-6. **Food Database UI page** — `src/app/food-database/page.tsx`
-7. **Update fda-client.ts + recipe-store.ts** — Local-first search flow
-8. **Update page.tsx** — Source badges, nav link
-9. **Tauri integration** (optional, separate phase)
+# Implementation Plan: Recipe Books, Chapters & Hierarchical Categories
+
+## Overview
+
+Add organizational structure to recipes: Recipe Books (containing ordered Chapters of Recipes) and hierarchical Categories. Data stored in both IndexedDB (client-side, primary) and Prisma/SQLite (server-side).
+
+## Architecture Decisions
+
+- **IndexedDB is primary client store** — Zustand store reads/writes IndexedDB directly (matches existing recipe pattern)
+- **Prisma models mirror the data** — API routes provide server-side CRUD for future server-first mode
+- **Separate Zustand store** — New `book-store.ts` keeps concerns separate from existing `recipe-store.ts`
+- **Shared types in `types.ts`** — Single source of truth for entity interfaces
+
+## Task List
+
+### Phase 1: Foundation (Types, Schema, Storage)
+
+- [ ] **Task 1: Shared TypeScript types + Prisma schema update**
+  - Create `src/lib/types.ts` with RecipeBook, Chapter, ChapterRecipe, Category, RecipeCategory interfaces
+  - Update `prisma/schema.prisma` with new models + relations on existing Recipe model
+  - Run `prisma db push` to apply
+  - Acceptance: Prisma schema compiles, db push succeeds, types file exports all interfaces
+  - Verify: `bunx prisma generate && bunx prisma db push`
+  - Files: `src/lib/types.ts`, `prisma/schema.prisma`
+  - Scope: S
+
+- [ ] **Task 2: IndexedDB schema upgrade + book/chapter storage CRUD**
+  - Bump `DB_VERSION` to 2 in `storage.ts`
+  - Add object stores: `books`, `chapters`, `chapterRecipes` with proper indexes
+  - Add CRUD functions: getAllBooks, getBook, createBook, updateBook, deleteBook
+  - Add CRUD functions: getChaptersByBook, createChapter, updateChapter, deleteChapter
+  - Add functions: addRecipeToChapter, removeRecipeFromChapter, reorderChapterRecipes
+  - Acceptance: All storage functions compile, IndexedDB upgrade creates new stores
+  - Verify: `bun run build`
+  - Files: `src/lib/storage.ts`
+  - Scope: M
+
+- [ ] **Task 3: IndexedDB category storage CRUD**
+  - Add object stores: `categories`, `recipeCategories` with indexes
+  - Add CRUD functions: getAllCategories, getCategory, createCategory, updateCategory, deleteCategory
+  - Add functions: getCategoriesByParent, getCategoryTree (recursive)
+  - Add functions: addCategoryToRecipe, removeCategoryFromRecipe, getRecipeCategories, getRecipesByCategory
+  - Acceptance: All category storage functions compile
+  - Verify: `bun run build`
+  - Files: `src/lib/storage.ts`
+  - Scope: M
+
+### Checkpoint 1: Foundation
+- [ ] `bun run build` succeeds with no errors
+- [ ] Prisma schema is valid
+- [ ] All storage functions typecheck
+
+### Phase 2: API Routes (Server-side CRUD)
+
+- [ ] **Task 4: API routes for books**
+  - `GET /api/books` — list all books with chapter counts
+  - `POST /api/books` — create a book
+  - `GET /api/books/[id]` — get book with chapters and recipe summaries
+  - `PUT /api/books/[id]` — update book title/description
+  - `DELETE /api/books/[id]` — delete book + cascade chapters
+  - Acceptance: All 5 endpoints work with Prisma
+  - Verify: `bun run build`
+  - Files: `src/app/api/books/route.ts`, `src/app/api/books/[id]/route.ts`
+  - Scope: S
+
+- [ ] **Task 5: API routes for chapters + chapter-recipe management**
+  - `POST /api/books/[id]/chapters` — create chapter in book
+  - `PUT /api/books/[id]/chapters/[chapterId]` — update chapter
+  - `DELETE /api/books/[id]/chapters/[chapterId]` — delete chapter
+  - `POST /api/books/[id]/chapters/[chapterId]/recipes` — add recipe to chapter
+  - `DELETE /api/books/[id]/chapters/[chapterId]/recipes?recipeId=X` — remove recipe from chapter
+  - Acceptance: All endpoints work with Prisma, position ordering handled
+  - Verify: `bun run build`
+  - Files: `src/app/api/books/[id]/chapters/route.ts`, `src/app/api/books/[id]/chapters/[chapterId]/route.ts`, `src/app/api/books/[id]/chapters/[chapterId]/recipes/route.ts`
+  - Scope: M
+
+- [ ] **Task 6: API routes for categories**
+  - `GET /api/categories` — list all categories (optionally as tree)
+  - `POST /api/categories` — create category (with optional parentId)
+  - `GET /api/categories/[id]` — get category with children
+  - `PUT /api/categories/[id]` — update category name/parent
+  - `DELETE /api/categories/[id]` — delete category (cascade children)
+  - Acceptance: All endpoints work, hierarchy is maintained
+  - Verify: `bun run build`
+  - Files: `src/app/api/categories/route.ts`, `src/app/api/categories/[id]/route.ts`
+  - Scope: S
+
+### Checkpoint 2: API Routes
+- [ ] `bun run build` succeeds
+- [ ] All API routes compile and handle basic CRUD
+
+### Phase 3: State Management
+
+- [ ] **Task 7: Zustand book store (books + chapters + categories)**
+  - Create `src/lib/book-store.ts` with Zustand store
+  - State: books, activeBook, categories, isLoading, error
+  - Actions for books: fetchBooks, createBook, updateBook, deleteBook
+  - Actions for chapters: addChapter, updateChapter, deleteChapter, reorderChapters
+  - Actions for chapter-recipes: addRecipeToChapter, removeRecipeFromChapter, reorderChapterRecipes
+  - Actions for categories: fetchCategories, createCategory, updateCategory, deleteCategory
+  - Actions for recipe-categories: assignCategory, unassignCategory, getRecipeCategories
+  - Acceptance: Store compiles, all actions wired to IndexedDB storage functions
+  - Verify: `bun run build`
+  - Files: `src/lib/book-store.ts`
+  - Scope: M
+
+### Checkpoint 3: State Management
+- [ ] `bun run build` succeeds
+- [ ] Store exports all needed actions
+
+### Phase 4: UI — Books
+
+- [ ] **Task 8: Books list page (`/books`)**
+  - Grid/list of all books with title, description, chapter count
+  - "Create Book" dialog (title + description)
+  - Click card → navigate to `/books/[id]`
+  - Delete book with confirmation dialog
+  - Empty state when no books exist
+  - Acceptance: User can view, create, and delete books
+  - Verify: `bun run build` + manual check at /books
+  - Files: `src/app/books/page.tsx`
+  - Scope: M
+
+- [ ] **Task 9: Book detail page (`/books/[id]`)**
+  - Book header with title and description
+  - List of chapters, each showing its recipes (by name)
+  - Click recipe → navigate to main recipe editor with recipe selected
+  - Click chapter → expand/collapse to show recipes
+  - "Add Chapter" button
+  - "Edit Book" button → navigate to `/books/[id]/edit`
+  - Acceptance: User can view book structure, chapters, and recipes within
+  - Verify: `bun run build` + manual check
+  - Files: `src/app/books/[id]/page.tsx`
+  - Scope: M
+
+- [ ] **Task 10: Book edit page (`/books/[id]/edit`)**
+  - Edit book title and description inline
+  - Chapter management: add, rename, reorder (drag-and-drop), delete chapters
+  - Recipe management within chapters: add (search/select from existing recipes), remove, reorder
+  - "Add Recipe" dialog showing all existing recipes with search
+  - Acceptance: Full CRUD for chapters and recipe assignments within a book
+  - Verify: `bun run build` + manual check
+  - Files: `src/app/books/[id]/edit/page.tsx`
+  - Scope: L (but contained to single page)
+
+### Phase 5: UI — Categories
+
+- [ ] **Task 11: Category tree component + categories page**
+  - Recursive tree component rendering categories with expand/collapse
+  - `/categories` page with: tree view, "Create Category" dialog, inline rename, delete with confirmation
+  - Creating a category accepts optional parent (select from existing)
+  - Acceptance: User can create, rename, delete, and nest categories
+  - Verify: `bun run build` + manual check at /categories
+  - Files: `src/app/categories/page.tsx`, `src/components/category-tree.tsx`
+  - Scope: M
+
+- [ ] **Task 12: Category badges in recipe editor + category assignment dialog**
+  - Add category badges to the recipe card in the main recipe editor (`page.tsx`)
+  - "Manage Categories" dialog on each recipe: checkbox tree of categories, save assignments
+  - Clicking a category badge filters recipes by that category
+  - Acceptance: Recipes show their categories, user can assign/unassign categories
+  - Verify: `bun run build` + manual check
+  - Files: `src/app/page.tsx`
+  - Scope: M
+
+### Phase 6: Navigation & Polish
+
+- [ ] **Task 13: Navigation links**
+  - Add "Books" and "Categories" links to the main page header/navigation
+  - Add back navigation from book/category pages to main page
+  - Acceptance: All pages are navigable from each other
+  - Verify: `bun run build` + manual navigation test
+  - Files: `src/app/page.tsx`, `src/app/books/page.tsx`, `src/app/books/[id]/page.tsx`, `src/app/categories/page.tsx`
+  - Scope: S
+
+### Checkpoint 4: Complete
+- [ ] All acceptance criteria from spec met
+- [ ] `bun run build` succeeds
+- [ ] Full flow works: create book → add chapters → add recipes → create categories → assign categories
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| IndexedDB version upgrade clears existing data | High | Handle upgrade gracefully, don't delete existing 'recipes' store |
+| Drag-and-drop reordering complexity | Medium | Use existing @dnd-kit pattern from recipe editor |
+| Recursive category tree performance | Low | Categories are user-created (small dataset), no optimization needed |
+| Prisma SQLite cascade deletes | Medium | Test delete behavior, SQLite supports cascade since 3.x |
+
+## Open Questions
+
+_None._
