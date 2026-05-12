@@ -9,36 +9,62 @@ const FDA_API_KEY = process.env.FDA_API_KEY || 'DEMO_KEY';
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get('query');
-  const limit = parseInt(searchParams.get('limit') || '25');
+  const limit = parseInt(searchParams.get('limit') || '200');
 
   if (!query) {
     return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 });
   }
 
   try {
-    const escapedQuery = query
-      .replace(/"/g, '""')
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((term) => `"${term}"*`)
-      .join(' ');
+    try {
+      const escapedQuery = query
+        .replace(/"/g, '""')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((term) => `"${term}"*`)
+        .join(' ');
 
-    const ftsResults = await db.$queryRaw<Array<{ rowid: number }>>`
-      SELECT rowid FROM food_item_fts WHERE description MATCH ${escapedQuery} LIMIT ${limit}
-    `;
+      const ftsResults = await db.$queryRaw<Array<{ rowid: number }>>`
+        SELECT rowid FROM food_item_fts WHERE description MATCH ${escapedQuery} LIMIT ${limit}
+      `;
 
-    if (ftsResults.length > 0) {
-      const ids = ftsResults.map((r) => r.rowid);
+      if (ftsResults.length > 0) {
+        const ids = ftsResults.map((r) => r.rowid);
+        const foods = await db.foodItem.findMany({
+          where: { id: { in: ids } },
+          take: limit,
+        });
+
+        return NextResponse.json({
+          foods: foods.map(formatFoodItem),
+          source: 'local',
+          totalHits: foods.length,
+        });
+      }
+    } catch {
+      // FTS table missing or query failed — fall through to LIKE fallback
+    }
+
+    try {
       const foods = await db.foodItem.findMany({
-        where: { id: { in: ids } },
+        where: {
+          description: {
+            contains: query,
+          },
+        },
         take: limit,
+        orderBy: { dataType: 'asc' },
       });
 
-      return NextResponse.json({
-        foods: foods.map(formatFoodItem),
-        source: 'local',
-        totalHits: foods.length,
-      });
+      if (foods.length > 0) {
+        return NextResponse.json({
+          foods: foods.map(formatFoodItem),
+          source: 'local',
+          totalHits: foods.length,
+        });
+      }
+    } catch {
+      // Direct query failed — fall through to FDA API
     }
 
     try {
@@ -62,7 +88,7 @@ export async function GET(request: NextRequest) {
           (food: Record<string, unknown>) => normalizeAPIFood(food)
         );
 
-        cacheResults(foods).catch(() => {});
+        await cacheResults(foods);
 
         return NextResponse.json({
           foods,

@@ -14,6 +14,7 @@ export async function GET() {
         lastImported: latestJob?.completedAt?.toISOString() || null,
         recordCount: latestJob?.recordCount || 0,
         status: latestJob ? 'imported' : 'not_imported',
+        format: ds.format,
       };
     });
     return NextResponse.json({ datasets: datasetStatus, recentJobs: jobs.slice(0, 10) });

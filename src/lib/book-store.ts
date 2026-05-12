@@ -90,7 +90,7 @@ interface BookState {
   deleteBook: (id: string) => Promise<void>;
 
   addChapter: (bookId: string, title: string) => Promise<ChapterRecord>;
-  updateChapter: (id: string, data: { title?: string; position?: number }) => Promise<void>;
+  updateChapter: (id: string, data: { title?: string; position?: number; pageTemplateId?: string | null; recipeTemplateId?: string | null }) => Promise<void>;
   deleteChapter: (id: string) => Promise<void>;
   reorderChapters: (bookId: string, chapterIds: string[]) => Promise<void>;
 

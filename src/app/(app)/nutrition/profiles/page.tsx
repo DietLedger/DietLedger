@@ -1,0 +1,415 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useNutritionStore } from '@/lib/nutrition-store';
+import { ProfileCard } from '@/components/nutrition/profile-card';
+import { getLatestWeight } from '@/lib/storage';
+import { WeightEntryRecord, NutritionProfileRecord, ActivityLevel } from '@/lib/storage';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useUnitSystem, lbsToKg, kgToLbs, inchesToCm, cmToInches, cmToFtIn, ftInToCm, weightUnit, weightPlaceholder } from '@/hooks/use-unit-system';
+import { Plus } from 'lucide-react';
+import Link from 'next/link';
+
+const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string }[] = [
+  { value: 'sedentary', label: 'Sedentary' },
+  { value: 'light', label: 'Lightly Active' },
+  { value: 'moderate', label: 'Moderately Active' },
+  { value: 'active', label: 'Active' },
+  { value: 'veryActive', label: 'Very Active' },
+];
+
+interface WeightCache {
+  [profileId: string]: WeightEntryRecord | undefined;
+}
+
+export default function ProfilesPage() {
+  const { profiles, fetchProfiles, createProfile, updateProfile, deleteProfile, logWeight } = useNutritionStore();
+  const { system } = useUnitSystem();
+  const [weightCache, setWeightCache] = useState<WeightCache>({});
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [weightDialogOpen, setWeightDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<NutritionProfileRecord | null>(null);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
+  const [weightProfileId, setWeightProfileId] = useState<string | null>(null);
+
+  const [formName, setFormName] = useState('');
+  const [formSex, setFormSex] = useState<'male' | 'female'>('male');
+  const [formBirthDate, setFormBirthDate] = useState('');
+  const [formHeightCm, setFormHeightCm] = useState<number | null>(null);
+  const [formHeightFt, setFormHeightFt] = useState('');
+  const [formHeightIn, setFormHeightIn] = useState('');
+  const [formActivityLevel, setFormActivityLevel] = useState<ActivityLevel>('moderate');
+  const [formGoalWeightKg, setFormGoalWeightKg] = useState<number | null>(null);
+  const [formGoalWeightDisplay, setFormGoalWeightDisplay] = useState('');
+  const [formGoalDate, setFormGoalDate] = useState('');
+  const [formWeightKg, setFormWeightKg] = useState<number | null>(null);
+  const [formWeightDisplay, setFormWeightDisplay] = useState('');
+  const [formWeightDate, setFormWeightDate] = useState('');
+  const [formWeightNotes, setFormWeightNotes] = useState('');
+
+  useEffect(() => {
+    fetchProfiles();
+  }, [fetchProfiles]);
+
+  useEffect(() => {
+    async function loadWeights() {
+      const entries = await Promise.all(profiles.map(async (p) => [p.id, await getLatestWeight(p.id)] as const));
+      const cache: WeightCache = {};
+      for (const [id, weight] of entries) {
+        cache[id] = weight;
+      }
+      setWeightCache(cache);
+    }
+    if (profiles.length > 0) loadWeights();
+  }, [profiles]);
+
+  const openCreateDialog = useCallback(() => {
+    setEditingProfile(null);
+    setFormName('');
+    setFormSex('male');
+    setFormBirthDate('');
+    setFormHeightCm(null);
+    setFormHeightFt('');
+    setFormHeightIn('');
+    setFormActivityLevel('moderate');
+    setFormGoalWeightKg(null);
+    setFormGoalWeightDisplay('');
+    setFormGoalDate('');
+    setProfileDialogOpen(true);
+  }, []);
+
+  const openEditDialog = useCallback((profile: NutritionProfileRecord) => {
+    setEditingProfile(profile);
+    setFormName(profile.name);
+    setFormSex(profile.sex);
+    setFormBirthDate(profile.birthDate ?? '');
+    setFormActivityLevel(profile.activityLevel);
+    setFormGoalDate(profile.goalDate ?? '');
+
+    if (profile.heightCm) {
+      setFormHeightCm(profile.heightCm);
+      const { ft, inches } = cmToFtIn(profile.heightCm);
+      setFormHeightFt(String(ft));
+      setFormHeightIn(String(inches));
+    } else {
+      setFormHeightCm(null);
+      setFormHeightFt('');
+      setFormHeightIn('');
+    }
+
+    if (profile.goalWeightKg) {
+      setFormGoalWeightKg(profile.goalWeightKg);
+      setFormGoalWeightDisplay(system === 'imperial' ? kgToLbs(profile.goalWeightKg).toFixed(1) : profile.goalWeightKg.toFixed(1));
+    } else {
+      setFormGoalWeightKg(null);
+      setFormGoalWeightDisplay('');
+    }
+
+    setProfileDialogOpen(true);
+  }, [system]);
+
+  const openWeightDialog = useCallback((profileId: string) => {
+    setWeightProfileId(profileId);
+    setFormWeightKg(null);
+    setFormWeightDisplay('');
+    setFormWeightDate(new Date().toISOString().split('T')[0]);
+    setFormWeightNotes('');
+    setWeightDialogOpen(true);
+  }, []);
+
+  const handleHeightFtInChange = useCallback((ft: string, inches: string) => {
+    setFormHeightFt(ft);
+    setFormHeightIn(inches);
+    const ftNum = parseFloat(ft);
+    const inNum = parseFloat(inches);
+    if (!isNaN(ftNum) || !isNaN(inNum)) {
+      setFormHeightCm(ftInToCm(ftNum || 0, inNum || 0));
+    } else {
+      setFormHeightCm(null);
+    }
+  }, []);
+
+  const handleHeightCmChange = useCallback((val: string) => {
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setFormHeightCm(num);
+      const { ft, inches } = cmToFtIn(num);
+      setFormHeightFt(String(ft));
+      setFormHeightIn(String(inches));
+    } else {
+      setFormHeightCm(null);
+      setFormHeightFt('');
+      setFormHeightIn('');
+    }
+  }, []);
+
+  const handleGoalWeightDisplayChange = useCallback((val: string) => {
+    setFormGoalWeightDisplay(val);
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setFormGoalWeightKg(system === 'imperial' ? lbsToKg(num) : num);
+    } else {
+      setFormGoalWeightKg(null);
+    }
+  }, [system]);
+
+  const handleWeightDisplayChange = useCallback((val: string) => {
+    setFormWeightDisplay(val);
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setFormWeightKg(system === 'imperial' ? lbsToKg(num) : num);
+    } else {
+      setFormWeightKg(null);
+    }
+  }, [system]);
+
+  const handleSaveProfile = useCallback(async () => {
+    if (!formName.trim()) return;
+    const data = {
+      name: formName.trim(),
+      sex: formSex,
+      birthDate: formBirthDate || null,
+      heightCm: formHeightCm,
+      activityLevel: formActivityLevel,
+      goalWeightKg: formGoalWeightKg,
+      goalDate: formGoalDate || null,
+    };
+    if (editingProfile) {
+      await updateProfile(editingProfile.id, data);
+    } else {
+      await createProfile(data);
+    }
+    setProfileDialogOpen(false);
+  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, editingProfile, createProfile, updateProfile]);
+
+  const handleSaveWeight = useCallback(async () => {
+    if (!weightProfileId || formWeightKg === null) return;
+    await logWeight({
+      profileId: weightProfileId,
+      date: formWeightDate || new Date().toISOString().split('T')[0],
+      weightKg: formWeightKg,
+      notes: formWeightNotes || null,
+      lastSyncedAt: null,
+    });
+    setWeightDialogOpen(false);
+    const updated = await getLatestWeight(weightProfileId);
+    setWeightCache(prev => ({ ...prev, [weightProfileId]: updated }));
+  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, logWeight]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deletingProfileId) return;
+    await deleteProfile(deletingProfileId);
+    setDeleteDialogOpen(false);
+    setDeletingProfileId(null);
+  }, [deletingProfileId, deleteProfile]);
+
+  return (
+    <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold">People</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage nutrition profiles for you and your family.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/nutrition">Back to Dashboard</Link>
+          </Button>
+          <Button size="sm" onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add Person
+          </Button>
+        </div>
+      </div>
+
+      {profiles.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-lg mb-2">No profiles yet</p>
+          <p className="text-sm mb-4">Create a profile to start tracking nutrition.</p>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add Person
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {profiles.map((profile, index) => (
+            <ProfileCard
+              key={profile.id}
+              profile={profile}
+              latestWeight={weightCache[profile.id]}
+              index={index}
+              onEdit={() => openEditDialog(profile)}
+              onDelete={() => { setDeletingProfileId(profile.id); setDeleteDialogOpen(true); }}
+              onLogWeight={() => openWeightDialog(profile.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingProfile ? 'Edit Profile' : 'Add Person'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Enter name" />
+            </div>
+            <div>
+              <Label>Sex</Label>
+              <Select value={formSex} onValueChange={(v) => setFormSex(v as 'male' | 'female')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Birth Date</Label>
+              <Input type="date" value={formBirthDate} onChange={(e) => setFormBirthDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Height{system === 'metric' ? ' (cm)' : ''}</Label>
+              {system === 'metric' ? (
+                <Input
+                  type="number"
+                  value={formHeightCm ?? ''}
+                  onChange={(e) => handleHeightCmChange(e.target.value)}
+                  placeholder="175"
+                />
+              ) : (
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      type="number"
+                      value={formHeightFt}
+                      onChange={(e) => handleHeightFtInChange(e.target.value, formHeightIn)}
+                      placeholder="5"
+                    />
+                  </div>
+                  <span className="text-muted-foreground self-center text-sm">ft</span>
+                  <div className="flex-1">
+                    <Input
+                      type="number"
+                      value={formHeightIn}
+                      onChange={(e) => handleHeightFtInChange(formHeightFt, e.target.value)}
+                      placeholder="9"
+                      min="0"
+                      max="11"
+                    />
+                  </div>
+                  <span className="text-muted-foreground self-center text-sm">in</span>
+                </div>
+              )}
+            </div>
+            <div>
+              <Label>Activity Level</Label>
+              <Select value={formActivityLevel} onValueChange={(v) => setFormActivityLevel(v as ActivityLevel)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Goal Weight ({weightUnit(system)})</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={formGoalWeightDisplay}
+                onChange={(e) => handleGoalWeightDisplayChange(e.target.value)}
+                placeholder={weightPlaceholder(system)}
+              />
+            </div>
+            <div>
+              <Label>Goal Date</Label>
+              <Input type="date" value={formGoalDate} onChange={(e) => setFormGoalDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveProfile}>{editingProfile ? 'Save' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={weightDialogOpen} onOpenChange={setWeightDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Log Weight</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Date</Label>
+              <Input type="date" value={formWeightDate} onChange={(e) => setFormWeightDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Weight ({weightUnit(system)})</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={formWeightDisplay}
+                onChange={(e) => handleWeightDisplayChange(e.target.value)}
+                placeholder={weightPlaceholder(system)}
+              />
+            </div>
+            <div>
+              <Label>Notes (optional)</Label>
+              <Input value={formWeightNotes} onChange={(e) => setFormWeightNotes(e.target.value)} placeholder="Optional notes" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWeightDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveWeight}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Profile?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this profile and all associated food logs and weight entries. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeletingProfileId(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </main>
+  );
+}

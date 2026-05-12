@@ -22,10 +22,12 @@ echo.
 
 call :ensure_dir "%BUILDS_DIR%\windows"
 call :ensure_dir "%BUILDS_DIR%\linux"
+call :ensure_dir "%BUILDS_DIR%\macos"
 call :ensure_dir "%BUILDS_DIR%\android"
 call :ensure_dir "%BUILDS_DIR%\ios"
+call :ensure_dir "%BUILDS_DIR%\server"
 
-echo [1/2] Installing dependencies...
+echo [1/3] Installing dependencies...
 call bun install
 if %errorlevel% neq 0 (
     echo ERROR: bun install failed
@@ -77,6 +79,31 @@ if %errorlevel% equ 0 (
     echo. > "%BUILDS_DIR%\linux\_skipped\readme.txt"
     echo Linux build skipped - cross-compilation not available on this host. > "%BUILDS_DIR%\linux\_skipped\readme.txt"
     echo Build on a Linux machine or use Docker with: docker run -v %%cd%%:/app -w /app ghcr.io/nicehash/tauri-build bash build-all.sh >> "%BUILDS_DIR%\linux\_skipped\readme.txt"
+)
+cd "%BASE_DIR%"
+echo.
+
+echo ========================================
+echo  Building for macOS (Tauri cross-compile)
+echo ========================================
+
+echo NOTE: macOS builds require an Apple developer environment or cross-compilation toolchain.
+echo Building DMG and APP targets...
+
+cd "%BASE_DIR%src-tauri"
+call cargo tauri build --bundles dmg,app --target aarch64-apple-darwin 2>nul
+if %errorlevel% equ 0 (
+    echo Copying macOS artifacts...
+    for /f "delims=" %%f in ('dir /b /s "%BASE_DIR%src-tauri\target\aarch64-apple-darwin\release\bundle\*" 2^>nul') do (
+        copy /y "%%f" "%BUILDS_DIR%\macos\" >nul
+    )
+) else (
+    echo WARNING: macOS cross-compile failed. This is expected on Windows.
+    echo   To build for macOS, run build-all.sh on a macOS machine.
+    call :ensure_dir "%BUILDS_DIR%\macos\_skipped"
+    echo. > "%BUILDS_DIR%\macos\_skipped\readme.txt"
+    echo macOS build skipped - cross-compilation not available on this host. > "%BUILDS_DIR%\macos\_skipped\readme.txt"
+    echo Build on a macOS machine using: bash build-all.sh >> "%BUILDS_DIR%\macos\_skipped\readme.txt"
 )
 cd "%BASE_DIR%"
 echo.
@@ -144,17 +171,57 @@ powershell -Command "(Get-Content next.config.ts) -replace 'output: \"export\"',
 echo.
 
 echo ========================================
+echo  Building for Self-Hosted Server
+echo ========================================
+
+cd "%BASE_DIR%"
+
+echo [2/3] Enabling standalone output for server build...
+powershell -Command "(Get-Content next.config.ts) -replace '// output: \"standalone\"', 'output: \"standalone\"' -replace '// output:', 'output:' | Where-Object { $_ -notmatch 'output: \"export\"' } | Set-Content next.config.ts.bak"
+powershell -Command "$c = Get-Content next.config.ts -Raw; $c = $c -replace '(?m)^\s*// output: \"standalone\"', '  output: \"standalone\"'; $c = $c -replace '(?m)^\s*output: \"export\"', '  // output: \"export\"'; Set-Content next.config.ts $c"
+
+echo [3/3] Building Next.js standalone server...
+call bun run build
+if %errorlevel% neq 0 (
+    echo ERROR: Standalone server build failed
+    powershell -Command "$c = Get-Content next.config.ts -Raw; $c = $c -replace '(?m)^\s*output: \"standalone\"', '  // output: \"standalone\"'; Set-Content next.config.ts $c"
+    pause
+    exit /b 1
+)
+
+echo Assembling server bundle...
+if not exist "%BUILDS_DIR%\server" mkdir "%BUILDS_DIR%\server"
+xcopy /e /i /y /q "%BASE_DIR%.next\standalone" "%BUILDS_DIR%\server" >nul 2>nul
+if exist "%BASE_DIR%.next\static" (
+    if not exist "%BUILDS_DIR%\server\.next\static" mkdir "%BUILDS_DIR%\server\.next\static"
+    xcopy /e /i /y /q "%BASE_DIR%.next\static" "%BUILDS_DIR%\server\.next\static" >nul
+)
+if exist "%BASE_DIR%public" (
+    xcopy /e /i /y /q "%BASE_DIR%public" "%BUILDS_DIR%\server\public" >nul
+)
+copy /y "%BASE_DIR%server.js" "%BUILDS_DIR%\server\server.js" >nul
+copy /y "%BASE_DIR%package.json" "%BUILDS_DIR%\server\package.json" >nul
+
+echo Restoring next.config.ts...
+powershell -Command "$c = Get-Content next.config.ts -Raw; $c = $c -replace '(?m)^\s*output: \"standalone\"', '  // output: \"standalone\"'; Set-Content next.config.ts $c"
+echo.
+
+echo ========================================
 echo  Build Complete!
 echo ========================================
 echo.
 echo Outputs:
 echo   Windows: %BUILDS_DIR%\windows\
 echo   Linux:   %BUILDS_DIR%\linux\
+echo   macOS:   %BUILDS_DIR%\macos\
 echo   Android: %BUILDS_DIR%\android\
 echo   iOS:     %BUILDS_DIR%\ios\
+echo   Server:  %BUILDS_DIR%\server\
 echo.
 echo NOTE: Android - Open %BUILDS_DIR%\android in Android Studio to build APK/AAB
 echo NOTE: iOS     - Open %BUILDS_DIR%\ios in Xcode to build IPA
+echo NOTE: Server  - Deploy builds/server/ to your host, run: node server.js
+echo NOTE: Docker  - Run: docker-compose up --build
 echo.
 
 pause

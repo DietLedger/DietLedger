@@ -56,7 +56,7 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
       api_key: apiKey,
       query: query,
       dataType: ['Foundation', 'SR Legacy', 'Branded'].join(','),
-      pageSize: '25',
+      pageSize: '200',
       pageNumber: '1',
       sortBy: 'dataType',
       sortOrder: 'asc',
@@ -134,11 +134,13 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
     );
 
     if (foods.length > 0) {
-      fetch('/api/foods/cache', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ foods }),
-      }).catch(() => {});
+      try {
+        await fetch('/api/foods/cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ foods }),
+        });
+      } catch {}
     }
 
     return { foods, source: 'fda' };

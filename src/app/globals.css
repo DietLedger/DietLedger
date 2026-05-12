@@ -120,3 +120,10 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  .nutrient-row-highlight {
+    background: transparent !important;
+    color: #000 !important;
+  }
+}

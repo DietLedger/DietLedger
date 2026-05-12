@@ -30,6 +30,8 @@ interface IngredientRecord {
   potassium: number;
   groupId: string | null;
   linkedRecipeId: string | null;
+  prepInstructions: string[];
+  storageLocation?: string;
 }
 
 interface RecipeRecord {
@@ -42,6 +44,7 @@ interface RecipeRecord {
   createdAt: string;
   updatedAt: string;
   ingredients: IngredientRecord[];
+  leftoverStorage?: string;
 }
 
 interface BookRecord {
@@ -60,6 +63,8 @@ interface ChapterRecord {
   position: number;
   createdAt: string;
   updatedAt: string;
+  pageTemplateId?: string;
+  recipeTemplateId?: string;
 }
 
 interface ChapterRecipeRecord {
@@ -99,6 +104,187 @@ interface BookPageRecord {
   title: string;
   content: string;
   position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TemplateSectionStyle {
+  fontSize?: number;
+  fontWeight?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  color?: string;
+  showStepNumbers?: boolean;
+  groupAsTabs?: boolean;
+}
+
+interface TemplateSectionRecord {
+  id: string;
+  type: 'title' | 'ingredients' | 'instructions' | 'nutrition-label' | 'nutrition-summary' | 'servings-info' | 'image' | 'notes' | 'divider' | 'column-divider' | 'chapter-title' | 'page-content' | 'page-number' | 'custom-text';
+  visible: boolean;
+  order: number;
+  column: 1 | 2;
+  style: TemplateSectionStyle;
+}
+
+interface TemplateThemeRecord {
+  primaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  accentColor: string;
+  fontFamily: string;
+  borderRadius: number;
+}
+
+interface TemplateLayoutRecord {
+  pageSize: 'card' | 'a4' | 'letter' | 'custom';
+  orientation: 'portrait' | 'landscape';
+  margins: { top: number; right: number; bottom: number; left: number };
+  sections: TemplateSectionRecord[];
+  theme: TemplateThemeRecord;
+}
+
+interface TemplateRecord {
+  id: string;
+  name: string;
+  type: 'recipe' | 'book-page' | 'book-recipe';
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  layout: TemplateLayoutRecord;
+}
+
+type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+
+interface MealPlanRecord {
+  id: string;
+  name: string;
+  weekStart: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface DayPlanEntryRecord {
+  id: string;
+  mealPlanId: string;
+  date: string;
+  slot: DaySlot;
+  recipeId: string;
+  position: number;
+  groupId: string | null;
+  servings: number;
+  isLeftover: boolean;
+}
+
+interface MealGroupRecord {
+  id: string;
+  mealPlanId: string;
+  date: string;
+  slot: DaySlot;
+  name: string;
+  position: number;
+}
+
+interface GroceryChecklistRecord {
+  id: string;
+  weekStart: string;
+  checkedItems: string[];
+  updatedAt: string;
+}
+
+interface SeasonalFoodsRecord {
+  id: string;
+  country: string;
+  region: string;
+  month: number;
+  foods: string[];
+}
+
+interface PantryStapleRecord {
+  id: string;
+  name: string;
+}
+
+interface UserLocationRecord {
+  id: string;
+  country: string;
+  region: string;
+  updatedAt: string;
+}
+
+interface CustomFoodRecord {
+  id: string;
+  name: string;
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+  createdAt: string;
+}
+
+type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
+type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'snack';
+type FoodSourceType = 'recipe' | 'customFood' | 'manual';
+
+interface NutritionProfileRecord {
+  id: string;
+  name: string;
+  sex: 'male' | 'female';
+  birthDate: string | null;
+  heightCm: number | null;
+  activityLevel: ActivityLevel;
+  goalWeightKg: number | null;
+  goalDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface FoodLogEntryRecord {
+  id: string;
+  profileId: string;
+  date: string;
+  mealSlot: MealSlot;
+  sourceType: FoodSourceType;
+  sourceId: string | null;
+  name: string;
+  servings: number;
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface WeightEntryRecord {
+  id: string;
+  profileId: string;
+  date: string;
+  weightKg: number;
+  notes: string | null;
+  lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,10 +330,81 @@ interface NutriLabelDB extends DBSchema {
     value: BookPageRecord;
     indexes: { 'by-bookId': string };
   };
+  templates: {
+    key: string;
+    value: TemplateRecord;
+    indexes: { 'by-type': string };
+  };
+  mealPlans: {
+    key: string;
+    value: MealPlanRecord;
+    indexes: { 'by-weekStart': string };
+  };
+  dayPlanEntries: {
+    key: string;
+    value: DayPlanEntryRecord;
+    indexes: {
+      'by-mealPlanId': string;
+      'by-date': string;
+    };
+  };
+  mealGroups: {
+    key: string;
+    value: MealGroupRecord;
+    indexes: { 'by-mealPlanId': string };
+  };
+  groceryChecklists: {
+    key: string;
+    value: GroceryChecklistRecord;
+    indexes: { 'by-weekStart': string };
+  };
+  seasonalFoods: {
+    key: string;
+    value: SeasonalFoodsRecord;
+    indexes: { 'by-country-region-month': [string, string, number] };
+  };
+  pantryStaples: {
+    key: string;
+    value: PantryStapleRecord;
+    indexes: { 'by-name': string };
+  };
+  userLocation: {
+    key: string;
+    value: UserLocationRecord;
+  };
+  customFoods: {
+    key: string;
+    value: CustomFoodRecord;
+    indexes: { 'by-name': string };
+  };
+  nutritionProfiles: {
+    key: string;
+    value: NutritionProfileRecord;
+    indexes: { 'by-updatedAt': string };
+  };
+  foodLogEntries: {
+    key: string;
+    value: FoodLogEntryRecord;
+    indexes: {
+      'by-profileId': string;
+      'by-date': string;
+      'by-profileId-date': [string, string];
+      'by-sourceType-sourceId': [string, string];
+    };
+  };
+  weightEntries: {
+    key: string;
+    value: WeightEntryRecord;
+    indexes: {
+      'by-profileId': string;
+      'by-date': string;
+      'by-profileId-date': [string, string];
+    };
+  };
 }
 
 const DB_NAME = 'nutrilabel-db';
-const DB_VERSION = 4;
+const DB_VERSION = 9;
 
 let dbPromise: Promise<IDBPDatabase<NutriLabelDB>> | null = null;
 
@@ -185,6 +442,52 @@ function getDB(): Promise<IDBPDatabase<NutriLabelDB>> {
           const bookPageStore = db.createObjectStore('bookPages', { keyPath: 'id' });
           bookPageStore.createIndex('by-bookId', 'bookId');
         }
+        if (oldVersion < 5) {
+          const templateStore = db.createObjectStore('templates', { keyPath: 'id' });
+          templateStore.createIndex('by-type', 'type');
+        }
+        if (oldVersion < 6) {
+          const mealPlanStore = db.createObjectStore('mealPlans', { keyPath: 'id' });
+          mealPlanStore.createIndex('by-weekStart', 'weekStart');
+
+          const dayPlanEntryStore = db.createObjectStore('dayPlanEntries', { keyPath: 'id' });
+          dayPlanEntryStore.createIndex('by-mealPlanId', 'mealPlanId');
+          dayPlanEntryStore.createIndex('by-date', 'date');
+
+          const mealGroupStore = db.createObjectStore('mealGroups', { keyPath: 'id' });
+          mealGroupStore.createIndex('by-mealPlanId', 'mealPlanId');
+
+          const groceryChecklistStore = db.createObjectStore('groceryChecklists', { keyPath: 'id' });
+          groceryChecklistStore.createIndex('by-weekStart', 'weekStart');
+        }
+        if (oldVersion < 7) {
+          const seasonalFoodsStore = db.createObjectStore('seasonalFoods', { keyPath: 'id' });
+          seasonalFoodsStore.createIndex('by-country-region-month', ['country', 'region', 'month']);
+
+          const pantryStaplesStore = db.createObjectStore('pantryStaples', { keyPath: 'id' });
+          pantryStaplesStore.createIndex('by-name', 'name');
+
+          db.createObjectStore('userLocation', { keyPath: 'id' });
+        }
+        if (oldVersion < 8) {
+          const customFoodsStore = db.createObjectStore('customFoods', { keyPath: 'id' });
+          customFoodsStore.createIndex('by-name', 'name');
+        }
+        if (oldVersion < 9) {
+          const profileStore = db.createObjectStore('nutritionProfiles', { keyPath: 'id' });
+          profileStore.createIndex('by-updatedAt', 'updatedAt');
+
+          const foodLogStore = db.createObjectStore('foodLogEntries', { keyPath: 'id' });
+          foodLogStore.createIndex('by-profileId', 'profileId');
+          foodLogStore.createIndex('by-date', 'date');
+          foodLogStore.createIndex('by-profileId-date', ['profileId', 'date']);
+          foodLogStore.createIndex('by-sourceType-sourceId', ['sourceType', 'sourceId']);
+
+          const weightStore = db.createObjectStore('weightEntries', { keyPath: 'id' });
+          weightStore.createIndex('by-profileId', 'profileId');
+          weightStore.createIndex('by-date', 'date');
+          weightStore.createIndex('by-profileId-date', ['profileId', 'date']);
+        }
       },
     });
   }
@@ -213,6 +516,7 @@ function migrateRecipe(recipe: RecipeRecord): void {
   for (const ing of recipe.ingredients) {
     if (ing.groupId === undefined) ing.groupId = null;
     if (ing.linkedRecipeId === undefined) ing.linkedRecipeId = null;
+    if (ing.prepInstructions === undefined) ing.prepInstructions = [];
   }
 }
 
@@ -236,7 +540,7 @@ export async function createRecipe(name: string): Promise<RecipeRecord> {
 
 export async function updateRecipe(
   id: string,
-  data: { name?: string; servings?: number; servingName?: string; instructions?: string; ingredients?: IngredientRecord[]; ingredientGroups?: IngredientGroup[] }
+  data: { name?: string; servings?: number; servingName?: string; instructions?: string; ingredients?: IngredientRecord[]; ingredientGroups?: IngredientGroup[]; leftoverStorage?: string }
 ): Promise<RecipeRecord> {
   const db = await getDB();
   const recipe = await db.get('recipes', id);
@@ -248,6 +552,7 @@ export async function updateRecipe(
   if (data.instructions !== undefined) recipe.instructions = data.instructions;
   if (data.ingredients !== undefined) recipe.ingredients = data.ingredients;
   if (data.ingredientGroups !== undefined) recipe.ingredientGroups = data.ingredientGroups;
+  if (data.leftoverStorage !== undefined) recipe.leftoverStorage = data.leftoverStorage;
   recipe.updatedAt = new Date().toISOString();
 
   await db.put('recipes', recipe);
@@ -299,7 +604,7 @@ export async function removeIngredient(
 export async function updateIngredient(
   recipeId: string,
   ingredientId: string,
-  data: { description?: string; amount?: number; unit?: string; calories?: number; totalFat?: number; saturatedFat?: number; transFat?: number; cholesterol?: number; sodium?: number; totalCarbs?: number; dietaryFiber?: number; totalSugars?: number; addedSugars?: number; protein?: number; vitaminD?: number; calcium?: number; iron?: number; potassium?: number }
+  data: { name?: string; description?: string; amount?: number; unit?: string; calories?: number; totalFat?: number; saturatedFat?: number; transFat?: number; cholesterol?: number; sodium?: number; totalCarbs?: number; dietaryFiber?: number; totalSugars?: number; addedSugars?: number; protein?: number; vitaminD?: number; calcium?: number; iron?: number; potassium?: number; prepInstructions?: string[]; storageLocation?: string }
 ): Promise<IngredientRecord> {
   const db = await getDB();
   const recipe = await db.get('recipes', recipeId);
@@ -309,6 +614,7 @@ export async function updateIngredient(
   if (idx === -1) throw new Error('Ingredient not found');
 
   const ingredient = recipe.ingredients[idx];
+  if (data.name !== undefined) ingredient.name = data.name;
   if (data.description !== undefined) ingredient.description = data.description;
   if (data.amount !== undefined) ingredient.amount = data.amount;
   if (data.unit !== undefined) ingredient.unit = data.unit;
@@ -327,6 +633,8 @@ export async function updateIngredient(
   if (data.calcium !== undefined) ingredient.calcium = data.calcium;
   if (data.iron !== undefined) ingredient.iron = data.iron;
   if (data.potassium !== undefined) ingredient.potassium = data.potassium;
+  if (data.prepInstructions !== undefined) ingredient.prepInstructions = data.prepInstructions;
+  if (data.storageLocation !== undefined) ingredient.storageLocation = data.storageLocation;
 
   recipe.updatedAt = new Date().toISOString();
   await db.put('recipes', recipe);
@@ -434,7 +742,7 @@ export async function createChapter(bookId: string, title: string): Promise<Chap
 
 export async function updateChapter(
   id: string,
-  data: { title?: string; position?: number }
+  data: { title?: string; position?: number; pageTemplateId?: string | null; recipeTemplateId?: string | null }
 ): Promise<ChapterRecord> {
   const db = await getDB();
   const chapter = await db.get('chapters', id);
@@ -442,6 +750,8 @@ export async function updateChapter(
 
   if (data.title !== undefined) chapter.title = data.title.trim();
   if (data.position !== undefined) chapter.position = data.position;
+  if (data.pageTemplateId !== undefined) chapter.pageTemplateId = data.pageTemplateId ?? undefined;
+  if (data.recipeTemplateId !== undefined) chapter.recipeTemplateId = data.recipeTemplateId ?? undefined;
   chapter.updatedAt = new Date().toISOString();
 
   await db.put('chapters', chapter);
@@ -880,6 +1190,496 @@ export async function removeCategoryFromRecipe(recipeId: string, categoryId: str
   }
 }
 
+// ── Category Descendants ──────────────────────────────────────────────
+
+export async function getCategoryDescendants(categoryId: string): Promise<string[]> {
+  const db = await getDB();
+  const all = await db.getAll('categories');
+  const ids = new Set<string>([categoryId]);
+  const queue = [categoryId];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    const children = all.filter(c => c.parentId === current);
+    for (const child of children) {
+      if (!ids.has(child.id)) {
+        ids.add(child.id);
+        queue.push(child.id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+// ── Template CRUD ────────────────────────────────────────────────────
+
+function makeSection(
+  type: TemplateSectionRecord['type'],
+  order: number,
+  column: 1 | 2,
+  overrides?: Partial<TemplateSectionRecord['style']>,
+): TemplateSectionRecord {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    visible: true,
+    order,
+    column,
+    style: overrides || {},
+  };
+}
+
+const DEFAULT_THEME: TemplateThemeRecord = {
+  primaryColor: '#059669',
+  backgroundColor: '#ffffff',
+  textColor: '#1c1917',
+  accentColor: '#059669',
+  fontFamily: 'inherit',
+  borderRadius: 8,
+};
+
+function buildSeedTemplates(): TemplateRecord[] {
+  const now = new Date().toISOString();
+
+  const classicCard: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Classic Card',
+    type: 'recipe',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'card',
+      orientation: 'portrait',
+      margins: { top: 16, right: 16, bottom: 16, left: 16 },
+      sections: [
+        makeSection('title', 0, 1, { fontSize: 22, fontWeight: '700', textAlign: 'center' }),
+        makeSection('servings-info', 1, 1, { fontSize: 12, textAlign: 'center' }),
+        makeSection('divider', 2, 1),
+        makeSection('ingredients', 3, 1, { fontSize: 13 }),
+        makeSection('instructions', 4, 2, { fontSize: 13, showStepNumbers: true }),
+        makeSection('divider', 5, 1),
+        makeSection('nutrition-label', 6, 1),
+      ],
+      theme: { ...DEFAULT_THEME, primaryColor: '#059669', accentColor: '#059669' },
+    },
+  };
+
+  const fullPage: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Full Page',
+    type: 'recipe',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'letter',
+      orientation: 'portrait',
+      margins: { top: 48, right: 48, bottom: 48, left: 48 },
+      sections: [
+        makeSection('title', 0, 1, { fontSize: 28, fontWeight: '700', textAlign: 'center' }),
+        makeSection('servings-info', 1, 1, { fontSize: 14, textAlign: 'center' }),
+        makeSection('divider', 2, 1),
+        makeSection('ingredients', 3, 1, { fontSize: 14, fontWeight: '600' }),
+        makeSection('divider', 4, 1),
+        makeSection('instructions', 5, 1, { fontSize: 14, showStepNumbers: true }),
+        makeSection('divider', 6, 1),
+        makeSection('nutrition-label', 7, 1),
+      ],
+      theme: { ...DEFAULT_THEME, primaryColor: '#1c1917', accentColor: '#059669' },
+    },
+  };
+
+  const minimal: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Minimal',
+    type: 'recipe',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'card',
+      orientation: 'portrait',
+      margins: { top: 12, right: 12, bottom: 12, left: 12 },
+      sections: [
+        makeSection('title', 0, 1, { fontSize: 18, fontWeight: '700' }),
+        makeSection('servings-info', 1, 1, { fontSize: 11 }),
+        makeSection('ingredients', 2, 1, { fontSize: 12 }),
+        makeSection('instructions', 3, 1, { fontSize: 12, showStepNumbers: true }),
+      ],
+      theme: { ...DEFAULT_THEME, borderRadius: 4 },
+    },
+  };
+
+  const splitView: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Split View',
+    type: 'recipe',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'letter',
+      orientation: 'portrait',
+      margins: { top: 40, right: 40, bottom: 40, left: 40 },
+      sections: [
+        makeSection('title', 0, 1, { fontSize: 24, fontWeight: '700' }),
+        makeSection('servings-info', 1, 1, { fontSize: 12 }),
+        makeSection('divider', 2, 1),
+        makeSection('ingredients', 3, 1, { fontSize: 13 }),
+        makeSection('instructions', 4, 1, { fontSize: 13, showStepNumbers: true }),
+        makeSection('nutrition-label', 5, 2),
+        makeSection('column-divider', 6, 1),
+      ],
+      theme: { ...DEFAULT_THEME, primaryColor: '#334155', accentColor: '#059669' },
+    },
+  };
+
+  const chapterLayout: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Chapter Layout',
+    type: 'book-page',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'a4',
+      orientation: 'portrait',
+      margins: { top: 40, right: 40, bottom: 40, left: 40 },
+      sections: [
+        makeSection('chapter-title', 0, 1, { fontSize: 24, fontWeight: '700', textAlign: 'center' }),
+        makeSection('divider', 1, 1),
+        makeSection('page-content', 2, 1, { fontSize: 14 }),
+        makeSection('page-number', 3, 1, { fontSize: 10, textAlign: 'center' }),
+      ],
+      theme: { ...DEFAULT_THEME, primaryColor: '#1e293b', accentColor: '#059669' },
+    },
+  };
+
+  const booklet: TemplateRecord = {
+    id: crypto.randomUUID(),
+    name: 'Booklet',
+    type: 'book-recipe',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      pageSize: 'card',
+      orientation: 'portrait',
+      margins: { top: 12, right: 12, bottom: 12, left: 12 },
+      sections: [
+        makeSection('title', 0, 1, { fontSize: 16, fontWeight: '700' }),
+        makeSection('servings-info', 1, 1, { fontSize: 10 }),
+        makeSection('ingredients', 2, 1, { fontSize: 11 }),
+        makeSection('instructions', 3, 2, { fontSize: 11, showStepNumbers: true }),
+        makeSection('nutrition-summary', 4, 1, { fontSize: 10 }),
+      ],
+      theme: { ...DEFAULT_THEME, borderRadius: 6, primaryColor: '#059669' },
+    },
+  };
+
+  return [classicCard, fullPage, minimal, splitView, chapterLayout, booklet];
+}
+
+let seedPromise: Promise<void> | null = null;
+let dedupPromise: Promise<void> | null = null;
+
+async function deduplicateTemplates(): Promise<void> {
+  if (dedupPromise) { await dedupPromise; return; }
+  dedupPromise = (async () => {
+    const db = await getDB();
+    const all = await db.getAll('templates');
+    const seen = new Set<string>();
+    const toDelete: string[] = [];
+    for (const t of all) {
+      const key = `${t.name}::${t.type}`;
+      if (seen.has(key)) {
+        toDelete.push(t.id);
+      } else {
+        seen.add(key);
+      }
+    }
+    if (toDelete.length > 0) {
+      const tx = db.transaction('templates', 'readwrite');
+      for (const id of toDelete) {
+        await tx.store.delete(id);
+      }
+      await tx.done;
+    }
+  })();
+  await dedupPromise;
+}
+
+async function seedTemplatesIfNeeded(): Promise<void> {
+  await deduplicateTemplates();
+  const db = await getDB();
+  const existing = await db.getAll('templates');
+  if (existing.length > 0) return;
+  if (!seedPromise) {
+    seedPromise = (async () => {
+      const seeds = buildSeedTemplates();
+      const tx = db.transaction('templates', 'readwrite');
+      for (const t of seeds) {
+        await tx.store.put(t);
+      }
+      await tx.done;
+    })();
+  }
+  await seedPromise;
+}
+
+export async function getAllTemplates(): Promise<TemplateRecord[]> {
+  await seedTemplatesIfNeeded();
+  const db = await getDB();
+  return db.getAll('templates');
+}
+
+export async function getTemplatesByType(type: TemplateRecord['type']): Promise<TemplateRecord[]> {
+  await seedTemplatesIfNeeded();
+  const db = await getDB();
+  return db.getAllFromIndex('templates', 'by-type', type);
+}
+
+export async function getTemplate(id: string): Promise<TemplateRecord | undefined> {
+  const db = await getDB();
+  return db.get('templates', id);
+}
+
+export async function createTemplate(data: Omit<TemplateRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<TemplateRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: TemplateRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('templates', record);
+  return record;
+}
+
+export async function updateTemplate(
+  id: string,
+  data: Partial<Omit<TemplateRecord, 'id' | 'createdAt'>>,
+): Promise<TemplateRecord> {
+  const db = await getDB();
+  const record = await db.get('templates', id);
+  if (!record) throw new Error('Template not found');
+
+  if (data.name !== undefined) record.name = data.name;
+  if (data.type !== undefined) record.type = data.type;
+  if (data.isDefault !== undefined) record.isDefault = data.isDefault;
+  if (data.layout !== undefined) record.layout = data.layout;
+  record.updatedAt = new Date().toISOString();
+
+  await db.put('templates', record);
+  return record;
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('templates', id);
+}
+
+// ── MealPlan CRUD ────────────────────────────────────────────────────
+
+export async function getAllMealPlans(): Promise<MealPlanRecord[]> {
+  const db = await getDB();
+  const plans = await db.getAll('mealPlans');
+  return plans.sort(
+    (a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime()
+  );
+}
+
+export async function getMealPlan(id: string): Promise<MealPlanRecord | undefined> {
+  const db = await getDB();
+  return db.get('mealPlans', id);
+}
+
+export async function getMealPlanByWeekStart(weekStart: string): Promise<MealPlanRecord | undefined> {
+  const db = await getDB();
+  const all = await db.getAllFromIndex('mealPlans', 'by-weekStart', weekStart);
+  return all[0];
+}
+
+export async function createMealPlan(name: string, weekStart: string): Promise<MealPlanRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const plan: MealPlanRecord = {
+    id: crypto.randomUUID(),
+    name: name.trim() || `Week of ${weekStart}`,
+    weekStart,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('mealPlans', plan);
+  return plan;
+}
+
+export async function updateMealPlan(
+  id: string,
+  data: { name?: string }
+): Promise<MealPlanRecord> {
+  const db = await getDB();
+  const plan = await db.get('mealPlans', id);
+  if (!plan) throw new Error('Meal plan not found');
+  if (data.name !== undefined) plan.name = data.name.trim();
+  plan.updatedAt = new Date().toISOString();
+  await db.put('mealPlans', plan);
+  return plan;
+}
+
+export async function deleteMealPlan(id: string): Promise<void> {
+  const db = await getDB();
+  const entries = await db.getAllFromIndex('dayPlanEntries', 'by-mealPlanId', id);
+  const groups = await db.getAllFromIndex('mealGroups', 'by-mealPlanId', id);
+  const tx = db.transaction(['mealPlans', 'dayPlanEntries', 'mealGroups'], 'readwrite');
+  for (const entry of entries) {
+    await tx.objectStore('dayPlanEntries').delete(entry.id);
+  }
+  for (const group of groups) {
+    await tx.objectStore('mealGroups').delete(group.id);
+  }
+  await tx.objectStore('mealPlans').delete(id);
+  await tx.done;
+}
+
+// ── DayPlanEntry CRUD ────────────────────────────────────────────────
+
+export async function getDayEntriesByMealPlanId(mealPlanId: string): Promise<DayPlanEntryRecord[]> {
+  const db = await getDB();
+  const entries = await db.getAllFromIndex('dayPlanEntries', 'by-mealPlanId', mealPlanId);
+  for (const e of entries) {
+    if (e.isLeftover === undefined) e.isLeftover = false;
+  }
+  return entries.sort((a, b) => a.position - b.position);
+}
+
+export async function getDayEntriesByDate(date: string): Promise<DayPlanEntryRecord[]> {
+  const db = await getDB();
+  const entries = await db.getAllFromIndex('dayPlanEntries', 'by-date', date);
+  return entries.sort((a, b) => a.position - b.position);
+}
+
+export async function createDayPlanEntry(
+  mealPlanId: string,
+  date: string,
+  slot: DaySlot,
+  recipeId: string,
+  position: number
+): Promise<DayPlanEntryRecord> {
+  const db = await getDB();
+  const entry: DayPlanEntryRecord = {
+    id: crypto.randomUUID(),
+    mealPlanId,
+    date,
+    slot,
+    recipeId,
+    position,
+    groupId: null,
+    servings: 1,
+    isLeftover: false,
+  };
+  await db.put('dayPlanEntries', entry);
+  return entry;
+}
+
+export async function updateDayPlanEntry(
+  id: string,
+  data: { slot?: DaySlot; position?: number; groupId?: string | null; servings?: number; isLeftover?: boolean }
+): Promise<DayPlanEntryRecord> {
+  const db = await getDB();
+  const entry = await db.get('dayPlanEntries', id);
+  if (!entry) throw new Error('Day plan entry not found');
+  if (data.slot !== undefined) entry.slot = data.slot;
+  if (data.position !== undefined) entry.position = data.position;
+  if (data.groupId !== undefined) entry.groupId = data.groupId;
+  if (data.servings !== undefined) entry.servings = data.servings;
+  if (data.isLeftover !== undefined) entry.isLeftover = data.isLeftover;
+  await db.put('dayPlanEntries', entry);
+  return entry;
+}
+
+export async function deleteDayPlanEntry(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('dayPlanEntries', id);
+}
+
+export async function putDayPlanEntry(entry: DayPlanEntryRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('dayPlanEntries', entry);
+}
+
+// ── MealGroup CRUD ──────────────────────────────────────────────────
+
+export async function getMealGroupsByMealPlanId(mealPlanId: string): Promise<MealGroupRecord[]> {
+  const db = await getDB();
+  const groups = await db.getAllFromIndex('mealGroups', 'by-mealPlanId', mealPlanId);
+  return groups.sort((a, b) => a.position - b.position);
+}
+
+export async function createMealGroup(
+  mealPlanId: string,
+  date: string,
+  slot: DaySlot,
+  name: string,
+  position: number
+): Promise<MealGroupRecord> {
+  const db = await getDB();
+  const group: MealGroupRecord = {
+    id: crypto.randomUUID(),
+    mealPlanId,
+    date,
+    slot,
+    name: name.trim(),
+    position,
+  };
+  await db.put('mealGroups', group);
+  return group;
+}
+
+export async function updateMealGroup(
+  id: string,
+  data: { name?: string; position?: number }
+): Promise<MealGroupRecord> {
+  const db = await getDB();
+  const group = await db.get('mealGroups', id);
+  if (!group) throw new Error('Meal group not found');
+  if (data.name !== undefined) group.name = data.name.trim();
+  if (data.position !== undefined) group.position = data.position;
+  await db.put('mealGroups', group);
+  return group;
+}
+
+export async function deleteMealGroup(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('mealGroups', id);
+}
+
+// ── GroceryChecklist CRUD ───────────────────────────────────────────
+
+export async function getGroceryChecklistByWeekStart(weekStart: string): Promise<GroceryChecklistRecord | undefined> {
+  const db = await getDB();
+  const all = await db.getAllFromIndex('groceryChecklists', 'by-weekStart', weekStart);
+  return all[0];
+}
+
+export async function putGroceryChecklist(record: GroceryChecklistRecord): Promise<void> {
+  const db = await getDB();
+  record.updatedAt = new Date().toISOString();
+  await db.put('groceryChecklists', record);
+}
+
+export async function createGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord> {
+  const record: GroceryChecklistRecord = {
+    id: crypto.randomUUID(),
+    weekStart,
+    checkedItems: [],
+    updatedAt: new Date().toISOString(),
+  };
+  await putGroceryChecklist(record);
+  return record;
+}
+
 // ── API Key Storage (localStorage) ────────────────────────────────────
 
 const API_KEY_STORAGE_KEY = 'nutrilabel-fda-api-key';
@@ -898,6 +1698,306 @@ export function setStoredApiKey(key: string): void {
   }
 }
 
+// ── SeasonalFoods CRUD ──────────────────────────────────────────────
+
+export async function getSeasonalFoods(country: string, region: string, month: number): Promise<string[]> {
+  const db = await getDB();
+  const all = await db.getAllFromIndex('seasonalFoods', 'by-country-region-month', [country, region, month]);
+  return all.length > 0 ? all[0].foods : [];
+}
+
+export async function setSeasonalFoods(country: string, region: string, month: number, foods: string[]): Promise<void> {
+  const db = await getDB();
+  const existing = await db.getAllFromIndex('seasonalFoods', 'by-country-region-month', [country, region, month]);
+  const record: SeasonalFoodsRecord = {
+    id: existing.length > 0 ? existing[0].id : crypto.randomUUID(),
+    country,
+    region,
+    month,
+    foods,
+  };
+  await db.put('seasonalFoods', record);
+}
+
+// ── PantryStaples CRUD ──────────────────────────────────────────────
+
+export async function getAllPantryStaples(): Promise<string[]> {
+  const db = await getDB();
+  const all = await db.getAll('pantryStaples');
+  return all.map(s => s.name).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+export async function addPantryStaple(name: string): Promise<void> {
+  const db = await getDB();
+  const trimmed = name.trim().toLowerCase();
+  const existing = await db.getAll('pantryStaples');
+  if (existing.some(s => s.name.toLowerCase() === trimmed)) return;
+  const record: PantryStapleRecord = {
+    id: crypto.randomUUID(),
+    name: name.trim(),
+  };
+  await db.put('pantryStaples', record);
+}
+
+export async function removePantryStaple(name: string): Promise<void> {
+  const db = await getDB();
+  const all = await db.getAll('pantryStaples');
+  const target = all.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
+  if (target) {
+    await db.delete('pantryStaples', target.id);
+  }
+}
+
+// ── UserLocation CRUD ──────────────────────────────────────────────
+
+export async function getUserLocation(): Promise<UserLocationRecord | undefined> {
+  const db = await getDB();
+  return db.get('userLocation', 'default');
+}
+
+export async function setUserLocation(country: string, region: string): Promise<void> {
+  const db = await getDB();
+  const record: UserLocationRecord = {
+    id: 'default',
+    country,
+    region,
+    updatedAt: new Date().toISOString(),
+  };
+  await db.put('userLocation', record);
+}
+
+// ── Seed Functions ─────────────────────────────────────────────────
+
+export async function seedSeasonalFoodsIfNeeded(country: string, region: string): Promise<void> {
+  const db = await getDB();
+  const existing = await db.getAllFromIndex('seasonalFoods', 'by-country-region-month', [country, region, 1]);
+  if (existing.length > 0) return;
+
+  const { DEFAULT_SEASONAL_FOODS } = await import('@/data/seasonal-produce');
+  const regionData = DEFAULT_SEASONAL_FOODS[region];
+  if (!regionData) return;
+
+  const tx = db.transaction('seasonalFoods', 'readwrite');
+  for (let month = 1; month <= 12; month++) {
+    const foods = regionData[month] || [];
+    const record: SeasonalFoodsRecord = {
+      id: crypto.randomUUID(),
+      country,
+      region,
+      month,
+      foods,
+    };
+    await tx.store.put(record);
+  }
+  await tx.done;
+}
+
+export async function seedPantryStaplesIfNeeded(): Promise<void> {
+  const db = await getDB();
+  const existing = await db.getAll('pantryStaples');
+  if (existing.length > 0) return;
+
+  const { DEFAULT_PANTRY_STAPLES } = await import('@/data/pantry-staples');
+  const tx = db.transaction('pantryStaples', 'readwrite');
+  for (const name of DEFAULT_PANTRY_STAPLES) {
+    const record: PantryStapleRecord = {
+      id: crypto.randomUUID(),
+      name,
+    };
+    await tx.store.put(record);
+  }
+  await tx.done;
+}
+
+// ── Custom Foods CRUD ────────────────────────────────────────────────
+
+export async function getAllCustomFoods(): Promise<CustomFoodRecord[]> {
+  const db = await getDB();
+  const foods = await db.getAll('customFoods');
+  return foods.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function addCustomFood(food: Omit<CustomFoodRecord, 'id' | 'createdAt'>): Promise<CustomFoodRecord> {
+  const db = await getDB();
+  const record: CustomFoodRecord = {
+    id: crypto.randomUUID(),
+    ...food,
+    createdAt: new Date().toISOString(),
+  };
+  await db.put('customFoods', record);
+  return record;
+}
+
+export async function updateCustomFood(id: string, data: Partial<Omit<CustomFoodRecord, 'id' | 'createdAt'>>): Promise<CustomFoodRecord> {
+  const db = await getDB();
+  const existing = await db.get('customFoods', id);
+  if (!existing) throw new Error('Custom food not found');
+  const updated = { ...existing, ...data };
+  await db.put('customFoods', updated);
+  return updated;
+}
+
+export async function deleteCustomFood(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('customFoods', id);
+}
+
+// ── NutritionProfile CRUD ────────────────────────────────────────────
+
+export async function getAllNutritionProfiles(): Promise<NutritionProfileRecord[]> {
+  const db = await getDB();
+  const profiles = await db.getAll('nutritionProfiles');
+  return profiles.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function getNutritionProfile(id: string): Promise<NutritionProfileRecord | undefined> {
+  const db = await getDB();
+  return db.get('nutritionProfiles', id);
+}
+
+export async function createNutritionProfile(data: Omit<NutritionProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<NutritionProfileRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: NutritionProfileRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('nutritionProfiles', record);
+  return record;
+}
+
+export async function updateNutritionProfile(id: string, data: Partial<Omit<NutritionProfileRecord, 'id' | 'createdAt'>>): Promise<NutritionProfileRecord> {
+  const db = await getDB();
+  const record = await db.get('nutritionProfiles', id);
+  if (!record) throw new Error('Profile not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('nutritionProfiles', record);
+  return record;
+}
+
+export async function deleteNutritionProfile(id: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['nutritionProfiles', 'foodLogEntries', 'weightEntries'], 'readwrite');
+  const foodLogs = await tx.objectStore('foodLogEntries').index('by-profileId').getAllKeys(id);
+  const weights = await tx.objectStore('weightEntries').index('by-profileId').getAllKeys(id);
+  for (const key of foodLogs) await tx.objectStore('foodLogEntries').delete(key);
+  for (const key of weights) await tx.objectStore('weightEntries').delete(key);
+  await tx.objectStore('nutritionProfiles').delete(id);
+  await tx.done;
+}
+
+// ── FoodLogEntry CRUD ────────────────────────────────────────────────
+
+export async function getAllFoodLogEntries(): Promise<FoodLogEntryRecord[]> {
+  const db = await getDB();
+  return db.getAll('foodLogEntries');
+}
+
+export async function getFoodLogEntry(id: string): Promise<FoodLogEntryRecord | undefined> {
+  const db = await getDB();
+  return db.get('foodLogEntries', id);
+}
+
+export async function createFoodLogEntry(data: Omit<FoodLogEntryRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<FoodLogEntryRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: FoodLogEntryRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('foodLogEntries', record);
+  return record;
+}
+
+export async function updateFoodLogEntry(id: string, data: Partial<Omit<FoodLogEntryRecord, 'id' | 'createdAt'>>): Promise<FoodLogEntryRecord> {
+  const db = await getDB();
+  const record = await db.get('foodLogEntries', id);
+  if (!record) throw new Error('Food log entry not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('foodLogEntries', record);
+  return record;
+}
+
+export async function deleteFoodLogEntry(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('foodLogEntries', id);
+}
+
+export async function getFoodLogByProfileAndDate(profileId: string, date: string): Promise<FoodLogEntryRecord[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('foodLogEntries', 'by-profileId-date', [profileId, date]);
+}
+
+export async function getFoodLogByProfileAndDateRange(profileId: string, startDate: string, endDate: string): Promise<FoodLogEntryRecord[]> {
+  const db = await getDB();
+  const range = IDBKeyRange.bound([profileId, startDate], [profileId, endDate]);
+  return db.getAllFromIndex('foodLogEntries', 'by-profileId-date', range);
+}
+
+// ── WeightEntry CRUD ─────────────────────────────────────────────────
+
+export async function getAllWeightEntries(): Promise<WeightEntryRecord[]> {
+  const db = await getDB();
+  return db.getAll('weightEntries');
+}
+
+export async function getWeightEntry(id: string): Promise<WeightEntryRecord | undefined> {
+  const db = await getDB();
+  return db.get('weightEntries', id);
+}
+
+export async function createWeightEntry(data: Omit<WeightEntryRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<WeightEntryRecord> {
+  const db = await getDB();
+  const existing = await db.getAllFromIndex('weightEntries', 'by-profileId-date', [data.profileId, data.date]);
+  if (existing.length > 0) {
+    const record = existing[0];
+    Object.assign(record, { weightKg: data.weightKg, notes: data.notes, lastSyncedAt: data.lastSyncedAt, updatedAt: new Date().toISOString() });
+    await db.put('weightEntries', record);
+    return record;
+  }
+  const now = new Date().toISOString();
+  const record: WeightEntryRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('weightEntries', record);
+  return record;
+}
+
+export async function updateWeightEntry(id: string, data: Partial<Omit<WeightEntryRecord, 'id' | 'createdAt'>>): Promise<WeightEntryRecord> {
+  const db = await getDB();
+  const record = await db.get('weightEntries', id);
+  if (!record) throw new Error('Weight entry not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('weightEntries', record);
+  return record;
+}
+
+export async function deleteWeightEntry(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('weightEntries', id);
+}
+
+export async function getWeightByProfile(profileId: string): Promise<WeightEntryRecord[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('weightEntries', 'by-profileId', profileId);
+}
+
+export async function getLatestWeight(profileId: string): Promise<WeightEntryRecord | undefined> {
+  const db = await getDB();
+  const entries = await db.getAllFromIndex('weightEntries', 'by-profileId', profileId);
+  if (entries.length === 0) return undefined;
+  return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+}
+
 export type {
   RecipeRecord,
   IngredientRecord,
@@ -909,4 +2009,22 @@ export type {
   BookPageRecord,
   CategoryRecord,
   RecipeCategoryRecord,
+  TemplateRecord,
+  TemplateLayoutRecord as TemplateLayout,
+  TemplateSectionRecord as TemplateSection,
+  TemplateThemeRecord as TemplateTheme,
+  MealPlanRecord,
+  DayPlanEntryRecord,
+  MealGroupRecord,
+  GroceryChecklistRecord,
+  SeasonalFoodsRecord,
+  PantryStapleRecord,
+  UserLocationRecord,
+  CustomFoodRecord,
+  NutritionProfileRecord,
+  FoodLogEntryRecord,
+  WeightEntryRecord,
+  ActivityLevel,
+  MealSlot,
+  FoodSourceType,
 };

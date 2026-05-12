@@ -26,6 +26,7 @@ interface NutritionLabelProps {
   data: NutritionData;
   servingDescription?: string;
   servingsPerContainer?: number;
+  highlightExceed?: boolean;
 }
 
 const DV_REFERENCE: Record<string, number> = {
@@ -68,7 +69,7 @@ function isAllZero(data: NutritionData): boolean {
   );
 }
 
-export default function NutritionLabel({ data, servingDescription, servingsPerContainer }: NutritionLabelProps) {
+export default function NutritionLabel({ data, servingDescription, servingsPerContainer, highlightExceed = true }: NutritionLabelProps) {
   if (isAllZero(data)) {
     return (
       <div style={styles.container}>
@@ -132,6 +133,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.totalFat, DV_REFERENCE.totalFat)}
         bold
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -142,6 +144,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.saturatedFat, DV_REFERENCE.saturatedFat)}
         indent
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -162,6 +165,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="mg"
         dv={calcDV(data.cholesterol, DV_REFERENCE.cholesterol)}
         bold
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -172,6 +176,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="mg"
         dv={calcDV(data.sodium, DV_REFERENCE.sodium)}
         bold
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thickRule} />
 
@@ -182,6 +187,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.totalCarbs, DV_REFERENCE.totalCarbs)}
         bold
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -192,6 +198,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.dietaryFiber, DV_REFERENCE.dietaryFiber)}
         indent
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -212,6 +219,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.addedSugars, DV_REFERENCE.addedSugars)}
         indent
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thickRule} />
 
@@ -222,6 +230,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         unit="g"
         dv={calcDV(data.protein, DV_REFERENCE.protein)}
         bold
+        highlightExceed={highlightExceed}
       />
 
       {/* Thick rule before vitamins */}
@@ -233,6 +242,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         value={data.vitaminD}
         unit="mcg"
         dv={calcDV(data.vitaminD, DV_REFERENCE.vitaminD)}
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -242,6 +252,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         value={data.calcium}
         unit="mg"
         dv={calcDV(data.calcium, DV_REFERENCE.calcium)}
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -251,6 +262,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         value={data.iron}
         unit="mg"
         dv={calcDV(data.iron, DV_REFERENCE.iron)}
+        highlightExceed={highlightExceed}
       />
       <div style={styles.thinRule} />
 
@@ -260,6 +272,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
         value={data.potassium}
         unit="mg"
         dv={calcDV(data.potassium, DV_REFERENCE.potassium)}
+        highlightExceed={highlightExceed}
       />
 
       {/* Thick rule before footnote */}
@@ -342,11 +355,19 @@ interface NutrientRowProps {
   bold?: boolean;
   indent?: boolean;
   noDV?: boolean;
+  highlightExceed?: boolean;
 }
 
-function NutrientRow({ name, value, unit, dv, bold, indent, noDV }: NutrientRowProps) {
+function NutrientRow({ name, value, unit, dv, bold, indent, noDV, highlightExceed }: NutrientRowProps) {
+  let highlightStyle: React.CSSProperties = {};
+  if (highlightExceed && dv !== undefined && dv > 100) {
+    highlightStyle = dv <= 125
+      ? { backgroundColor: '#FFF3E0', color: '#E65100' }
+      : { backgroundColor: '#FFEBEE', color: '#B71C1C' };
+  }
+
   return (
-    <div style={styles.nutrientRow}>
+    <div className={highlightExceed && dv !== undefined && dv > 100 ? 'nutrient-row-highlight' : ''} style={{ ...styles.nutrientRow, ...highlightStyle }}>
       <span
         style={{
           fontWeight: bold ? 700 : 400,

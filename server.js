@@ -27,7 +27,7 @@ const http = require("http");
 process.env.NODE_ENV = "production";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
-const HOSTNAME = process.env.HOSTNAME || "127.0.0.1";
+const HOSTNAME = process.env.HOSTNAME || (process.env.DOCKER ? "0.0.0.0" : "127.0.0.1");
 
 if (!process.env.DATABASE_URL) {
   const dbPath = path.join(__dirname, "db", "custom.db");

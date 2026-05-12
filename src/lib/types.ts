@@ -16,6 +16,8 @@ export interface Chapter {
   createdAt: string;
   updatedAt: string;
   chapterRecipes: ChapterRecipe[];
+  pageTemplateId?: string;
+  recipeTemplateId?: string;
 }
 
 export interface ChapterRecipe {
@@ -58,6 +60,86 @@ export interface RecipeCategory {
   id: string;
   recipeId: string;
   categoryId: string;
+}
+
+export interface TemplateRecord {
+  id: string;
+  name: string;
+  type: 'recipe' | 'book-page' | 'book-recipe';
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  layout: TemplateLayout;
+}
+
+export interface TemplateLayout {
+  pageSize: 'card' | 'a4' | 'letter' | 'custom';
+  orientation: 'portrait' | 'landscape';
+  margins: { top: number; right: number; bottom: number; left: number };
+  sections: TemplateSection[];
+  theme: TemplateTheme;
+}
+
+export interface TemplateSection {
+  id: string;
+  type: 'title' | 'ingredients' | 'instructions' | 'nutrition-label' | 'nutrition-summary' | 'servings-info' | 'image' | 'notes' | 'divider' | 'column-divider' | 'chapter-title' | 'page-content' | 'page-number' | 'custom-text';
+  visible: boolean;
+  order: number;
+  column: 1 | 2;
+  style: {
+    fontSize?: number;
+    fontWeight?: string;
+    textAlign?: 'left' | 'center' | 'right';
+    color?: string;
+    showStepNumbers?: boolean;
+    groupAsTabs?: boolean;
+  };
+}
+
+export interface TemplateTheme {
+  primaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  accentColor: string;
+  fontFamily: string;
+  borderRadius: number;
+}
+
+export type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+
+export interface MealPlanRecord {
+  id: string;
+  name: string;
+  weekStart: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DayPlanEntryRecord {
+  id: string;
+  mealPlanId: string;
+  date: string;
+  slot: DaySlot;
+  recipeId: string;
+  position: number;
+  groupId: string | null;
+  servings: number;
+}
+
+export interface MealGroupRecord {
+  id: string;
+  mealPlanId: string;
+  date: string;
+  slot: DaySlot;
+  name: string;
+  position: number;
+}
+
+export interface GroceryChecklistRecord {
+  id: string;
+  weekStart: string;
+  checkedItems: string[];
+  updatedAt: string;
 }
 
 export const BOOK_COLORS = [

@@ -88,6 +88,7 @@ model SeedJob {
   status       String   @default("pending")
   progress     Float    @default(0)
   error        String?
+  checkpoint   String?
   startedAt    DateTime?
   completedAt  DateTime?
   createdAt    DateTime @default(now())
@@ -167,4 +168,100 @@ model RecipeCategory {
   @@unique([recipeId, categoryId])
   @@index([recipeId])
   @@index([categoryId])
+}
+
+enum Sex {
+  male
+  female
+}
+
+enum ActivityLevel {
+  sedentary
+  light
+  moderate
+  active
+  veryActive
+}
+
+enum MealSlot {
+  morning
+  midMorning
+  noon
+  afternoon
+  evening
+  snack
+}
+
+enum FoodSourceType {
+  recipe
+  customFood
+  manual
+}
+
+model PersonProfile {
+  id            String       @id
+  name          String
+  sex           Sex
+  birthDate     String?
+  heightCm      Float?
+  activityLevel ActivityLevel @default(moderate)
+  goalWeightKg  Float?
+  goalDate      String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  foodLogEntries FoodLogEntry[]
+  weightEntries  WeightEntry[]
+
+  @@index([updatedAt])
+}
+
+model FoodLogEntry {
+  id          String        @id
+  profileId   String
+  date        String
+  mealSlot    MealSlot
+  sourceType  FoodSourceType
+  sourceId    String?
+  name        String
+  servings    Float         @default(1)
+  calories    Float         @default(0)
+  totalFat    Float         @default(0)
+  saturatedFat Float        @default(0)
+  transFat    Float         @default(0)
+  cholesterol Float         @default(0)
+  sodium      Float         @default(0)
+  totalCarbs  Float         @default(0)
+  dietaryFiber Float        @default(0)
+  totalSugars Float         @default(0)
+  addedSugars Float         @default(0)
+  protein     Float         @default(0)
+  vitaminD    Float         @default(0)
+  calcium     Float         @default(0)
+  iron        Float         @default(0)
+  potassium   Float         @default(0)
+  lastSyncedAt String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  profile     PersonProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([date])
+  @@index([profileId, date])
+  @@index([sourceType, sourceId])
+}
+
+model WeightEntry {
+  id           String       @id
+  profileId    String
+  date         String
+  weightKg     Float
+  notes        String?
+  lastSyncedAt String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  profile      PersonProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, date])
+  @@index([profileId])
+  @@index([date])
 }

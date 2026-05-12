@@ -1,0 +1,83 @@
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+
+  header,
+  nav,
+  [role="navigation"],
+  [data-print-hide],
+  .print-hide,
+  button,
+  select,
+  input,
+  textarea {
+    display: none !important;
+  }
+
+  main {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .lg\\:sticky {
+    position: static !important;
+  }
+
+  [class*="TabsList"],
+  [class*="tabs-list"],
+  [role="tablist"] {
+    display: none !important;
+  }
+
+  [role="tabpanel"] {
+    display: block !important;
+  }
+
+  .shadow-sm,
+  .shadow,
+  .shadow-md,
+  .shadow-lg {
+    box-shadow: none !important;
+  }
+
+  .border,
+  .border-stone-200 {
+    border: none !important;
+  }
+
+  .bg-emerald-50,
+  .bg-stone-50,
+  .bg-stone-100 {
+    background: transparent !important;
+  }
+
+  .rounded-lg,
+  .rounded-md {
+    border-radius: 0 !important;
+  }
+
+  .lg\\:col-span-3,
+  .lg\\:col-span-5 {
+    display: none !important;
+  }
+
+  .lg\\:col-span-4 {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .grid {
+    display: block !important;
+  }
+
+  .space-y-3 > * + *,
+  .space-y-4 > * + * {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

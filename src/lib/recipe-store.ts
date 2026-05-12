@@ -13,6 +13,7 @@ import {
   type RecipeRecord,
   type IngredientRecord,
   type IngredientGroup,
+  getAllCustomFoods,
 } from "@/lib/storage";
 import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
 
@@ -88,6 +89,7 @@ interface Ingredient {
   potassium: number;
   groupId: string | null;
   linkedRecipeId: string | null;
+  prepInstructions: string[];
 }
 
 interface Recipe {
@@ -215,14 +217,15 @@ interface RecipeState {
     servingName?: string;
     instructionSteps?: InstructionStep[];
     instructionGroups?: InstructionGroup[];
+    leftoverStorage?: string;
   }) => Promise<void>;
   deleteRecipe: (id: string) => Promise<void>;
   searchFDA: (query: string) => Promise<void>;
   addIngredient: (food: FDAFood, amount: number, unit: string) => Promise<void>;
+  addCustomIngredient: (name: string, nutrition: Record<NutrientKeys, number>, amount: number, unit: string) => Promise<void>;
   addRecipeAsIngredient: (sourceRecipe: Recipe, multiplier: number) => Promise<void>;
   removeIngredient: (ingredientId: string) => Promise<void>;
-  updateIngredient: (ingredientId: string, data: { description?: string; amount?: number; unit?: string }) => Promise<void>;
-  getTotalNutrition: () => Record<NutrientKeys, number>;
+  updateIngredient: (ingredientId: string, data: { name?: string; description?: string; amount?: number; unit?: string; prepInstructions?: string[]; storageLocation?: string }) => Promise<void>;  getTotalNutrition: () => Record<NutrientKeys, number>;
   setApiKey: (key: string) => void;
   loadApiKey: () => void;
   reorderIngredients: (fromIndex: number, toIndex: number) => Promise<void>;
@@ -353,9 +356,46 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     set({ isSearching: true, error: null, searchResults: [], searchSource: null });
     try {
       const result = await searchFDAFoods(query);
+
+      let customFoods: FDAFood[] = [];
+      try {
+        const allCustom = await getAllCustomFoods();
+        const q = query.toLowerCase();
+        customFoods = allCustom
+          .filter((f) => f.name.toLowerCase().includes(q))
+          .map((f) => ({
+            fdcId: -(Date.now() + Math.random() * 1000),
+            description: f.name,
+            brandOwner: null as string | null,
+            dataType: 'Custom',
+            servingSize: 100,
+            servingSizeUnit: 'g',
+            nutrients: {
+              calories: f.calories,
+              totalFat: f.totalFat,
+              saturatedFat: f.saturatedFat,
+              transFat: f.transFat,
+              cholesterol: f.cholesterol,
+              sodium: f.sodium,
+              totalCarbs: f.totalCarbs,
+              dietaryFiber: f.dietaryFiber,
+              totalSugars: f.totalSugars,
+              addedSugars: f.addedSugars,
+              protein: f.protein,
+              vitaminD: f.vitaminD,
+              calcium: f.calcium,
+              iron: f.iron,
+              potassium: f.potassium,
+            },
+          }));
+      } catch {
+        // ignore custom foods search error
+      }
+
+      const allFoods = [...customFoods, ...result.foods.map(toPublicFDAFood)];
       set({
-        searchResults: result.foods.map(toPublicFDAFood),
-        searchSource: result.source === 'fallback' ? 'fallback' : result.source === 'local' ? 'local' : 'fda',
+        searchResults: allFoods,
+        searchSource: customFoods.length > 0 && result.foods.length === 0 ? 'local' : result.source === 'fallback' ? 'fallback' : result.source === 'local' ? 'local' : 'fda',
         isSearching: false,
       });
     } catch (err) {
@@ -403,6 +443,65 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         potassium: scaleVal(food.nutrients.potassium),
         groupId: null as string | null,
         linkedRecipeId: null as string | null,
+        prepInstructions: [] as string[],
+      };
+
+      const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
+
+      const updatedRecipe: Recipe = {
+        ...activeRecipe,
+        ingredients: [...activeRecipe.ingredients, { ...newIngredient }],
+        updatedAt: new Date().toISOString(),
+      };
+
+      set((state) => ({
+        activeRecipe: updatedRecipe,
+        recipes: state.recipes.map((r) =>
+          r.id === updatedRecipe.id ? updatedRecipe : r
+        ),
+        isLoading: false,
+      }));
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : "Unknown error",
+        isLoading: false,
+      });
+    }
+  },
+
+  addCustomIngredient: async (name: string, nutrition: Record<NutrientKeys, number>, amount: number, unit: string) => {
+    const { activeRecipe } = get();
+    if (!activeRecipe) return;
+    set({ isLoading: true, error: null });
+    try {
+      const grams = convertToGrams(amount, unit);
+      const scaleFactor = grams / 100;
+      const scaleVal = (val: number) => Math.round(val * scaleFactor * 100) / 100;
+
+      const ingredientData = {
+        fdcId: -2,
+        name,
+        amount,
+        unit,
+        description: '',
+        calories: scaleVal(nutrition.calories),
+        totalFat: scaleVal(nutrition.totalFat),
+        saturatedFat: scaleVal(nutrition.saturatedFat),
+        transFat: scaleVal(nutrition.transFat),
+        cholesterol: scaleVal(nutrition.cholesterol),
+        sodium: scaleVal(nutrition.sodium),
+        totalCarbs: scaleVal(nutrition.totalCarbs),
+        dietaryFiber: scaleVal(nutrition.dietaryFiber),
+        totalSugars: scaleVal(nutrition.totalSugars),
+        addedSugars: scaleVal(nutrition.addedSugars),
+        protein: scaleVal(nutrition.protein),
+        vitaminD: scaleVal(nutrition.vitaminD),
+        calcium: scaleVal(nutrition.calcium),
+        iron: scaleVal(nutrition.iron),
+        potassium: scaleVal(nutrition.potassium),
+        groupId: null as string | null,
+        linkedRecipeId: null as string | null,
+        prepInstructions: [] as string[],
       };
 
       const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
@@ -459,6 +558,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         potassium: scaleVal(sourceNutrition.potassium),
         groupId: null as string | null,
         linkedRecipeId: sourceRecipe.id,
+        prepInstructions: [] as string[],
       };
 
       const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
@@ -512,7 +612,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     }
   },
 
-  updateIngredient: async (ingredientId: string, data: { description?: string; amount?: number; unit?: string }) => {
+  updateIngredient: async (ingredientId: string, data: { name?: string; description?: string; amount?: number; unit?: string; prepInstructions?: string[]; storageLocation?: string }) => {
     const { activeRecipe } = get();
     if (!activeRecipe) return;
     const ingredient = activeRecipe.ingredients.find((i) => i.id === ingredientId);
@@ -530,6 +630,18 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
 
       if (data.description !== undefined) {
         updateData.description = data.description;
+      }
+
+      if (data.name !== undefined) {
+        updateData.name = data.name;
+      }
+
+      if (data.prepInstructions !== undefined) {
+        updateData.prepInstructions = data.prepInstructions;
+      }
+
+      if (data.storageLocation !== undefined) {
+        updateData.storageLocation = data.storageLocation;
       }
 
       if (ingredient.linkedRecipeId) {

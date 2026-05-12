@@ -1,0 +1,17 @@
+services:
+  nutrilabel:
+    build: .
+    container_name: nutrilabel
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - DOCKER=1
+      - PORT=3000
+      - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
+    volumes:
+      - nutrilabel-data:/app/db
+    restart: unless-stopped
+
+volumes:
+  nutrilabel-data:

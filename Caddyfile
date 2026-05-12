@@ -1,3 +1,13 @@
+# NutriLabel Caddy reverse proxy configuration
+#
+# Usage:
+#   Self-hosted:    caddy run
+#   Docker:         Ensure this container is on the same network, or use the internal port directly
+#
+# Environment:
+#   NUTRILABEL_HOST - External hostname (default: :81 for local)
+#   NUTRILABEL_PORT - Internal app port (default: 3000)
+
 :81 {
 	@transform_port_query {
 		query XTransformPort=*
@@ -21,3 +31,8 @@
 		}
 	}
 }
+
+# Production example (uncomment and set your domain):
+# nutrilabel.example.com {
+#     reverse_proxy nutrilabel:3000
+# }
