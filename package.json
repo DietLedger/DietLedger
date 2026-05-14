@@ -1,5 +1,5 @@
 {
-  "name": "nutrilabel",
+  "name": "dietledger",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "cap:init": "npx cap init NutriLabel com.nutrilabel.app --web-dir out",
+    "cap:init": "npx cap init DietLedger com.dietledger.app --web-dir out",
     "cap:add:android": "npx cap add android",
     "cap:add:ios": "npx cap add ios",
     "cap:sync": "npx cap sync",

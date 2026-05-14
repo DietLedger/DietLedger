@@ -79,7 +79,7 @@ export default function MealPlansPage() {
     <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center">
             <UtensilsCrossed className="w-5 h-5" />
           </div>
           <div>
@@ -138,22 +138,22 @@ export default function MealPlansPage() {
                     key={day.toISOString()}
                     onClick={() => handleDayClick(day)}
                     className={`relative p-2 min-h-[64px] flex flex-col items-center gap-1 border-r border-stone-100 last:border-r-0 transition-colors ${
-                      inMonth ? 'hover:bg-emerald-50' : 'bg-stone-50/50'
-                    } ${isToday ? 'bg-emerald-50' : ''}`}
+                      inMonth ? 'hover:bg-brand-50' : 'bg-stone-50/50'
+                    } ${isToday ? 'bg-brand-50' : ''}`}
                   >
                     <span
                       className={`text-sm ${
                         !inMonth
                           ? 'text-stone-300'
                           : isToday
-                          ? 'font-bold text-emerald-700'
+                          ? 'font-bold text-brand-700'
                           : 'text-stone-700'
                       }`}
                     >
                       {format(day, 'd')}
                     </span>
                     {hasPlan && inMonth && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />
                     )}
                   </button>
                 );

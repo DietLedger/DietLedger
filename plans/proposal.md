@@ -1,4 +1,4 @@
-# NutriLabel Feature Proposals
+# DietLedger Feature Proposals
 
 Features organized by monetization potential and implementation effort.
 
@@ -13,7 +13,7 @@ Features organized by monetization potential and implementation effort.
 Users sync recipes, meal plans, nutrition logs, and books across devices via a hosted sync server. This is the single most requested feature for any personal tool — users want their data everywhere.
 
 - Background sync on open, on change, and at configurable intervals
-- Multiple sync server support (self-hosted or NutriLabel Cloud)
+- Multiple sync server support (self-hosted or DietLedger Cloud)
 - Conflict resolution with last-write-wins + manual merge UI
 - End-to-end encryption option for self-hosted servers
 
@@ -68,7 +68,7 @@ Extend the existing `PersonProfile` system into full household management.
 - Parental controls (restrict editing for children)
 - "Who's cooking tonight" assignment in meal plans
 
-**Why it sells:** Captures the household budget rather than individual. Most recipe apps are single-user — this differentiates NutriLabel.
+**Why it sells:** Captures the household budget rather than individual. Most recipe apps are single-user — this differentiates DietLedger.
 
 ---
 

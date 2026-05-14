@@ -137,7 +137,7 @@ export default function CustomFoodsPanel() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+        <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
       </div>
     );
   }
@@ -153,14 +153,14 @@ export default function CustomFoodsPanel() {
           </div>
           <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-1 h-8" onClick={openCreate}>
+              <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1 h-8" onClick={openCreate}>
                 <Plus className="w-3.5 h-3.5" />Add Custom Food
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[480px] max-h-[80vh] flex flex-col overflow-hidden">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-emerald-600" />
+                  <Package className="w-4 h-4 text-brand-600" />
                   {editingFood ? 'Edit Custom Food' : 'Add Custom Food'}
                 </DialogTitle>
               </DialogHeader>
@@ -191,7 +191,7 @@ export default function CustomFoodsPanel() {
                     ))}
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button onClick={handleSave} disabled={!name.trim()} className="bg-emerald-600 hover:bg-emerald-700 gap-1 flex-1">
+                    <Button onClick={handleSave} disabled={!name.trim()} className="bg-brand-600 hover:bg-brand-700 gap-1 flex-1">
                       <Check className="w-4 h-4" />{editingFood ? 'Save Changes' : 'Add Food'}
                     </Button>
                   </div>
@@ -223,7 +223,7 @@ export default function CustomFoodsPanel() {
                     <p className="text-[10px] text-stone-300 mt-1">per 100g</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-emerald-600" onClick={() => openEdit(food)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-brand-600" onClick={() => openEdit(food)}>
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-destructive" onClick={() => handleDelete(food.id)}>

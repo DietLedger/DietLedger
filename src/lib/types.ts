@@ -142,6 +142,71 @@ export interface GroceryChecklistRecord {
   updatedAt: string;
 }
 
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'conflict';
+
+export interface SyncServerConfig {
+  id: string;
+  label: string;
+  serverUrl: string;
+  apiKey: string;
+  userId: string;
+  deviceId: string;
+  enabled: boolean;
+  autoSync: boolean;
+  syncIntervalMinutes: number;
+  lastSyncedAt: string | null;
+  lastSyncStatus: SyncStatus | null;
+  lastSyncError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SyncChangeLogEntry {
+  id: string;
+  storeName: string;
+  recordId: string;
+  action: 'upsert' | 'delete';
+  timestamp: string;
+  synced: boolean;
+  data: string | null;
+}
+
+export interface SyncConflictRecord {
+  id: string;
+  storeName: string;
+  recordId: string;
+  localData: string;
+  remoteData: string;
+  localVersion: number;
+  remoteVersion: number;
+  status: 'pending' | 'resolved' | 'auto-resolved';
+  resolution?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export const SYNC_STORE_NAMES = [
+  'recipes',
+  'books',
+  'chapters',
+  'chapterRecipes',
+  'categories',
+  'recipeCategories',
+  'chapterPages',
+  'bookPages',
+  'templates',
+  'mealPlans',
+  'dayPlanEntries',
+  'mealGroups',
+  'groceryChecklists',
+  'customFoods',
+  'nutritionProfiles',
+  'foodLogEntries',
+  'weightEntries',
+] as const;
+
+export type SyncStoreName = (typeof SYNC_STORE_NAMES)[number];
+
 export const BOOK_COLORS = [
   '#059669', '#2563eb', '#7c3aed', '#db2777', '#ea580c',
   '#ca8a04', '#0891b2', '#4f46e5', '#dc2626', '#16a34a',

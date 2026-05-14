@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ChefHat,
   BookOpen,
@@ -30,12 +31,21 @@ import {
   Package,
   MapPin,
   Activity,
+  Palette,
+  ChevronDown,
+  ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import FoodDatabasePanel from '@/components/food-database-panel';
 import CategoriesPanel from '@/components/categories-panel';
 import PantryStaplesPanel from '@/components/pantry-staples-panel';
 import LocationPanel from '@/components/location-panel';
 import CustomFoodsPanel from '@/components/custom-foods-panel';
+import SyncStatusIndicator from '@/components/sync/sync-status-indicator';
+import SyncSettingsPanel from '@/components/sync/sync-settings-panel';
+import ConflictResolver from '@/components/sync/conflict-resolver';
+import { useSyncStore } from '@/lib/sync-store';
+import { useAppTheme } from '@/hooks/use-app-theme';
 
 const NAV_ITEMS = [
   { href: '/recipes', label: 'Recipes', icon: Salad },
@@ -49,9 +59,12 @@ export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { apiKey, setApiKey, loadApiKey, recipes } = useRecipeStore();
+  const syncServers = useSyncStore((s) => s.servers);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const { themeId, setTheme, themes, mounted: themeMounted } = useAppTheme();
 
   useEffect(() => {
     loadApiKey();
@@ -78,11 +91,9 @@ export default function AppNav() {
     <header className="border-b bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
         <Link href="/" className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white">
-            <ChefHat className="w-5 h-5" />
-          </div>
+          <img src="/logo.svg" alt="DietLedger" className="w-9 h-9" />
           <div>
-            <h1 className="text-xl font-bold text-stone-900 tracking-tight">NutriLabel</h1>
+            <h1 className="text-xl font-bold text-stone-900 tracking-tight">DietLedger</h1>
           </div>
         </Link>
 
@@ -96,8 +107,8 @@ export default function AppNav() {
                   size="sm"
                   className={`h-8 gap-1.5 text-xs ${
                     isActive
-                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      : 'text-stone-500 hover:text-emerald-700'
+                      ? 'bg-brand-50 text-brand-700 hover:bg-brand-100'
+                      : 'text-stone-500 hover:text-brand-700'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -114,7 +125,7 @@ export default function AppNav() {
           </Badge>
           <Badge
             variant={apiKey === 'DEMO_KEY' ? 'outline' : 'secondary'}
-            className={`text-xs gap-1 ${apiKey !== 'DEMO_KEY' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : ''}`}
+            className={`text-xs gap-1 ${apiKey !== 'DEMO_KEY' ? 'bg-brand-100 text-brand-700 border-brand-200' : ''}`}
           >
             {apiKey === 'DEMO_KEY' ? (
               <><WifiOff className="w-3 h-3" />Demo Key</>
@@ -134,16 +145,7 @@ export default function AppNav() {
             <TooltipContent>Barcode Scanner</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400" disabled>
-                  <RefreshCw className="w-4 h-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Synchronize</TooltipContent>
-          </Tooltip>
+          <SyncStatusIndicator />
 
           <Dialog open={settingsOpen} onOpenChange={(open) => { setSettingsOpen(open); if (open) { setApiKeyInput(apiKey); setApiKeySaved(false); } }}>
             <DialogTrigger asChild>
@@ -154,7 +156,7 @@ export default function AppNav() {
             <DialogContent className="sm:max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <Settings className="w-4 h-4 text-emerald-600" />Settings
+                  <Settings className="w-4 h-4 text-brand-600" />Settings
                 </DialogTitle>
               </DialogHeader>
               <Tabs defaultValue="general" className="mt-2 flex flex-col min-h-0 flex-1 overflow-hidden">
@@ -166,22 +168,23 @@ export default function AppNav() {
                   <TabsTrigger value="custom-foods" className="text-xs gap-1"><Package className="w-3 h-3" />Custom Foods</TabsTrigger>
                   <TabsTrigger value="location" className="text-xs gap-1"><MapPin className="w-3 h-3" />Location</TabsTrigger>
                   <TabsTrigger value="templates" className="text-xs gap-1"><LayoutTemplate className="w-3 h-3" />Templates</TabsTrigger>
+                  <TabsTrigger value="sync" className="text-xs gap-1"><RefreshCw className="w-3 h-3" />Sync</TabsTrigger>
                 </TabsList>
                 <div className="flex-1 min-h-0 overflow-y-auto mt-4">
                 <TabsContent value="general" className="mt-0">
                   <div className="space-y-5">
                     <div>
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-                        <Key className="w-3.5 h-3.5 text-emerald-600" />USDA FoodData Central API Key
+                        <Key className="w-3.5 h-3.5 text-brand-600" />USDA FoodData Central API Key
                       </label>
                       <p className="text-xs text-stone-400 mb-3">
                         Required for live food search. Get a free key at{' '}
-                        <a href="https://api.data.gov/signup/" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline hover:text-emerald-700">api.data.gov</a>.
+                        <a href="https://api.data.gov/signup/" target="_blank" rel="noopener noreferrer" className="text-brand-600 underline hover:text-brand-700">api.data.gov</a>.
                         Without your own key, you&apos;re limited to 50 searches/day with the demo key.
                       </p>
                       <div className="flex gap-2">
                         <Input type="password" placeholder="Enter your API key..." value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} className="flex-1 text-sm" />
-                        <Button onClick={handleSaveApiKey} className="bg-emerald-600 hover:bg-emerald-700 gap-1" size="sm">
+                        <Button onClick={handleSaveApiKey} className="bg-brand-600 hover:bg-brand-700 gap-1" size="sm">
                           {apiKeySaved ? (<><Check className="w-3.5 h-3.5" />Saved</>) : 'Save'}
                         </Button>
                       </div>
@@ -194,7 +197,48 @@ export default function AppNav() {
                     <Separator />
                     <div>
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-                        <HardDrive className="w-3.5 h-3.5 text-emerald-600" />Local Storage
+                        <Palette className="w-3.5 h-3.5 text-brand-600" />Theme
+                      </label>
+                      <p className="text-xs text-stone-400 mb-3">
+                        Choose a color palette for the app interface. Dark mode uses a matching dark variant.
+                      </p>
+                      <Select value={themeId} onValueChange={setTheme}>
+                        <SelectTrigger className="w-full text-sm">
+                          <SelectValue placeholder="Select theme..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {themes.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              <span className="flex items-center gap-2">
+                                <span>{t.name}</span>
+                                <span className="text-stone-400 text-xs">— {t.description}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {themeMounted && (
+                        <div className="mt-3 flex gap-1.5">
+                          {(() => {
+                            const vars = document.documentElement.classList.contains('dark')
+                              ? themes.find(t => t.id === themeId)?.dark || themes[0].dark
+                              : themes.find(t => t.id === themeId)?.light || themes[0].light;
+                            const swatches = ['--brand-600', '--brand-100', '--background', '--foreground', '--brand-400'];
+                            return swatches.map((v) => (
+                              <span
+                                key={v}
+                                className="w-6 h-6 rounded-full border border-stone-200"
+                                style={{ backgroundColor: vars[v] || '#888' }}
+                              />
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                    <Separator />
+                    <div>
+                      <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
+                        <HardDrive className="w-3.5 h-3.5 text-brand-600" />Local Storage
                       </label>
                       <p className="text-xs text-stone-400">
                         All your recipes are stored locally in your browser&apos;s IndexedDB. No data is sent to any server.
@@ -205,7 +249,7 @@ export default function AppNav() {
                     </div>
                     <Separator />
                     <div className="text-xs text-stone-400">
-                      <p className="font-medium text-stone-500 mb-1">About NutriLabel</p>
+                       <p className="font-medium text-stone-500 mb-1">About DietLedger</p>
                       <p>A fully standalone recipe tool that generates standard nutrition labels.</p>
                     </div>
                   </div>
@@ -229,7 +273,7 @@ export default function AppNav() {
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-                        <LayoutTemplate className="w-3.5 h-3.5 text-emerald-600" />Templates
+                        <LayoutTemplate className="w-3.5 h-3.5 text-brand-600" />Templates
                       </label>
                       <p className="text-xs text-stone-400 mb-3">
                         Manage render templates for recipes and books. Templates control layout, section visibility, styling, and page sizing.
@@ -243,6 +287,32 @@ export default function AppNav() {
                       </Button>
                     </div>
                   </div>
+                </TabsContent>
+                <TabsContent value="sync" className="mt-4">
+                  <SyncSettingsPanel />
+                  {(() => {
+                    const conflictedServers = syncServers.filter((s) => s.lastSyncStatus === 'conflict' && s.apiKey);
+                    if (conflictedServers.length === 0) return null;
+                    const first = conflictedServers[0];
+                    return (
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 w-full"
+                          onClick={() => setConflictsOpen(!conflictsOpen)}
+                        >
+                          {conflictsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          <AlertTriangle className="w-4 h-4" />
+                          {conflictedServers.length} Server{conflictedServers.length !== 1 ? 's' : ''} with Conflicts
+                        </button>
+                        {conflictsOpen && (
+                          <div className="mt-2">
+                            <ConflictResolver serverUrl={first.serverUrl} apiKey={first.apiKey} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </TabsContent>
                 </div>
               </Tabs>

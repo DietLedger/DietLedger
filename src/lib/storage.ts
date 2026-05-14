@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { SyncServerConfig, SyncChangeLogEntry } from './types';
 
 interface IngredientGroup {
   id: string;
@@ -289,7 +290,7 @@ interface WeightEntryRecord {
   updatedAt: string;
 }
 
-interface NutriLabelDB extends DBSchema {
+interface DietLedgerDB extends DBSchema {
   recipes: {
     key: string;
     value: RecipeRecord;
@@ -401,16 +402,29 @@ interface NutriLabelDB extends DBSchema {
       'by-profileId-date': [string, string];
     };
   };
+  syncServers: {
+    key: string;
+    value: SyncServerConfig;
+  };
+  syncChangeLog: {
+    key: string;
+    value: SyncChangeLogEntry;
+    indexes: {
+      'by-synced': string;
+      'by-storeName': string;
+      'by-timestamp': string;
+    };
+  };
 }
 
-const DB_NAME = 'nutrilabel-db';
-const DB_VERSION = 9;
+const DB_NAME = 'dietledger-db';
+const DB_VERSION = 10;
 
-let dbPromise: Promise<IDBPDatabase<NutriLabelDB>> | null = null;
+let dbPromise: Promise<IDBPDatabase<DietLedgerDB>> | null = null;
 
-function getDB(): Promise<IDBPDatabase<NutriLabelDB>> {
+export function getDB(): Promise<IDBPDatabase<DietLedgerDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<NutriLabelDB>(DB_NAME, DB_VERSION, {
+    dbPromise = openDB<DietLedgerDB>(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion) {
         if (oldVersion < 1) {
           const recipeStore = db.createObjectStore('recipes', { keyPath: 'id' });
@@ -488,6 +502,14 @@ function getDB(): Promise<IDBPDatabase<NutriLabelDB>> {
           weightStore.createIndex('by-date', 'date');
           weightStore.createIndex('by-profileId-date', ['profileId', 'date']);
         }
+        if (oldVersion < 10) {
+          db.createObjectStore('syncServers', { keyPath: 'id' });
+
+          const changeLogStore = db.createObjectStore('syncChangeLog', { keyPath: 'id' });
+          changeLogStore.createIndex('by-synced', 'synced');
+          changeLogStore.createIndex('by-storeName', 'storeName');
+          changeLogStore.createIndex('by-timestamp', 'timestamp');
+        }
       },
     });
   }
@@ -535,6 +557,7 @@ export async function createRecipe(name: string): Promise<RecipeRecord> {
     ingredients: [],
   };
   await db.put('recipes', recipe);
+  await logChange('recipes', recipe.id, 'upsert', recipe);
   return recipe;
 }
 
@@ -556,12 +579,14 @@ export async function updateRecipe(
   recipe.updatedAt = new Date().toISOString();
 
   await db.put('recipes', recipe);
+  await logChange('recipes', recipe.id, 'upsert', recipe);
   return recipe;
 }
 
 export async function deleteRecipe(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('recipes', id);
+  await logChange('recipes', id, 'delete');
 }
 
 // ── Ingredient CRUD ──────────────────────────────────────────────────
@@ -584,6 +609,7 @@ export async function addIngredient(
   recipe.updatedAt = new Date().toISOString();
 
   await db.put('recipes', recipe);
+  await logChange('recipes', recipe.id, 'upsert', recipe);
   return newIngredient;
 }
 
@@ -599,6 +625,7 @@ export async function removeIngredient(
   recipe.updatedAt = new Date().toISOString();
 
   await db.put('recipes', recipe);
+  await logChange('recipes', recipe.id, 'upsert', recipe);
 }
 
 export async function updateIngredient(
@@ -638,6 +665,7 @@ export async function updateIngredient(
 
   recipe.updatedAt = new Date().toISOString();
   await db.put('recipes', recipe);
+  await logChange('recipes', recipe.id, 'upsert', recipe);
   return ingredient;
 }
 
@@ -668,6 +696,7 @@ export async function createBook(title: string, description?: string, coverColor
     updatedAt: now,
   };
   await db.put('books', book);
+  await logChange('books', book.id, 'upsert', book);
   return book;
 }
 
@@ -685,6 +714,7 @@ export async function updateBook(
   book.updatedAt = new Date().toISOString();
 
   await db.put('books', book);
+  await logChange('books', book.id, 'upsert', book);
   return book;
 }
 
@@ -714,6 +744,7 @@ export async function deleteBook(id: string): Promise<void> {
   }
   await tx.objectStore('books').delete(id);
   await tx.done;
+  await logChange('books', id, 'delete');
 }
 
 // ── Chapter CRUD ─────────────────────────────────────────────────────
@@ -737,6 +768,7 @@ export async function createChapter(bookId: string, title: string): Promise<Chap
     updatedAt: now,
   };
   await db.put('chapters', chapter);
+  await logChange('chapters', chapter.id, 'upsert', chapter);
   return chapter;
 }
 
@@ -755,6 +787,7 @@ export async function updateChapter(
   chapter.updatedAt = new Date().toISOString();
 
   await db.put('chapters', chapter);
+  await logChange('chapters', chapter.id, 'upsert', chapter);
   return chapter;
 }
 
@@ -771,20 +804,26 @@ export async function deleteChapter(id: string): Promise<void> {
   }
   await tx.objectStore('chapters').delete(id);
   await tx.done;
+  await logChange('chapters', id, 'delete');
 }
 
 export async function reorderChapters(bookId: string, chapterIds: string[]): Promise<void> {
   const db = await getDB();
   const tx = db.transaction('chapters', 'readwrite');
+  const updated: ChapterRecord[] = [];
   for (let i = 0; i < chapterIds.length; i++) {
     const chapter = await tx.store.get(chapterIds[i]);
     if (chapter && chapter.bookId === bookId) {
       chapter.position = i;
       chapter.updatedAt = new Date().toISOString();
       await tx.store.put(chapter);
+      updated.push(chapter);
     }
   }
   await tx.done;
+  for (const ch of updated) {
+    await logChange('chapters', ch.id, 'upsert', ch);
+  }
 }
 
 // ── ChapterRecipe CRUD ───────────────────────────────────────────────
@@ -805,6 +844,7 @@ export async function addRecipeToChapter(chapterId: string, recipeId: string): P
     position: existing.length,
   };
   await db.put('chapterRecipes', record);
+  await logChange('chapterRecipes', record.id, 'upsert', record);
   return record;
 }
 
@@ -814,6 +854,7 @@ export async function removeRecipeFromChapter(chapterId: string, recipeId: strin
   const target = records.find(r => r.recipeId === recipeId);
   if (target) {
     await db.delete('chapterRecipes', target.id);
+    await logChange('chapterRecipes', target.id, 'delete');
   }
 }
 
@@ -821,14 +862,19 @@ export async function reorderChapterRecipes(chapterId: string, recipeIds: string
   const db = await getDB();
   const records = await db.getAllFromIndex('chapterRecipes', 'by-chapterId', chapterId);
   const tx = db.transaction('chapterRecipes', 'readwrite');
+  const updated: ChapterRecipeRecord[] = [];
   for (let i = 0; i < recipeIds.length; i++) {
     const record = records.find(r => r.recipeId === recipeIds[i]);
     if (record) {
       record.position = i;
       await tx.store.put(record);
+      updated.push(record);
     }
   }
   await tx.done;
+  for (const r of updated) {
+    await logChange('chapterRecipes', r.id, 'upsert', r);
+  }
 }
 
 // ── ChapterPage CRUD ─────────────────────────────────────────────────
@@ -859,6 +905,7 @@ export async function createChapterPage(chapterId: string, title: string, conten
     updatedAt: now,
   };
   await db.put('chapterPages', page);
+  await logChange('chapterPages', page.id, 'upsert', page);
   return page;
 }
 
@@ -876,12 +923,14 @@ export async function updateChapterPage(
   page.updatedAt = new Date().toISOString();
 
   await db.put('chapterPages', page);
+  await logChange('chapterPages', page.id, 'upsert', page);
   return page;
 }
 
 export async function deleteChapterPage(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('chapterPages', id);
+  await logChange('chapterPages', id, 'delete');
 }
 
 export async function getMaxChapterItemPosition(chapterId: string): Promise<number> {
@@ -923,6 +972,7 @@ export async function createBookPage(bookId: string, title: string, content: str
     updatedAt: now,
   };
   await db.put('bookPages', page);
+  await logChange('bookPages', page.id, 'upsert', page);
   return page;
 }
 
@@ -940,12 +990,14 @@ export async function updateBookPage(
   page.updatedAt = new Date().toISOString();
 
   await db.put('bookPages', page);
+  await logChange('bookPages', page.id, 'upsert', page);
   return page;
 }
 
 export async function deleteBookPage(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('bookPages', id);
+  await logChange('bookPages', id, 'delete');
 }
 
 export async function reorderBookLevelItems(
@@ -955,6 +1007,7 @@ export async function reorderBookLevelItems(
   const db = await getDB();
   const tx = db.transaction(['chapters', 'bookPages'], 'readwrite');
   const now = new Date().toISOString();
+  const logEntries: Array<{ storeName: string; record: ChapterRecord | BookPageRecord }> = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.type === 'chapter') {
@@ -963,6 +1016,7 @@ export async function reorderBookLevelItems(
         chapter.position = i;
         chapter.updatedAt = now;
         await tx.objectStore('chapters').put(chapter);
+        logEntries.push({ storeName: 'chapters', record: chapter });
       }
     } else {
       const page = await tx.objectStore('bookPages').get(item.id);
@@ -970,10 +1024,14 @@ export async function reorderBookLevelItems(
         page.position = i;
         page.updatedAt = now;
         await tx.objectStore('bookPages').put(page);
+        logEntries.push({ storeName: 'bookPages', record: page });
       }
     }
   }
   await tx.done;
+  for (const entry of logEntries) {
+    await logChange(entry.storeName, entry.record.id, 'upsert', entry.record);
+  }
 }
 
 export async function reorderChapterItems(
@@ -984,6 +1042,7 @@ export async function reorderChapterItems(
   const recipeRecords = await db.getAllFromIndex('chapterRecipes', 'by-chapterId', chapterId);
   const tx = db.transaction(['chapterRecipes', 'chapterPages'], 'readwrite');
   const now = new Date().toISOString();
+  const logEntries: Array<{ storeName: string; record: ChapterRecipeRecord | ChapterPageRecord }> = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.type === 'recipe') {
@@ -991,6 +1050,7 @@ export async function reorderChapterItems(
       if (record) {
         record.position = i;
         await tx.objectStore('chapterRecipes').put(record);
+        logEntries.push({ storeName: 'chapterRecipes', record });
       }
     } else {
       const page = await tx.objectStore('chapterPages').get(item.pageId);
@@ -998,10 +1058,14 @@ export async function reorderChapterItems(
         page.position = i;
         page.updatedAt = now;
         await tx.objectStore('chapterPages').put(page);
+        logEntries.push({ storeName: 'chapterPages', record: page });
       }
     }
   }
   await tx.done;
+  for (const entry of logEntries) {
+    await logChange(entry.storeName, entry.record.id, 'upsert', entry.record);
+  }
 }
 
 export async function moveRecipeBetweenChapters(
@@ -1024,6 +1088,8 @@ export async function moveRecipeBetweenChapters(
   await tx.store.delete(chapterRecipeId);
   await tx.store.put(newRecord);
   await tx.done;
+  await logChange('chapterRecipes', newRecord.id, 'upsert', newRecord);
+  await logChange('chapterRecipes', chapterRecipeId, 'delete');
 
   return newRecord;
 }
@@ -1052,6 +1118,8 @@ export async function convertChapterPageToBookPage(
   await tx.objectStore('chapterPages').delete(chapterPageId);
   await tx.objectStore('bookPages').put(bookPage);
   await tx.done;
+  await logChange('chapterPages', chapterPageId, 'delete');
+  await logChange('bookPages', bookPage.id, 'upsert', bookPage);
 
   return bookPage;
 }
@@ -1080,6 +1148,8 @@ export async function convertBookPageToChapterPage(
   await tx.objectStore('bookPages').delete(bookPageId);
   await tx.objectStore('chapterPages').put(chapterPage);
   await tx.done;
+  await logChange('bookPages', bookPageId, 'delete');
+  await logChange('chapterPages', chapterPage.id, 'upsert', chapterPage);
 
   return chapterPage;
 }
@@ -1116,6 +1186,7 @@ export async function createCategory(name: string, parentId?: string | null): Pr
     updatedAt: now,
   };
   await db.put('categories', category);
+  await logChange('categories', category.id, 'upsert', category);
   return category;
 }
 
@@ -1132,15 +1203,17 @@ export async function updateCategory(
   category.updatedAt = new Date().toISOString();
 
   await db.put('categories', category);
+  await logChange('categories', category.id, 'upsert', category);
   return category;
 }
 
 export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
   await deleteCategoryCascade(db, id);
+  await logChange('categories', id, 'delete');
 }
 
-async function deleteCategoryCascade(db: IDBPDatabase<NutriLabelDB>, id: string): Promise<void> {
+async function deleteCategoryCascade(db: IDBPDatabase<DietLedgerDB>, id: string): Promise<void> {
   const children = await db.getAllFromIndex('categories', 'by-parentId', id);
   for (const child of children) {
     await deleteCategoryCascade(db, child.id);
@@ -1178,6 +1251,7 @@ export async function addCategoryToRecipe(recipeId: string, categoryId: string):
     categoryId,
   };
   await db.put('recipeCategories', record);
+  await logChange('recipeCategories', record.id, 'upsert', record);
   return record;
 }
 
@@ -1187,6 +1261,7 @@ export async function removeCategoryFromRecipe(recipeId: string, categoryId: str
   const target = records.find(r => r.categoryId === categoryId);
   if (target) {
     await db.delete('recipeCategories', target.id);
+    await logChange('recipeCategories', target.id, 'delete');
   }
 }
 
@@ -1454,6 +1529,7 @@ export async function createTemplate(data: Omit<TemplateRecord, 'id' | 'createdA
     updatedAt: now,
   };
   await db.put('templates', record);
+  await logChange('templates', record.id, 'upsert', record);
   return record;
 }
 
@@ -1472,12 +1548,14 @@ export async function updateTemplate(
   record.updatedAt = new Date().toISOString();
 
   await db.put('templates', record);
+  await logChange('templates', record.id, 'upsert', record);
   return record;
 }
 
 export async function deleteTemplate(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('templates', id);
+  await logChange('templates', id, 'delete');
 }
 
 // ── MealPlan CRUD ────────────────────────────────────────────────────
@@ -1512,6 +1590,7 @@ export async function createMealPlan(name: string, weekStart: string): Promise<M
     updatedAt: now,
   };
   await db.put('mealPlans', plan);
+  await logChange('mealPlans', plan.id, 'upsert', plan);
   return plan;
 }
 
@@ -1525,6 +1604,7 @@ export async function updateMealPlan(
   if (data.name !== undefined) plan.name = data.name.trim();
   plan.updatedAt = new Date().toISOString();
   await db.put('mealPlans', plan);
+  await logChange('mealPlans', plan.id, 'upsert', plan);
   return plan;
 }
 
@@ -1541,6 +1621,7 @@ export async function deleteMealPlan(id: string): Promise<void> {
   }
   await tx.objectStore('mealPlans').delete(id);
   await tx.done;
+  await logChange('mealPlans', id, 'delete');
 }
 
 // ── DayPlanEntry CRUD ────────────────────────────────────────────────
@@ -1580,6 +1661,7 @@ export async function createDayPlanEntry(
     isLeftover: false,
   };
   await db.put('dayPlanEntries', entry);
+  await logChange('dayPlanEntries', entry.id, 'upsert', entry);
   return entry;
 }
 
@@ -1596,17 +1678,20 @@ export async function updateDayPlanEntry(
   if (data.servings !== undefined) entry.servings = data.servings;
   if (data.isLeftover !== undefined) entry.isLeftover = data.isLeftover;
   await db.put('dayPlanEntries', entry);
+  await logChange('dayPlanEntries', entry.id, 'upsert', entry);
   return entry;
 }
 
 export async function deleteDayPlanEntry(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('dayPlanEntries', id);
+  await logChange('dayPlanEntries', id, 'delete');
 }
 
 export async function putDayPlanEntry(entry: DayPlanEntryRecord): Promise<void> {
   const db = await getDB();
   await db.put('dayPlanEntries', entry);
+  await logChange('dayPlanEntries', entry.id, 'upsert', entry);
 }
 
 // ── MealGroup CRUD ──────────────────────────────────────────────────
@@ -1634,6 +1719,7 @@ export async function createMealGroup(
     position,
   };
   await db.put('mealGroups', group);
+  await logChange('mealGroups', group.id, 'upsert', group);
   return group;
 }
 
@@ -1647,12 +1733,14 @@ export async function updateMealGroup(
   if (data.name !== undefined) group.name = data.name.trim();
   if (data.position !== undefined) group.position = data.position;
   await db.put('mealGroups', group);
+  await logChange('mealGroups', group.id, 'upsert', group);
   return group;
 }
 
 export async function deleteMealGroup(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('mealGroups', id);
+  await logChange('mealGroups', id, 'delete');
 }
 
 // ── GroceryChecklist CRUD ───────────────────────────────────────────
@@ -1667,6 +1755,7 @@ export async function putGroceryChecklist(record: GroceryChecklistRecord): Promi
   const db = await getDB();
   record.updatedAt = new Date().toISOString();
   await db.put('groceryChecklists', record);
+  await logChange('groceryChecklists', record.id, 'upsert', record);
 }
 
 export async function createGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord> {
@@ -1682,7 +1771,7 @@ export async function createGroceryChecklist(weekStart: string): Promise<Grocery
 
 // ── API Key Storage (localStorage) ────────────────────────────────────
 
-const API_KEY_STORAGE_KEY = 'nutrilabel-fda-api-key';
+const API_KEY_STORAGE_KEY = 'dietledger-fda-api-key';
 
 export function getStoredApiKey(): string {
   if (typeof window === 'undefined') return 'DEMO_KEY';
@@ -1737,6 +1826,7 @@ export async function addPantryStaple(name: string): Promise<void> {
     name: name.trim(),
   };
   await db.put('pantryStaples', record);
+  await logChange('pantryStaples', record.id, 'upsert', record);
 }
 
 export async function removePantryStaple(name: string): Promise<void> {
@@ -1745,6 +1835,7 @@ export async function removePantryStaple(name: string): Promise<void> {
   const target = all.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
   if (target) {
     await db.delete('pantryStaples', target.id);
+    await logChange('pantryStaples', target.id, 'delete');
   }
 }
 
@@ -1825,6 +1916,7 @@ export async function addCustomFood(food: Omit<CustomFoodRecord, 'id' | 'created
     createdAt: new Date().toISOString(),
   };
   await db.put('customFoods', record);
+  await logChange('customFoods', record.id, 'upsert', record);
   return record;
 }
 
@@ -1834,12 +1926,14 @@ export async function updateCustomFood(id: string, data: Partial<Omit<CustomFood
   if (!existing) throw new Error('Custom food not found');
   const updated = { ...existing, ...data };
   await db.put('customFoods', updated);
+  await logChange('customFoods', updated.id, 'upsert', updated);
   return updated;
 }
 
 export async function deleteCustomFood(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('customFoods', id);
+  await logChange('customFoods', id, 'delete');
 }
 
 // ── NutritionProfile CRUD ────────────────────────────────────────────
@@ -1867,6 +1961,7 @@ export async function createNutritionProfile(data: Omit<NutritionProfileRecord, 
     updatedAt: now,
   };
   await db.put('nutritionProfiles', record);
+  await logChange('nutritionProfiles', record.id, 'upsert', record);
   return record;
 }
 
@@ -1876,6 +1971,7 @@ export async function updateNutritionProfile(id: string, data: Partial<Omit<Nutr
   if (!record) throw new Error('Profile not found');
   Object.assign(record, data, { updatedAt: new Date().toISOString() });
   await db.put('nutritionProfiles', record);
+  await logChange('nutritionProfiles', record.id, 'upsert', record);
   return record;
 }
 
@@ -1888,6 +1984,7 @@ export async function deleteNutritionProfile(id: string): Promise<void> {
   for (const key of weights) await tx.objectStore('weightEntries').delete(key);
   await tx.objectStore('nutritionProfiles').delete(id);
   await tx.done;
+  await logChange('nutritionProfiles', id, 'delete');
 }
 
 // ── FoodLogEntry CRUD ────────────────────────────────────────────────
@@ -1912,6 +2009,7 @@ export async function createFoodLogEntry(data: Omit<FoodLogEntryRecord, 'id' | '
     updatedAt: now,
   };
   await db.put('foodLogEntries', record);
+  await logChange('foodLogEntries', record.id, 'upsert', record);
   return record;
 }
 
@@ -1921,12 +2019,14 @@ export async function updateFoodLogEntry(id: string, data: Partial<Omit<FoodLogE
   if (!record) throw new Error('Food log entry not found');
   Object.assign(record, data, { updatedAt: new Date().toISOString() });
   await db.put('foodLogEntries', record);
+  await logChange('foodLogEntries', record.id, 'upsert', record);
   return record;
 }
 
 export async function deleteFoodLogEntry(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('foodLogEntries', id);
+  await logChange('foodLogEntries', id, 'delete');
 }
 
 export async function getFoodLogByProfileAndDate(profileId: string, date: string): Promise<FoodLogEntryRecord[]> {
@@ -1959,6 +2059,7 @@ export async function createWeightEntry(data: Omit<WeightEntryRecord, 'id' | 'cr
     const record = existing[0];
     Object.assign(record, { weightKg: data.weightKg, notes: data.notes, lastSyncedAt: data.lastSyncedAt, updatedAt: new Date().toISOString() });
     await db.put('weightEntries', record);
+    await logChange('weightEntries', record.id, 'upsert', record);
     return record;
   }
   const now = new Date().toISOString();
@@ -1969,6 +2070,7 @@ export async function createWeightEntry(data: Omit<WeightEntryRecord, 'id' | 'cr
     updatedAt: now,
   };
   await db.put('weightEntries', record);
+  await logChange('weightEntries', record.id, 'upsert', record);
   return record;
 }
 
@@ -1978,12 +2080,14 @@ export async function updateWeightEntry(id: string, data: Partial<Omit<WeightEnt
   if (!record) throw new Error('Weight entry not found');
   Object.assign(record, data, { updatedAt: new Date().toISOString() });
   await db.put('weightEntries', record);
+  await logChange('weightEntries', record.id, 'upsert', record);
   return record;
 }
 
 export async function deleteWeightEntry(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('weightEntries', id);
+  await logChange('weightEntries', id, 'delete');
 }
 
 export async function getWeightByProfile(profileId: string): Promise<WeightEntryRecord[]> {
@@ -2028,3 +2132,105 @@ export type {
   MealSlot,
   FoodSourceType,
 };
+
+export async function logChange(storeName: string, recordId: string, action: 'upsert' | 'delete', data?: unknown): Promise<void> {
+  try {
+    const db = await getDB();
+    const entry: SyncChangeLogEntry = {
+      id: crypto.randomUUID(),
+      storeName,
+      recordId,
+      action,
+      timestamp: new Date().toISOString(),
+      synced: false,
+      data: data !== undefined ? JSON.stringify(data) : null,
+    };
+    await db.put('syncChangeLog', entry);
+  } catch {}
+}
+
+export async function getUnsyncedChanges(): Promise<SyncChangeLogEntry[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('syncChangeLog', 'by-synced', IDBKeyRange.only('0'));
+}
+
+export async function getAllUnsyncedChanges(): Promise<SyncChangeLogEntry[]> {
+  const db = await getDB();
+  const all = await db.getAll('syncChangeLog');
+  return all.filter(e => !e.synced);
+}
+
+export async function markChangesSynced(ids: string[]): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction('syncChangeLog', 'readwrite');
+  for (const id of ids) {
+    const entry = await tx.store.get(id);
+    if (entry) {
+      entry.synced = true;
+      await tx.store.put(entry);
+    }
+  }
+  await tx.done;
+}
+
+export async function clearSyncChangeLog(): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction('syncChangeLog', 'readwrite');
+  await tx.store.clear();
+  await tx.done;
+}
+
+export async function getAllSyncServers(): Promise<SyncServerConfig[]> {
+  const db = await getDB();
+  return db.getAll('syncServers');
+}
+
+export async function putSyncServer(config: SyncServerConfig): Promise<void> {
+  const db = await getDB();
+  await db.put('syncServers', config);
+}
+
+export async function deleteSyncServer(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('syncServers', id);
+}
+
+export async function getAllStoreData(storeName: string): Promise<unknown[]> {
+  const db = await getDB();
+  const storeNames = [
+    'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
+    'recipeCategories', 'chapterPages', 'bookPages', 'templates',
+    'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
+    'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+  ];
+  if (!storeNames.includes(storeName)) return [];
+  return db.getAll(storeName as never);
+}
+
+export async function putStoreData(storeName: string, records: unknown[]): Promise<void> {
+  const db = await getDB();
+  const storeNames = [
+    'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
+    'recipeCategories', 'chapterPages', 'bookPages', 'templates',
+    'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
+    'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+  ];
+  if (!storeNames.includes(storeName)) return;
+  const tx = db.transaction(storeName as never, 'readwrite');
+  for (const record of records) {
+    await tx.store.put(record);
+  }
+  await tx.done;
+}
+
+export async function deleteStoreRecord(storeName: string, id: string): Promise<void> {
+  const db = await getDB();
+  const storeNames = [
+    'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
+    'recipeCategories', 'chapterPages', 'bookPages', 'templates',
+    'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
+    'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+  ];
+  if (!storeNames.includes(storeName)) return;
+  await db.delete(storeName as never, id);
+}

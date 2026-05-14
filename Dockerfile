@@ -4,7 +4,9 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json ./
+COPY prisma ./prisma/
 RUN npm install --omit=dev
+RUN npx prisma generate
 
 FROM base AS builder
 WORKDIR /app
@@ -19,19 +21,29 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV DOCKER=1
 
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nutrilabel
+RUN apk add --no-cache wget
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 dietledger
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma/
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma/
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma/
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma/
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-RUN mkdir -p db && chown -R nutrilabel:nodejs /app
+RUN mkdir -p db && chown -R dietledger:nodejs /app
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
-USER nutrilabel
+USER dietledger
 
 EXPOSE 3000
 ENV PORT=3000
 
-CMD ["node", "server.js"]
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+
+ENTRYPOINT ["./docker-entrypoint.sh"]

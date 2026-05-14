@@ -98,9 +98,9 @@ export default function FoodSynergiesPanel({
 
   return (
     <div className="flex flex-col h-full border rounded-lg bg-white overflow-hidden">
-      <div className="p-3 border-b bg-emerald-50">
-        <h3 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-          <Leaf className="w-4 h-4 text-emerald-600" />Suggestions
+      <div className="p-3 border-b bg-brand-50">
+        <h3 className="text-sm font-semibold text-brand-800 flex items-center gap-2">
+          <Leaf className="w-4 h-4 text-brand-600" />Suggestions
         </h3>
       </div>
 
@@ -173,7 +173,7 @@ export default function FoodSynergiesPanel({
                 seasonalFoods.map((food) => (
                   <button
                     key={food}
-                    className="px-2 py-1 text-xs rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    className="px-2 py-1 text-xs rounded-full border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors"
                     onClick={() => onSeasonalFoodClick(food)}
                   >
                     {food}
@@ -200,11 +200,11 @@ function SynergyRecipeRow({
   const [selectedSlot, setSelectedSlot] = useState<DaySlot>(firstEmptySlot);
 
   return (
-    <div className="flex items-center gap-2 p-2 rounded-md border border-stone-200 hover:border-emerald-200 bg-white">
+    <div className="flex items-center gap-2 p-2 rounded-md border border-stone-200 hover:border-brand-200 bg-white">
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-stone-800 truncate">{result.recipe.name}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <Badge variant="secondary" className="text-[9px] h-3.5 px-1 bg-emerald-100 text-emerald-700">
+          <Badge variant="secondary" className="text-[9px] h-3.5 px-1 bg-brand-100 text-brand-700">
             {result.score} shared
           </Badge>
           {result.sharedIngredients.slice(0, 3).map((ing) => (
@@ -233,7 +233,7 @@ function SynergyRecipeRow({
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 w-6 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+          className="h-6 w-6 p-0 text-brand-600 hover:text-brand-700 hover:bg-brand-50"
           onClick={() => onAddToSlot(result.recipe.id, selectedSlot)}
         >
           <Plus className="w-3.5 h-3.5" />

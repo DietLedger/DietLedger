@@ -24,6 +24,7 @@ import {
   type MealSlot,
   type FoodSourceType,
 } from "@/lib/storage";
+import { notifyLocalChange } from '@/lib/sync-store';
 
 interface NutritionState {
   profiles: NutritionProfileRecord[];
@@ -84,6 +85,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
         activeProfileId: s.activeProfileId ?? record.id,
       }));
       syncSingleProfile(record);
+      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -98,6 +100,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
         profiles: s.profiles.map((p) => (p.id === id ? record : p)),
       }));
       syncSingleProfile(record);
+      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -116,6 +119,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
           weights: s.activeProfileId === id ? [] : s.weights,
         };
       });
+      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -149,6 +153,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
       const record = await dbCreateFoodLog(data);
       set((s) => ({ foodLog: [...s.foodLog, record] }));
       syncSingleFoodLog(record);
+      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -163,6 +168,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
         foodLog: s.foodLog.map((e) => (e.id === id ? record : e)),
       }));
       syncSingleFoodLog(record);
+      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -173,6 +179,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
     try {
       await dbDeleteFoodLog(id);
       set((s) => ({ foodLog: s.foodLog.filter((e) => e.id !== id) }));
+      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -202,6 +209,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
         return { weights: weights.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) };
       });
       syncSingleWeight(record);
+      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -213,6 +221,7 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
     try {
       await dbDeleteWeight(id);
       set((s) => ({ weights: s.weights.filter((w) => w.id !== id) }));
+      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;

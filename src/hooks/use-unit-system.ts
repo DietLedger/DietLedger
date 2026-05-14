@@ -9,7 +9,7 @@ export function useUnitSystem() {
   useEffect(() => {
     setSystem(getUnitSystem());
     const handler = (e: StorageEvent) => {
-      if (e.key === 'nutrilabel-unit-system') {
+      if (e.key === 'dietledger-unit-system') {
         setSystem(getUnitSystem());
       }
     };

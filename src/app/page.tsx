@@ -94,15 +94,13 @@ export default function WelcomePage() {
       <header className="border-b bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white">
-              <ChefHat className="w-5 h-5" />
-            </div>
+            <img src="/logo.svg" alt="DietLedger" className="w-9 h-9" />
             <h1 className="text-xl font-bold text-stone-900 tracking-tight">
-              NutriLabel
+              DietLedger
             </h1>
           </Link>
           <Link href="/recipes">
-            <Button className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+            <Button className="bg-brand-600 hover:bg-brand-700 gap-2">
               Go to App
               <ArrowRight className="w-4 h-4" />
             </Button>
@@ -113,7 +111,7 @@ export default function WelcomePage() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-8 space-y-8">
         <section>
           <h2 className="text-2xl font-bold text-stone-900 mb-1">
-            Welcome to NutriLabel
+            Welcome to DietLedger
           </h2>
           <p className="text-stone-500 text-sm">
             Your recipe nutrition label toolkit. Quick access to everything
@@ -155,7 +153,7 @@ export default function WelcomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <section>
             <h3 className="text-lg font-semibold text-stone-900 mb-4 flex items-center gap-2">
-              <CalendarDays className="w-5 h-5 text-emerald-600" />
+              <CalendarDays className="w-5 h-5 text-brand-600" />
               Today&apos;s Meal Plan
             </h3>
             <Card>
@@ -164,11 +162,11 @@ export default function WelcomePage() {
                   <div className="flex items-center justify-between mb-3">
                     <Link
                       href={`/meal-plans/${currentWeekMonday}`}
-                      className="text-sm font-medium text-stone-700 hover:text-emerald-600 transition-colors"
+                      className="text-sm font-medium text-stone-700 hover:text-brand-600 transition-colors"
                     >
                       Week of {currentWeekPlan.weekStart}
                     </Link>
-                    <Link href="/meal-plans" className="text-xs text-emerald-600 hover:underline">
+                    <Link href="/meal-plans" className="text-xs text-brand-600 hover:underline">
                       View all
                     </Link>
                   </div>
@@ -180,7 +178,7 @@ export default function WelcomePage() {
                           <Link
                             key={entry.id}
                             href={`/kitchen-helper?recipeId=${entry.recipeId}`}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-emerald-50 transition-colors"
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-brand-50 transition-colors"
                           >
                             <span className="text-xs text-stone-500">{recipe?.name || 'Unknown Recipe'}</span>
                           </Link>
@@ -190,7 +188,7 @@ export default function WelcomePage() {
                   ) : (
                     <Link
                       href={`/meal-plans/${currentWeekMonday}`}
-                      className="text-xs text-stone-400 hover:text-emerald-600 transition-colors"
+                      className="text-xs text-stone-400 hover:text-brand-600 transition-colors"
                     >
                       No meals planned for today — add some
                     </Link>
@@ -204,7 +202,7 @@ export default function WelcomePage() {
                   <p className="text-sm text-stone-500">No meal plan for this week</p>
                   <Link
                     href="/meal-plans"
-                    className="text-xs text-emerald-600 hover:underline"
+                    className="text-xs text-brand-600 hover:underline"
                   >
                     Create a meal plan
                   </Link>
@@ -215,7 +213,7 @@ export default function WelcomePage() {
 
           <section>
             <h3 className="text-lg font-semibold text-stone-900 mb-4 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-emerald-600" />
+              <Clock className="w-5 h-5 text-brand-600" />
               Latest Recipes
             </h3>
             <Card>
@@ -224,7 +222,7 @@ export default function WelcomePage() {
                   No recipes yet.{' '}
                   <Link
                     href="/recipes"
-                    className="text-emerald-600 hover:underline"
+                    className="text-brand-600 hover:underline"
                   >
                     Create one
                   </Link>
@@ -261,7 +259,7 @@ export default function WelcomePage() {
 
         <section>
           <h3 className="text-lg font-semibold text-stone-900 mb-4 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-emerald-600" />
+            <BarChart3 className="w-5 h-5 text-brand-600" />
             Stats Dashboard
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -293,7 +291,7 @@ export default function WelcomePage() {
 
       <footer className="border-t bg-white mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between text-xs text-stone-400">
-          <span>NutriLabel — Nutrition Label Toolkit</span>
+          <span>DietLedger — Nutrition Label Toolkit</span>
           <span>Local Storage &middot; No data leaves your device</span>
         </div>
       </footer>
@@ -322,7 +320,7 @@ function Tile({
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${
             active
-              ? 'bg-emerald-100 text-emerald-600'
+              ? 'bg-brand-100 text-brand-600'
               : 'bg-stone-100 text-stone-400'
           }`}
         >
@@ -361,7 +359,7 @@ function Tile({
   if (active && href) {
     return (
       <Link href={href}>
-        <Card className="h-full hover:border-emerald-200 hover:shadow-md transition-all cursor-pointer py-4">
+        <Card className="h-full hover:border-brand-200 hover:shadow-md transition-all cursor-pointer py-4">
           <CardContent className="flex flex-col">{inner}</CardContent>
         </Card>
       </Link>
@@ -389,7 +387,7 @@ function StatCard({
   return (
     <Card className="py-4">
       <CardContent className="flex flex-col items-center text-center gap-1">
-        <Icon className="w-4 h-4 text-emerald-600 mb-1" />
+        <Icon className="w-4 h-4 text-brand-600 mb-1" />
         <p className="text-2xl font-bold text-stone-900">{value}</p>
         <p className="text-xs text-stone-500">{label}</p>
         {subtitle && (

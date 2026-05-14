@@ -461,8 +461,8 @@ function KitchenHelperContent() {
   return (
     <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
-          <ChefHat className="w-5 h-5" />
+        <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center">
+          <img src="/logo.svg" alt="DietLedger" className="w-6 h-6" />
         </div>
         <div>
           <h1 className="text-xl font-bold text-stone-900">Kitchen Helper</h1>
@@ -509,8 +509,8 @@ function KitchenHelperContent() {
                             key={entry.id}
                             className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors text-left ${
                               isDone
-                                ? 'border-emerald-200 bg-emerald-50'
-                                : 'border-stone-200 hover:border-emerald-300 hover:bg-emerald-50'
+                                ? 'border-brand-200 bg-brand-50'
+                                : 'border-stone-200 hover:border-brand-300 hover:bg-brand-50'
                             }`}
                             onClick={() => {
                               setSelectedRecipeId(entry.recipeId);
@@ -518,11 +518,11 @@ function KitchenHelperContent() {
                             }}
                           >
                             <div>
-                              <span className={`text-sm font-medium ${isDone ? 'text-emerald-700 line-through' : 'text-stone-800'}`}>
+                              <span className={`text-sm font-medium ${isDone ? 'text-brand-700 line-through' : 'text-stone-800'}`}>
                                 {recipe?.name || 'Unknown Recipe'}
                               </span>
                               {isDone && (
-                                <span className="text-xs text-emerald-500 ml-2">done</span>
+                                <span className="text-xs text-brand-500 ml-2">done</span>
                               )}
                               {group && (
                                 <span className="text-xs text-stone-400 ml-2">({group.name})</span>
@@ -552,7 +552,7 @@ function KitchenHelperContent() {
                   filteredRecipes.map((recipe) => (
                     <button
                       key={recipe.id}
-                      className="w-full flex items-center justify-between p-3 rounded-lg border border-stone-200 hover:border-emerald-300 hover:bg-emerald-50 transition-colors text-left"
+                      className="w-full flex items-center justify-between p-3 rounded-lg border border-stone-200 hover:border-brand-300 hover:bg-brand-50 transition-colors text-left"
                       onClick={() => {
                         setSelectedRecipeId(recipe.id);
                         setCompletedSteps(new Set());
@@ -569,7 +569,7 @@ function KitchenHelperContent() {
                     return (
                       <button
                         key={group.id}
-                        className="w-full flex items-center justify-between p-3 rounded-lg border border-stone-200 hover:border-emerald-300 hover:bg-emerald-50 transition-colors text-left"
+                        className="w-full flex items-center justify-between p-3 rounded-lg border border-stone-200 hover:border-brand-300 hover:bg-brand-50 transition-colors text-left"
                         onClick={() => {
                           setSelectedGroupId(group.id);
                           setCompletedSteps(new Set());
@@ -624,7 +624,7 @@ function KitchenHelperContent() {
               {totalCount > 0 && !playMode && (
                 <Button
                   size="sm"
-                  className="text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+                  className="text-xs gap-1 bg-brand-600 hover:bg-brand-700"
                   onClick={() => {
                     setPlayMode(true);
                     setPlayStepIndex(firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0);
@@ -687,8 +687,8 @@ function KitchenHelperContent() {
               {ingredients.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center gap-2 mb-3">
-                    <ChefHat className="w-4 h-4 text-emerald-600" />
-                    <h3 className="text-sm font-semibold text-emerald-700 uppercase tracking-wider">
+                    <ChefHat className="w-4 h-4 text-brand-600" />
+                    <h3 className="text-sm font-semibold text-brand-700 uppercase tracking-wider">
                       Ingredients
                     </h3>
                   </div>
@@ -841,7 +841,7 @@ function KitchenHelperContent() {
                   </p>
                   <div className="w-full bg-stone-200 rounded-full h-2 mt-2">
                     <div
-                      className="bg-emerald-500 rounded-full h-2 transition-all"
+                      className="bg-brand-500 rounded-full h-2 transition-all"
                       style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }}
                     />
                   </div>
@@ -891,7 +891,7 @@ function KitchenHelperContent() {
                     size="lg"
                     className={`text-sm gap-1 ${
                       playStepIndex === allSteps.length - 1
-                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        ? 'bg-brand-600 hover:bg-brand-700'
                         : currentPlayStep.type === 'prep'
                         ? 'bg-amber-600 hover:bg-amber-700'
                         : 'bg-red-600 hover:bg-red-700'
@@ -924,7 +924,7 @@ function KitchenHelperContent() {
 
           {playMode && !currentPlayStep && (
             <div className="text-center py-12">
-              <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center mx-auto mb-4">
                 <Check className="w-8 h-8" />
               </div>
               <p className="text-xl font-semibold text-stone-800">All done!</p>
@@ -937,7 +937,7 @@ function KitchenHelperContent() {
                   <ChevronLeft className="w-4 h-4 mr-1" />Back to Steps
                 </Button>
                 <Button
-                  className="bg-emerald-600 hover:bg-emerald-700"
+                  className="bg-brand-600 hover:bg-brand-700"
                   onClick={() => setPlayMode(false)}
                 >
                   Exit Play Mode

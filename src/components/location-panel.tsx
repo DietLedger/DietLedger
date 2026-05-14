@@ -48,7 +48,7 @@ export default function LocationPanel() {
     <div className="space-y-4">
       <div>
         <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-          <MapPin className="w-3.5 h-3.5 text-emerald-600" />Location
+          <MapPin className="w-3.5 h-3.5 text-brand-600" />Location
         </label>
         <p className="text-xs text-stone-400 mb-3">
           Set your region to see which foods are in season. Used for seasonal food suggestions in meal planning.
@@ -88,7 +88,7 @@ export default function LocationPanel() {
         <Button
           onClick={handleSave}
           size="sm"
-          className="bg-emerald-600 hover:bg-emerald-700 gap-1"
+          className="bg-brand-600 hover:bg-brand-700 gap-1"
           disabled={savedLocation?.country === country && savedLocation?.region === region}
         >
           <MapPin className="w-3.5 h-3.5" />

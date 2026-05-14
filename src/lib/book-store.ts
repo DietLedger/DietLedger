@@ -44,6 +44,7 @@ import {
   type RecipeCategoryRecord,
 } from '@/lib/storage';
 import type { RecipeRecord } from '@/lib/storage';
+import { notifyLocalChange } from '@/lib/sync-store';
 
 interface BookWithChapters extends BookRecord {
   chapters: (ChapterRecord & {
@@ -170,6 +171,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         books: [book, ...state.books],
         isLoading: false,
       }));
+      notifyLocalChange();
       return book;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -188,6 +190,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           : state.activeBook,
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -202,6 +205,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         activeBook: state.activeBook?.id === id ? null : state.activeBook,
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -223,6 +227,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
       return chapter;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -246,6 +251,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -265,6 +271,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -285,6 +292,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           .filter(Boolean) as BookWithChapters['chapters'];
         return { activeBook: { ...state.activeBook, chapters: reordered }, isLoading: false };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -308,6 +316,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -331,6 +340,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -360,6 +370,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -383,6 +394,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
       return page;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -407,6 +419,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -429,6 +442,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -448,6 +462,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
       return page;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -469,6 +484,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -488,6 +504,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -518,6 +535,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -554,6 +572,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -579,6 +598,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -602,6 +622,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -626,6 +647,7 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -650,6 +672,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         const categories = [...state.categories, category];
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
+      notifyLocalChange();
       return category;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -665,6 +688,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         const categories = state.categories.map((c) => (c.id === id ? updated : c));
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -678,6 +702,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         const categories = state.categories.filter((c) => c.id !== id);
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -705,6 +730,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         next.set(recipeId, records);
         return { recipeCategories: next };
       });
+      notifyLocalChange();
     } catch (err) {
       console.error('Failed to assign category:', err);
     }
@@ -719,6 +745,7 @@ export const useBookStore = create<BookState>((set, get) => ({
         next.set(recipeId, records);
         return { recipeCategories: next };
       });
+      notifyLocalChange();
     } catch (err) {
       console.error('Failed to unassign category:', err);
     }

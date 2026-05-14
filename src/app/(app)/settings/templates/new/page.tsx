@@ -151,11 +151,11 @@ function NewTemplatePageContent() {
         {TEMPLATE_TYPES.map((t) => (
           <Card
             key={t.value}
-            className="cursor-pointer hover:shadow-md hover:border-emerald-300 transition-all"
+            className="cursor-pointer hover:shadow-md hover:border-brand-300 transition-all"
             onClick={() => handleCreate(t.value)}
           >
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
+              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-brand-50 text-brand-600 shrink-0">
                 <LayoutTemplate className="w-6 h-6" />
               </div>
               <div className="flex-1">

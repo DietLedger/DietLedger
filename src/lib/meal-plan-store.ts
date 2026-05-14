@@ -18,6 +18,7 @@ import {
   type MealGroupRecord,
 } from '@/lib/storage';
 import type { DaySlot } from '@/lib/types';
+import { notifyLocalChange } from '@/lib/sync-store';
 
 interface MealPlanState {
   mealPlans: MealPlanRecord[];
@@ -84,6 +85,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     if (!plan) {
       plan = await dbCreateMealPlan(`Week of ${weekStart}`, weekStart);
       set((state) => ({ mealPlans: [plan!, ...state.mealPlans] }));
+      notifyLocalChange();
     }
     if (!get().activeMealPlan || get().activeMealPlan!.id !== plan.id) {
       const [entries, groups] = await Promise.all([
@@ -103,6 +105,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       dayEntries: state.activeMealPlan?.id === id ? [] : state.dayEntries,
       mealGroups: state.activeMealPlan?.id === id ? [] : state.mealGroups,
     }));
+    notifyLocalChange();
   },
 
   addRecipeToSlot: async (date: string, slot: DaySlot, recipeId: string) => {
@@ -114,6 +117,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     const position = existingInSlot.length;
     const entry = await dbCreateDayPlanEntry(plan.id, date, slot, recipeId, position);
     set((state) => ({ dayEntries: [...state.dayEntries, entry] }));
+    notifyLocalChange();
   },
 
   removeEntry: async (entryId: string) => {
@@ -121,6 +125,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     set((state) => ({
       dayEntries: state.dayEntries.filter((e) => e.id !== entryId),
     }));
+    notifyLocalChange();
   },
 
   moveEntry: async (entryId: string, toSlot: DaySlot, toPosition: number) => {
@@ -131,6 +136,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     set((state) => ({
       dayEntries: state.dayEntries.map((e) => (e.id === entryId ? updated : e)),
     }));
+    notifyLocalChange();
   },
 
   updateServings: async (entryId: string, servings: number) => {
@@ -140,6 +146,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         e.id === entryId ? { ...e, servings } : e
       ),
     }));
+    notifyLocalChange();
   },
 
   createMealGroup: async (date: string, slot: DaySlot, name: string, entryIds: string[]) => {
@@ -156,6 +163,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         entryIds.includes(e.id) ? { ...e, groupId: group.id } : e
       ),
     }));
+    notifyLocalChange();
   },
 
   addToGroup: async (entryId: string, groupId: string) => {
@@ -165,6 +173,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         e.id === entryId ? { ...e, groupId } : e
       ),
     }));
+    notifyLocalChange();
   },
 
   removeFromGroup: async (entryId: string) => {
@@ -174,6 +183,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         e.id === entryId ? { ...e, groupId: null } : e
       ),
     }));
+    notifyLocalChange();
   },
 
   deleteMealGroupAndUngroup: async (groupId: string) => {
@@ -186,6 +196,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         e.groupId === groupId ? { ...e, groupId: null } : e
       ),
     }));
+    notifyLocalChange();
   },
 
   reorderEntries: async (slot: DaySlot, date: string, entryIds: string[]) => {
@@ -205,6 +216,7 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       );
       return { dayEntries: [...otherEntries, ...updates] };
     });
+    notifyLocalChange();
   },
 
   toggleLeftover: async (entryId: string) => {
@@ -217,5 +229,6 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
         e.id === entryId ? { ...e, isLeftover: newValue } : e
       ),
     }));
+    notifyLocalChange();
   },
 }));

@@ -126,7 +126,7 @@ function CategoryTreeItem({ node, selectedId, onSelect, depth }: {
     <div>
       <button
         className={`w-full text-left flex items-center gap-1 px-2 py-1.5 text-xs rounded hover:bg-stone-100 ${
-          selectedId === node.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-stone-600'
+          selectedId === node.id ? 'bg-brand-50 text-brand-700 font-medium' : 'text-stone-600'
         }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={() => onSelect(node.id)}
@@ -663,13 +663,13 @@ function RecipePage() {
             <Card className="border-stone-200 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-emerald-600" />My Recipes
+                  <BookOpen className="w-4 h-4 text-brand-600" />My Recipes
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="flex gap-2 mb-4">
                   <Input placeholder="New recipe name..." value={newRecipeName} onChange={(e) => setNewRecipeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateRecipe()} className="text-sm h-9" />
-                  <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isLoading} size="sm" className="bg-emerald-600 hover:bg-emerald-700 shrink-0">
+                  <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isLoading} size="sm" className="bg-brand-600 hover:bg-brand-700 shrink-0">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -680,7 +680,7 @@ function RecipePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className={`w-full justify-start gap-2 text-xs ${categoryFilterId ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'text-stone-500'}`}
+                          className={`w-full justify-start gap-2 text-xs ${categoryFilterId ? 'border-brand-300 bg-brand-50 text-brand-700' : 'text-stone-500'}`}
                         >
                           <Filter className="w-3.5 h-3.5" />
                           {categoryFilterId
@@ -701,7 +701,7 @@ function RecipePage() {
                       </PopoverTrigger>
                       <PopoverContent className="w-56 p-1" align="start">
                         <button
-                          className={`w-full text-left px-2 py-1.5 text-xs rounded hover:bg-stone-100 ${!categoryFilterId ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-stone-600'}`}
+                          className={`w-full text-left px-2 py-1.5 text-xs rounded hover:bg-stone-100 ${!categoryFilterId ? 'bg-brand-50 text-brand-700 font-medium' : 'text-stone-600'}`}
                           onClick={() => { setCategoryFilterId(null); setCategoryFilterOpen(false); }}
                         >
                           All categories
@@ -731,7 +731,7 @@ function RecipePage() {
                           key={recipe.id}
                           className={`group flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-all text-sm ${
                             activeRecipe?.id === recipe.id
-                              ? 'bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium'
+                              ? 'bg-brand-50 border border-brand-200 text-brand-900 font-medium'
                               : 'hover:bg-stone-100 text-stone-600'
                           }`}
                           onClick={() => selectRecipe(recipe.id)}
@@ -750,7 +750,7 @@ function RecipePage() {
                                     const cat = categories.find((c) => c.id === rc.categoryId);
                                     if (!cat) return null;
                                     return (
-                                      <Badge key={rc.id} variant="outline" className="text-[9px] h-4 px-1 gap-0.5 bg-emerald-50 text-emerald-700 border-emerald-200">
+                                      <Badge key={rc.id} variant="outline" className="text-[9px] h-4 px-1 gap-0.5 bg-brand-50 text-brand-700 border-brand-200">
                                         <Tag className="w-2 h-2" />{cat.name}
                                       </Badge>
                                     );
@@ -790,7 +790,7 @@ function RecipePage() {
                           <Input value={nameValue} onChange={(e) => setNameValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateName()} onBlur={handleUpdateName} autoFocus className="text-lg font-bold h-9" />
                         </div>
                       ) : (
-                        <h2 className="text-lg font-bold text-stone-900 cursor-pointer hover:text-emerald-700 transition-colors" onClick={() => { setNameValue(activeRecipe.name); setEditingName(true); }} title="Click to edit">
+                        <h2 className="text-lg font-bold text-stone-900 cursor-pointer hover:text-brand-700 transition-colors" onClick={() => { setNameValue(activeRecipe.name); setEditingName(true); }} title="Click to edit">
                           {activeRecipe.name}
                         </h2>
                       )}
@@ -801,7 +801,7 @@ function RecipePage() {
                           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={handleUpdateServings}><Check className="w-4 h-4" /></Button>
                         </div>
                       ) : (
-                        <p className="text-sm text-stone-500 mt-1 cursor-pointer hover:text-emerald-600 transition-colors" onClick={() => { setServingsValue(String(activeRecipe.servings)); setServingNameValue(activeRecipe.servingName || 'serving'); setEditingServings(true); }} title="Click to edit">
+                        <p className="text-sm text-stone-500 mt-1 cursor-pointer hover:text-brand-600 transition-colors" onClick={() => { setServingsValue(String(activeRecipe.servings)); setServingNameValue(activeRecipe.servingName || 'serving'); setEditingServings(true); }} title="Click to edit">
                           {activeRecipe.servings} {activeRecipe.servingName || 'serving'} · Click to edit
                         </p>
                        )}
@@ -843,14 +843,14 @@ function RecipePage() {
                       }
                     }}>
                       <DialogTrigger asChild>
-                        <Button className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+                        <Button className="bg-brand-600 hover:bg-brand-700 gap-2">
                           <Search className="w-4 h-4" />Add Ingredient
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-[540px] max-h-[80vh] flex flex-col overflow-hidden">
                         <DialogHeader>
                           <DialogTitle className="flex items-center gap-2">
-                            <Search className="w-4 h-4 text-emerald-600" />Add Ingredient
+                            <Search className="w-4 h-4 text-brand-600" />Add Ingredient
                           </DialogTitle>
                         </DialogHeader>
                         <Tabs value={searchTab} onValueChange={(v) => setSearchTab(v as 'fda' | 'recipes' | 'custom')} className="mt-2 flex-1 flex flex-col min-h-0">
@@ -867,18 +867,18 @@ function RecipePage() {
                               </div>
                             )}
                             {searchSource === 'local' && (
-                              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 flex-shrink-0">
+                              <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-xs text-brand-800 flex-shrink-0">
                                 Results from <strong>local database</strong> — no API call needed.
                               </div>
                             )}
                             {searchSource && (
-                              <Badge variant="outline" className={`text-[10px] h-5 gap-1 flex-shrink-0 w-fit ${searchSource === 'local' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : searchSource === 'fda' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                              <Badge variant="outline" className={`text-[10px] h-5 gap-1 flex-shrink-0 w-fit ${searchSource === 'local' ? 'bg-brand-100 text-brand-700 border-brand-200' : searchSource === 'fda' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
                                 {searchSource === 'local' ? 'Local DB' : searchSource === 'fda' ? 'Network' : 'Fallback'}
                               </Badge>
                             )}
                             <div className="flex gap-2 flex-shrink-0">
                               <Input placeholder="Search foods (e.g., chicken breast, rice)..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchFDA()} className="flex-1" />
-                              <Button onClick={handleSearchFDA} disabled={isSearching || !searchQuery.trim()} className="bg-emerald-600 hover:bg-emerald-700">
+                              <Button onClick={handleSearchFDA} disabled={isSearching || !searchQuery.trim()} className="bg-brand-600 hover:bg-brand-700">
                                 {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                               </Button>
                             </div>
@@ -886,7 +886,7 @@ function RecipePage() {
                               <div className="flex-1 min-h-0 overflow-y-auto">
                                 <div className="space-y-1">
                                   {searchResults.map((food) => (
-                                    <div key={food.fdcId} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedFood?.fdcId === food.fdcId ? 'border-emerald-400 bg-emerald-50' : 'border-stone-200 hover:border-emerald-200 hover:bg-stone-50'}`} onClick={() => { setSelectedFood(food); setIngredientAmount('100'); setIngredientUnit(food.servingSizeUnit || 'g'); }}>
+                                    <div key={food.fdcId} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedFood?.fdcId === food.fdcId ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`} onClick={() => { setSelectedFood(food); setIngredientAmount('100'); setIngredientUnit(food.servingSizeUnit || 'g'); }}>
                                       <div className="font-medium text-sm text-stone-900">{food.description}</div>
                                       <div className="flex items-center gap-2 mt-1">
                                         <Badge variant="outline" className="text-[10px] h-5">{food.dataType}</Badge>
@@ -903,11 +903,11 @@ function RecipePage() {
                             )}
                             {selectedFood && (
                               <div className="border-t pt-4 space-y-3 flex-shrink-0">
-                                <div className="bg-emerald-50 p-3 rounded-lg">
-                                  <p className="font-medium text-sm text-emerald-900">{selectedFood.description}</p>
-                                  <p className="text-xs text-emerald-700 mt-1">
+                                <div className="bg-brand-50 p-3 rounded-lg">
+                                  <p className="font-medium text-sm text-brand-900">{selectedFood.description}</p>
+                                  <p className="text-xs text-brand-700 mt-1">
                                     {fmt(selectedFood.nutrients.calories)} cal · {fmt(selectedFood.nutrients.protein)}g protein · {fmt(selectedFood.nutrients.totalFat)}g fat · {fmt(selectedFood.nutrients.totalCarbs)}g carbs
-                                    <span className="text-emerald-500"> per 100{selectedFood.servingSizeUnit || 'g'}</span>
+                                    <span className="text-brand-500"> per 100{selectedFood.servingSizeUnit || 'g'}</span>
                                   </p>
                                 </div>
                                 <div className="flex gap-3 items-end">
@@ -923,7 +923,7 @@ function RecipePage() {
                                       <option value="lb">lb</option><option value="whole">whole</option>
                                     </select>
                                   </div>
-                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isLoading} className="bg-emerald-600 hover:bg-emerald-700 h-9">
+                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
                                     {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                   </Button>
                                 </div>
@@ -938,9 +938,9 @@ function RecipePage() {
                                   <p className="text-sm text-stone-400 text-center py-6">No other recipes to add</p>
                                 ) : (
                                   recipes.filter(r => r.id !== activeRecipe?.id).map(recipe => (
-                                    <div key={recipe.id} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedRecipeToAdd?.id === recipe.id ? 'border-emerald-400 bg-emerald-50' : 'border-stone-200 hover:border-emerald-200 hover:bg-stone-50'}`} onClick={() => { setSelectedRecipeToAdd(recipe); setRecipeMultiplier('1'); }}>
+                                    <div key={recipe.id} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedRecipeToAdd?.id === recipe.id ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`} onClick={() => { setSelectedRecipeToAdd(recipe); setRecipeMultiplier('1'); }}>
                                       <div className="flex items-center gap-2">
-                                        <BookOpen className="w-4 h-4 text-emerald-600" />
+                                        <BookOpen className="w-4 h-4 text-brand-600" />
                                         <span className="font-medium text-sm text-stone-900">{recipe.name}</span>
                                       </div>
                                       <div className="text-xs text-stone-400 mt-1 ml-6">
@@ -953,19 +953,19 @@ function RecipePage() {
                             </div>
                             {selectedRecipeToAdd && (
                               <div className="border-t pt-4 space-y-3">
-                                <div className="bg-emerald-50 p-3 rounded-lg">
-                                  <p className="font-medium text-sm text-emerald-900 flex items-center gap-2">
+                                <div className="bg-brand-50 p-3 rounded-lg">
+                                  <p className="font-medium text-sm text-brand-900 flex items-center gap-2">
                                     <BookOpen className="w-3.5 h-3.5" />{selectedRecipeToAdd.name}
                                   </p>
-                                  <p className="text-xs text-emerald-700 mt-1">
+                                  <p className="text-xs text-brand-700 mt-1">
                                     {fmt(recipeTotalCalories(selectedRecipeToAdd.ingredients))} cal total · {selectedRecipeToAdd.servings} {selectedRecipeToAdd.servingName || 'servings'}
                                   </p>
                                 </div>
                                 <div className="flex gap-2">
-                                  <Button size="sm" variant={recipeAddMode === 'whole' ? 'default' : 'outline'} className={recipeAddMode === 'whole' ? 'bg-emerald-600 hover:bg-emerald-700 h-8 text-xs' : 'h-8 text-xs'} onClick={() => setRecipeAddMode('whole')}>
+                                  <Button size="sm" variant={recipeAddMode === 'whole' ? 'default' : 'outline'} className={recipeAddMode === 'whole' ? 'bg-brand-600 hover:bg-brand-700 h-8 text-xs' : 'h-8 text-xs'} onClick={() => setRecipeAddMode('whole')}>
                                     Whole Recipe
                                   </Button>
-                                  <Button size="sm" variant={recipeAddMode === 'servings' ? 'default' : 'outline'} className={recipeAddMode === 'servings' ? 'bg-emerald-600 hover:bg-emerald-700 h-8 text-xs' : 'h-8 text-xs'} onClick={() => setRecipeAddMode('servings')}>
+                                  <Button size="sm" variant={recipeAddMode === 'servings' ? 'default' : 'outline'} className={recipeAddMode === 'servings' ? 'bg-brand-600 hover:bg-brand-700 h-8 text-xs' : 'h-8 text-xs'} onClick={() => setRecipeAddMode('servings')}>
                                     By Servings
                                   </Button>
                                 </div>
@@ -976,7 +976,7 @@ function RecipePage() {
                                       <Input type="number" min="0.1" step="0.1" value={recipeMultiplier} onChange={(e) => setRecipeMultiplier(e.target.value)} className="h-9" />
                                     </div>
                                     <span className="text-sm text-stone-500 pb-2">× recipe</span>
-                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-emerald-600 hover:bg-emerald-700 h-9">
+                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
                                       {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                     </Button>
                                   </div>
@@ -987,7 +987,7 @@ function RecipePage() {
                                       <Input type="number" min="0.1" step="0.5" value={recipeServingsCount} onChange={(e) => setRecipeServingsCount(e.target.value)} className="h-9" />
                                     </div>
                                     <span className="text-sm text-stone-500 pb-2">{selectedRecipeToAdd.servingName || 'servings'} (recipe makes {selectedRecipeToAdd.servings})</span>
-                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-emerald-600 hover:bg-emerald-700 h-9">
+                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
                                       {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                     </Button>
                                   </div>
@@ -1082,7 +1082,7 @@ function RecipePage() {
                                     <option value="lb">lb</option><option value="whole">whole</option>
                                   </select>
                                 </div>
-                                <Button onClick={handleAddCustomIngredient} disabled={!customName.trim() || isLoading} className="bg-emerald-600 hover:bg-emerald-700 h-9">
+                                <Button onClick={handleAddCustomIngredient} disabled={!customName.trim() || isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
                                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                 </Button>
                               </div>
@@ -1102,11 +1102,11 @@ function RecipePage() {
                   <div className="mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                        <UtensilsCrossed className="w-4 h-4 text-emerald-600" />Ingredients
+                        <UtensilsCrossed className="w-4 h-4 text-brand-600" />Ingredients
                         <Badge variant="secondary" className="text-[10px] h-5 ml-1">{activeRecipe.ingredients.length}</Badge>
                       </h3>
                       {selectedIngredientIds.length >= 2 && (
-                        <Button size="sm" className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleGroupSelectedIngredients}>
+                        <Button size="sm" className="h-7 text-xs gap-1 bg-brand-600 hover:bg-brand-700" onClick={handleGroupSelectedIngredients}>
                           <FolderOpen className="w-3.5 h-3.5" />Group ({selectedIngredientIds.length})
                         </Button>
                       )}
@@ -1126,10 +1126,10 @@ function RecipePage() {
                                 const isEditingThisGroup = editingGroupId === slot.group.id && editingGroupType === 'ingredient';
                                 const isCollapsed = collapsedIngredientGroups.has(slot.group.id);
                                 return (
-                                  <div key={slot.group.id} className="border border-emerald-200 rounded-lg overflow-hidden bg-emerald-50/30">
-                                    <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-200">
+                                  <div key={slot.group.id} className="border border-brand-200 rounded-lg overflow-hidden bg-brand-50/30">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 border-b border-brand-200">
                                       <button
-                                        className="text-emerald-600 hover:text-emerald-800 shrink-0"
+                                        className="text-brand-600 hover:text-brand-800 shrink-0"
                                         onClick={() => {
                                           setCollapsedIngredientGroups((prev) => {
                                             const next = new Set(prev);
@@ -1141,15 +1141,15 @@ function RecipePage() {
                                       >
                                         {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                                       </button>
-                                      <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
+                                      <FolderOpen className="w-3.5 h-3.5 text-brand-600" />
                                       {isEditingThisGroup ? (
                                         <Input value={editingGroupTitleValue} onChange={(e) => setEditingGroupTitleValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleFinishEditGroupTitle(); if (e.key === 'Escape') setEditingGroupId(null); }} onBlur={handleFinishEditGroupTitle} autoFocus className="h-6 text-sm flex-1 bg-white" />
                                       ) : (
-                                        <span className="text-sm font-medium text-emerald-800 flex-1 cursor-pointer hover:text-emerald-600" onClick={() => handleStartEditGroupTitle(slot.group.id, slot.group.title, 'ingredient')}>
+                                        <span className="text-sm font-medium text-brand-800 flex-1 cursor-pointer hover:text-brand-600" onClick={() => handleStartEditGroupTitle(slot.group.id, slot.group.title, 'ingredient')}>
                                           {slot.group.title}
                                         </span>
                                       )}
-                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-emerald-400 hover:text-destructive" onClick={() => removeIngredientGroup(slot.group.id)}>
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => removeIngredientGroup(slot.group.id)}>
                                         <X className="w-3 h-3" />
                                       </Button>
                                     </div>
@@ -1236,7 +1236,7 @@ function RecipePage() {
                     <div className="flex items-center gap-2 mb-3">
                       <h3 className="text-sm font-semibold text-stone-700">Instructions</h3>
                       {selectedStepIds.length >= 2 && (
-                        <Button size="sm" className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleGroupSelectedSteps}>
+                        <Button size="sm" className="h-7 text-xs gap-1 bg-brand-600 hover:bg-brand-700" onClick={handleGroupSelectedSteps}>
                           <FolderOpen className="w-3.5 h-3.5" />Group ({selectedStepIds.length})
                         </Button>
                       )}
@@ -1250,10 +1250,10 @@ function RecipePage() {
                                 const isEditingThisGroup = editingGroupId === slot.group.id && editingGroupType === 'instruction';
                                 const isCollapsed = collapsedInstructionGroups.has(slot.group.id);
                                 return (
-                                  <div key={slot.group.id} className="border border-emerald-200 rounded-lg overflow-hidden bg-emerald-50/30">
-                                    <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-200">
+                                  <div key={slot.group.id} className="border border-brand-200 rounded-lg overflow-hidden bg-brand-50/30">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 border-b border-brand-200">
                                       <button
-                                        className="text-emerald-600 hover:text-emerald-800 shrink-0"
+                                        className="text-brand-600 hover:text-brand-800 shrink-0"
                                         onClick={() => {
                                           setCollapsedInstructionGroups((prev) => {
                                             const next = new Set(prev);
@@ -1265,15 +1265,15 @@ function RecipePage() {
                                       >
                                         {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                                       </button>
-                                      <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
+                                      <FolderOpen className="w-3.5 h-3.5 text-brand-600" />
                                       {isEditingThisGroup ? (
                                         <Input value={editingGroupTitleValue} onChange={(e) => setEditingGroupTitleValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleFinishEditGroupTitle(); if (e.key === 'Escape') setEditingGroupId(null); }} onBlur={handleFinishEditGroupTitle} autoFocus className="h-6 text-sm flex-1 bg-white" />
                                       ) : (
-                                        <span className="text-sm font-medium text-emerald-800 flex-1 cursor-pointer hover:text-emerald-600" onClick={() => handleStartEditGroupTitle(slot.group.id, slot.group.title, 'instruction')}>
+                                        <span className="text-sm font-medium text-brand-800 flex-1 cursor-pointer hover:text-brand-600" onClick={() => handleStartEditGroupTitle(slot.group.id, slot.group.title, 'instruction')}>
                                           {slot.group.title}
                                         </span>
                                       )}
-                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-emerald-400 hover:text-destructive" onClick={() => removeInstructionGroup(slot.group.id)}>
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => removeInstructionGroup(slot.group.id)}>
                                         <X className="w-3 h-3" />
                                       </Button>
                                     </div>
@@ -1330,7 +1330,7 @@ function RecipePage() {
                         className="min-h-[80px] text-sm resize-none"
                       />
                       <div className="flex items-center gap-2">
-                        <Button onClick={handleSaveStep} disabled={!stepText.trim() || isLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1 text-sm" size="sm">
+                        <Button onClick={handleSaveStep} disabled={!stepText.trim() || isLoading} className="bg-brand-600 hover:bg-brand-700 gap-1 text-sm" size="sm">
                           {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />{editingStepId ? 'Update Step' : 'Save Step'}</>}
                         </Button>
                         {editingStepId && (
@@ -1343,10 +1343,10 @@ function RecipePage() {
 
                   {/* Nutrition Summary Bar */}
                   {activeRecipe.ingredients.length > 0 && (
-                    <div className="mt-4 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                    <div className="mt-4 p-3 bg-brand-50 rounded-lg border border-brand-100">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-medium text-emerald-800">Total Recipe Nutrition</span>
-                        <div className="flex gap-3 text-emerald-700">
+                        <span className="font-medium text-brand-800">Total Recipe Nutrition</span>
+                        <div className="flex gap-3 text-brand-700">
                           <span>{fmt(totalNutrition.calories)} cal</span>
                           <span>{fmt(totalNutrition.protein)}g protein</span>
                           <span>{fmt(totalNutrition.totalFat)}g fat</span>
@@ -1376,12 +1376,12 @@ function RecipePage() {
               <Card className="border-stone-200 shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                    <Salad className="w-4 h-4 text-emerald-600" />Nutrition Facts Label
+                    <Salad className="w-4 h-4 text-brand-600" />Nutrition Facts Label
                   </CardTitle>
                   <p className="text-xs text-stone-400">Nutrition label auto-generated from your ingredients</p>
                   {activeRecipe && recipeTemplates.length > 0 && (
                     <Button
-                      className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 gap-2"
+                      className="w-full mt-2 bg-brand-600 hover:bg-brand-700 gap-2"
                       onClick={() => setPreviewDialogOpen(true)}
                     >
                       <Eye className="w-4 h-4" />Preview Recipe
@@ -1425,7 +1425,7 @@ function RecipePage() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-stone-200 bg-white shrink-0">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-emerald-600" />Recipe Preview
+                <BookOpen className="w-4 h-4 text-brand-600" />Recipe Preview
               </h2>
               <select
                 className="h-7 rounded-md border border-input bg-background px-2 text-xs"
@@ -1492,7 +1492,7 @@ function RecipePage() {
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FolderOpen className="w-4 h-4 text-emerald-600" />
+              <FolderOpen className="w-4 h-4 text-brand-600" />
               Create {groupDialogType === 'ingredient' ? 'Ingredient' : 'Instruction'} Group
             </DialogTitle>
           </DialogHeader>
@@ -1512,7 +1512,7 @@ function RecipePage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setGroupDialogOpen(false)}>Cancel</Button>
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-1" onClick={handleGroupDialogConfirm} disabled={!groupDialogTitle.trim()}>
+              <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={handleGroupDialogConfirm} disabled={!groupDialogTitle.trim()}>
                 <Check className="w-3.5 h-3.5" />Create Group
               </Button>
             </div>
@@ -1525,7 +1525,7 @@ function RecipePage() {
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-emerald-600" />Manage Categories
+              <Tag className="w-4 h-4 text-brand-600" />Manage Categories
             </DialogTitle>
           </DialogHeader>
           <div className="flex gap-2 mt-2">
@@ -1556,7 +1556,7 @@ function RecipePage() {
             )}
             <Button
               size="sm"
-              className="h-9 bg-emerald-600 hover:bg-emerald-700 gap-1"
+              className="h-9 bg-brand-600 hover:bg-brand-700 gap-1"
               disabled={!newCategoryName.trim()}
               onClick={async () => {
                 const parentId = selectedParentCategoryId || null;
@@ -1627,7 +1627,7 @@ function CategoryTreeNode({ node, depth, recipeId, recipeCategories, selectedId,
   return (
     <>
       <div
-        className={`flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer group ${isSelected ? 'bg-emerald-100 ring-1 ring-emerald-300' : 'hover:bg-stone-50'}`}
+        className={`flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer group ${isSelected ? 'bg-brand-100 ring-1 ring-brand-300' : 'hover:bg-stone-50'}`}
         onClick={() => onSelect(isSelected ? null : node.id)}
       >
         <div style={{ paddingLeft: depth * 16 }}>
@@ -1643,7 +1643,7 @@ function CategoryTreeNode({ node, depth, recipeId, recipeCategories, selectedId,
         </div>
         <span className="text-sm text-stone-700 flex-1 truncate">{node.name}</span>
         {isSelected && (
-          <span className="text-[10px] text-emerald-600 font-medium shrink-0">Add child ↵</span>
+          <span className="text-[10px] text-brand-600 font-medium shrink-0">Add child ↵</span>
         )}
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -1775,8 +1775,8 @@ function SortableIngredientItem({
       <div
         className={`flex items-center justify-between p-3 bg-white border rounded-lg transition-colors group cursor-pointer ${
           isRecipe ? 'border-blue-200 hover:border-blue-300 bg-blue-50/30' :
-          isSelected ? 'border-emerald-400 bg-emerald-50' :
-          'border-stone-200 hover:border-emerald-300'
+          isSelected ? 'border-brand-400 bg-brand-50' :
+          'border-stone-200 hover:border-brand-300'
         }`}
         onClick={onEdit}
       >
@@ -1819,18 +1819,18 @@ function SortableIngredientItem({
             <span>C: {fmt(ingredient.totalCarbs)}g</span>
           </div>
           {isGrouped && onRemoveFromGroup && (
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(); }} title="Remove from group">
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(); }} title="Remove from group">
               <FolderOpen className="w-3 h-3" />
             </Button>
           )}
-          <Pencil className="w-3.5 h-3.5 text-stone-300 group-hover:text-emerald-500 transition-colors" />
+          <Pencil className="w-3.5 h-3.5 text-stone-300 group-hover:text-brand-500 transition-colors" />
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-300 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onRemove(); }}>
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
       {isEditing && (
-        <div className="mt-1 p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-3">
+        <div className="mt-1 p-3 bg-brand-50 border border-brand-200 rounded-lg space-y-3">
           <div>
             <label className="text-xs font-medium text-stone-600 mb-1 block">Name</label>
             <Input placeholder={ingredient.name} value={editName} onChange={(e) => onEditName(e.target.value)} className="h-8 text-sm" autoFocus />
@@ -1855,15 +1855,15 @@ function SortableIngredientItem({
               </div>
             )}
             {isRecipe && <span className="text-sm text-stone-500 pb-1.5">× recipe</span>}
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 gap-1" onClick={onSaveEdit} disabled={isLoading}>
+            <Button size="sm" className="bg-brand-600 hover:bg-brand-700 h-8 gap-1" onClick={onSaveEdit} disabled={isLoading}>
               {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />Save</>}
             </Button>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onCancelEdit}>Cancel</Button>
           </div>
-          <div className="border-t border-emerald-200 pt-2 mt-1">
+          <div className="border-t border-brand-200 pt-2 mt-1">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-stone-600">Prep Instructions</label>
-              <Button variant="ghost" size="sm" className="h-5 text-xs text-emerald-600 hover:text-emerald-700" onClick={onAddPrepInstruction}>
+              <Button variant="ghost" size="sm" className="h-5 text-xs text-brand-600 hover:text-brand-700" onClick={onAddPrepInstruction}>
                 <Plus className="w-3 h-3 mr-1" />Add
               </Button>
             </div>
@@ -1884,7 +1884,7 @@ function SortableIngredientItem({
               </div>
             ))}
           </div>
-          <div className="border-t border-emerald-200 pt-2 mt-1">
+          <div className="border-t border-brand-200 pt-2 mt-1">
             <label className="text-xs font-medium text-stone-600 mb-1 block">Store in</label>
             <select
               value={editStorageLocation}
@@ -1947,9 +1947,9 @@ function SortableInstructionStep({
       ref={setNodeRef}
       style={style}
       className={`group flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-all ${
-        isActive ? 'border-emerald-400 bg-emerald-50' :
-        isSelected ? 'border-emerald-400 bg-emerald-50' :
-        'border-stone-200 hover:border-emerald-300 hover:bg-stone-50'
+        isActive ? 'border-brand-400 bg-brand-50' :
+        isSelected ? 'border-brand-400 bg-brand-50' :
+        'border-stone-200 hover:border-brand-300 hover:bg-stone-50'
       }`}
       onClick={onEdit}
     >
@@ -1965,13 +1965,13 @@ function SortableInstructionStep({
       <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
         <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} className="h-3.5 w-3.5" />
       </div>
-      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center justify-center mt-0.5">
+      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold flex items-center justify-center mt-0.5">
         {stepNumber}
       </span>
       <p className="flex-1 text-sm text-stone-700 whitespace-pre-wrap">{step.text}</p>
       <div className="flex items-center gap-1">
         {isGrouped && onRemoveFromGroup && (
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(); }} title="Remove from group">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(); }} title="Remove from group">
             <FolderOpen className="w-3 h-3" />
           </Button>
         )}

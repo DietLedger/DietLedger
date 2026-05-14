@@ -1,17 +1,45 @@
 services:
-  nutrilabel:
+  dietledger:
     build: .
-    container_name: nutrilabel
+    container_name: dietledger
     ports:
       - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - DOCKER=1
       - PORT=3000
+      - DATABASE_URL=${DATABASE_URL:-sqlite:/app/db/custom.db}
       - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
     volumes:
-      - nutrilabel-data:/app/db
+      - dietledger-data:/app/db
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  sync-server:
+    build: ./sync-server
+    container_name: dietledger-sync
+    ports:
+      - "${SYNC_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/sync.db
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - MAX_BODY_MB=${MAX_BODY_MB:-10}
+    volumes:
+      - sync-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
-  nutrilabel-data:
+  dietledger-data:
+  sync-data:

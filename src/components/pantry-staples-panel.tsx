@@ -56,7 +56,7 @@ export default function PantryStaplesPanel() {
     <div className="space-y-4">
       <div>
         <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-          <Package className="w-3.5 h-3.5 text-emerald-600" />Pantry Staples
+          <Package className="w-3.5 h-3.5 text-brand-600" />Pantry Staples
         </label>
         <p className="text-xs text-stone-400 mb-3">
           Ingredients considered &quot;always on hand&quot;. These are excluded from recipe synergy suggestions.
@@ -73,7 +73,7 @@ export default function PantryStaplesPanel() {
             onClick={handleAdd}
             disabled={!newStaple.trim()}
             size="sm"
-            className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
+            className="bg-brand-600 hover:bg-brand-700 shrink-0"
           >
             <Plus className="w-4 h-4" />
           </Button>

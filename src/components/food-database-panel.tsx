@@ -70,7 +70,7 @@ interface SearchResult {
 function statusIcon(status: string) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
+      return <CheckCircle2 className="w-4 h-4 text-brand-500" />;
     case 'failed':
       return <XCircle className="w-4 h-4 text-destructive" />;
     case 'importing':
@@ -136,7 +136,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
     <Card className="border-stone-200 shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-          <Server className="w-4 h-4 text-emerald-600" />
+          <Server className="w-4 h-4 text-brand-600" />
           Import Progress
         </CardTitle>
       </CardHeader>
@@ -293,7 +293,7 @@ export default function FoodDatabasePanel() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+        <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
       </div>
     );
   }
@@ -305,7 +305,7 @@ export default function FoodDatabasePanel() {
           <Card className="border-stone-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                <Download className="w-4 h-4 text-emerald-600" />
+                <Download className="w-4 h-4 text-brand-600" />
                 USDA Datasets
               </CardTitle>
             </CardHeader>
@@ -328,7 +328,7 @@ export default function FoodDatabasePanel() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {ds.status === 'imported' ? (
-                          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] h-5">
+                          <Badge className="bg-brand-100 text-brand-700 border-brand-200 text-[10px] h-5">
                             {ds.recordCount.toLocaleString()} records
                           </Badge>
                         ) : (
@@ -338,7 +338,7 @@ export default function FoodDatabasePanel() {
                         )}
                         <Button
                           size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700 h-7 text-xs gap-1"
+                          className="bg-brand-600 hover:bg-brand-700 h-7 text-xs gap-1"
                           onClick={() => handleSeed(ds.key)}
                           disabled={activeJobId !== null}
                         >
@@ -360,7 +360,7 @@ export default function FoodDatabasePanel() {
           <Card className="border-stone-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                <FileArchive className="w-4 h-4 text-emerald-600" />
+                <FileArchive className="w-4 h-4 text-brand-600" />
                 Manual Upload
               </CardTitle>
             </CardHeader>
@@ -390,7 +390,7 @@ export default function FoodDatabasePanel() {
                   <Button
                     onClick={handleUpload}
                     disabled={!uploadFile || uploading || activeJobId !== null}
-                    className="bg-emerald-600 hover:bg-emerald-700 gap-1"
+                    className="bg-brand-600 hover:bg-brand-700 gap-1"
                   >
                     {uploading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -407,7 +407,7 @@ export default function FoodDatabasePanel() {
           <Card className="border-stone-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                <Search className="w-4 h-4 text-emerald-600" />
+                <Search className="w-4 h-4 text-brand-600" />
                 Search Test
               </CardTitle>
             </CardHeader>
@@ -423,7 +423,7 @@ export default function FoodDatabasePanel() {
                 <Button
                   onClick={handleTestSearch}
                   disabled={testSearching || !testQuery.trim()}
-                  className="bg-emerald-600 hover:bg-emerald-700"
+                  className="bg-brand-600 hover:bg-brand-700"
                 >
                   {testSearching ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -437,7 +437,7 @@ export default function FoodDatabasePanel() {
                   variant={testSource === 'local' ? 'default' : 'outline'}
                   className={`text-[10px] h-5 mb-2 ${
                     testSource === 'local'
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                      ? 'bg-brand-100 text-brand-700 border-brand-200'
                       : testSource === 'fda'
                       ? 'bg-blue-100 text-blue-700 border-blue-200'
                       : 'bg-amber-100 text-amber-700 border-amber-200'
@@ -479,7 +479,7 @@ export default function FoodDatabasePanel() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-emerald-600" />
+                  <HardDrive className="w-4 h-4 text-brand-600" />
                   Database Statistics
                 </CardTitle>
                 <div className="flex items-center gap-2">

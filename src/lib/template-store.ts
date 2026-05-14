@@ -8,6 +8,7 @@ import {
   deleteTemplate as dbDeleteTemplate,
   type TemplateRecord,
 } from '@/lib/storage';
+import { notifyLocalChange } from '@/lib/sync-store';
 
 interface TemplateState {
   templates: TemplateRecord[];
@@ -44,6 +45,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     try {
       const record = await dbCreateTemplate(data);
       set((state) => ({ templates: [...state.templates, record] }));
+      notifyLocalChange();
       return record;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
@@ -58,6 +60,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
       set((state) => ({
         templates: state.templates.map((t) => (t.id === id ? updated : t)),
       }));
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
       throw err;
@@ -71,6 +74,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
       set((state) => ({
         templates: state.templates.filter((t) => t.id !== id),
       }));
+      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
       throw err;
@@ -91,6 +95,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
       });
 
       set((state) => ({ templates: [...state.templates, record] }));
+      notifyLocalChange();
       return record;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });

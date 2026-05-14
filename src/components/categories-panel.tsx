@@ -61,7 +61,7 @@ export default function CategoriesPanel() {
         </Badge>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-1 h-7 text-xs">
+            <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1 h-7 text-xs">
               <Plus className="w-3 h-3" />Create Category
             </Button>
           </DialogTrigger>
@@ -95,7 +95,7 @@ export default function CategoriesPanel() {
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleCreate} disabled={!newName.trim()}>
+                <Button size="sm" className="bg-brand-600 hover:bg-brand-700" onClick={handleCreate} disabled={!newName.trim()}>
                   Create
                 </Button>
               </div>
@@ -106,7 +106,7 @@ export default function CategoriesPanel() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 text-emerald-600 animate-spin" />
+          <Loader2 className="w-6 h-6 text-brand-600 animate-spin" />
         </div>
       ) : categories.length === 0 ? (
         <div className="text-center py-12">

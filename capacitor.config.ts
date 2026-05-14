@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.nutrilabel.app',
-  appName: 'NutriLabel',
+  appId: 'com.dietledger.app',
+  appName: 'DietLedger',
   webDir: 'out', // Next.js static export output directory
   server: {
     // No server needed - all static files
@@ -11,7 +11,7 @@ const config: CapacitorConfig = {
   plugins: {
     SplashScreen: {
       launchShowDuration: 1000,
-      backgroundColor: '#1a1a1a',
+      backgroundColor: '#FBF6EE',
       showSpinner: false,
     },
   },

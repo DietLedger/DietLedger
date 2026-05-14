@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = 'nutrilabel-v1';
+const CACHE_NAME = 'dietledger-v1';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

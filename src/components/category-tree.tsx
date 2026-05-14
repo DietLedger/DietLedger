@@ -104,7 +104,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 w-5 p-0 text-stone-300 hover:text-emerald-500"
+              className="h-5 w-5 p-0 text-stone-300 hover:text-brand-500"
               onClick={() => setIsAddingChild(true)}
               title="Add subcategory"
             >
@@ -115,7 +115,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 w-5 p-0 text-stone-300 hover:text-emerald-500"
+              className="h-5 w-5 p-0 text-stone-300 hover:text-brand-500"
               onClick={() => { setEditValue(node.name); setIsEditing(true); }}
               title="Rename"
             >
@@ -160,7 +160,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
             autoFocus
             className="h-6 text-sm"
           />
-          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-emerald-600" onClick={handleAddChild}>
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-brand-600" onClick={handleAddChild}>
             <Check className="w-3 h-3" />
           </Button>
           <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setIsAddingChild(false)}>

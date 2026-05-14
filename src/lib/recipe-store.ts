@@ -16,6 +16,7 @@ import {
   getAllCustomFoods,
 } from "@/lib/storage";
 import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
+import { notifyLocalChange } from '@/lib/sync-store';
 
 interface InstructionStep {
   id: string;
@@ -282,6 +283,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         activeRecipe: publicRecipe,
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -327,6 +329,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -344,6 +347,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         activeRecipe: state.activeRecipe?.id === id ? null : state.activeRecipe,
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -461,6 +465,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -519,6 +524,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -576,6 +582,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -604,6 +611,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -645,7 +653,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       }
 
       if (ingredient.linkedRecipeId) {
-        // For recipe-ingredients, rescale by multiplier change
         const oldMultiplier = ingredient.amount;
         const newMultiplier = newAmount;
         if (oldMultiplier > 0 && newMultiplier !== oldMultiplier) {
@@ -685,6 +692,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
+      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -714,6 +722,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       await dbUpdateRecipe(activeRecipe.id, {
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
       });
+      notifyLocalChange();
     } catch {}
   },
 
@@ -776,6 +785,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ingredients: reordered.map((i) => ({ ...i, recipeId: activeRecipe.id })),
         ingredientGroups: groups,
       });
+      notifyLocalChange();
     } catch {}
   },
 
@@ -803,6 +813,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
         ingredientGroups: groups,
       });
+      notifyLocalChange();
     } catch {}
   },
 
@@ -825,6 +836,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     }));
     try {
       await dbUpdateRecipe(activeRecipe.id, { ingredientGroups: groups });
+      notifyLocalChange();
     } catch {}
   },
 
@@ -849,6 +861,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       await dbUpdateRecipe(activeRecipe.id, {
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
       });
+      notifyLocalChange();
     } catch {}
   },
 

@@ -14,7 +14,7 @@ const COUNT_UNITS = new Set([
 
 export type UnitSystem = 'imperial' | 'metric';
 
-const UNIT_SYSTEM_KEY = 'nutrilabel-unit-system';
+const UNIT_SYSTEM_KEY = 'dietledger-unit-system';
 
 export function getUnitSystem(): UnitSystem {
   if (typeof window === 'undefined') return 'imperial';

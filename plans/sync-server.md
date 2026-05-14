@@ -1,6 +1,6 @@
-# NutriLabel Sync Server — Implementation Plan
+# DietLedger Sync Server — Implementation Plan
 
-A multi-server synchronization system that keeps all NutriLabel instances in sync through a central or federated sync server architecture.
+A multi-server synchronization system that keeps all DietLedger instances in sync through a central or federated sync server architecture.
 
 ---
 
@@ -8,8 +8,8 @@ A multi-server synchronization system that keeps all NutriLabel instances in syn
 
 ### Goals
 
-- Users can configure **multiple sync servers** (self-hosted or NutriLabel Cloud)
-- Sync happens **on app open**, **at configurable intervals**, and **on database change**
+- Users can configure **multiple sync servers** (self-hosted or DietLedger Cloud)
+- Sync happens **on app open**, **at configurable intervals**, **on database change**, and **on settings change**
 - Bidirectional sync with conflict resolution
 - Works with the existing IndexedDB client-side storage
 - Offline-first: the app works fully offline, syncs when connectivity returns
@@ -101,12 +101,12 @@ model SyncConflict {
 
 ### Client-Side IndexedDB Additions
 
-Add to the existing `NutriLabelDB` schema (version 10):
+Add to the existing `DietLedgerDB` schema (version 10):
 
 ```typescript
 interface SyncServerConfig {
   id: string;
-  label: string;          // "My Home Server", "NutriLabel Cloud"
+  label: string;          // "My Home Server", "DietLedger Cloud"
   serverUrl: string;      // "https://sync.myserver.com"
   apiKey: string;         // Per-user API key
   userId: string;

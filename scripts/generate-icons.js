@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Icon generator for NutriLabel app
+ * Icon generator for DietLedger app
  * Generates PWA icons, favicon, and Tauri icons from an SVG source.
  * Uses sharp for PNG conversion and a manual ICO encoder.
  */
@@ -9,44 +9,38 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
-// ─── SVG Design ───────────────────────────────────────────────────────────────
-// Emerald green rounded square with a white chef hat silhouette.
-// Base viewBox is 512x512 so it scales cleanly to all sizes.
-
 const baseSvg = (size) => `
 <svg width="${size}" height="${size}" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#10B981"/>
-      <stop offset="100%" stop-color="#059669"/>
+      <stop offset="0%" stop-color="#5B8C8E"/>
+      <stop offset="100%" stop-color="#4A7B7D"/>
     </linearGradient>
   </defs>
 
-  <!-- Rounded square background -->
-  <rect x="0" y="0" width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
 
-  <!-- Chef hat - white silhouette -->
-  <g fill="white">
-    <!-- Hat band (cylindrical base) -->
-    <rect x="168" y="305" width="176" height="48" rx="8" ry="8"/>
+  <!-- Back card -->
+  <rect x="80" y="96" width="272" height="208" rx="10" fill="#F0DFC0" stroke="#3C2415" stroke-width="5"/>
+  <rect x="104" y="156" width="224" height="28" rx="4" fill="#5B8C8E" opacity="0.4"/>
+  <line x1="104" y1="208" x2="328" y2="208" stroke="#3C2415" stroke-width="3.5" opacity="0.3"/>
+  <line x1="104" y1="236" x2="328" y2="236" stroke="#3C2415" stroke-width="3.5" opacity="0.3"/>
+  <line x1="104" y1="264" x2="240" y2="264" stroke="#3C2415" stroke-width="3.5" opacity="0.3"/>
 
-    <!-- Puffy dome top -->
-    <path d="
-      M 168 305
-      C 168 305 108 305 108 240
-      C 108 190 142 160 182 152
-      C 178 118 210 90 256 90
-      C 302 90 334 118 330 152
-      C 370 160 404 190 404 240
-      C 404 305 344 305 344 305
-      Z
-    "/>
-
-    <!-- Subtle puff lines on the dome for detail -->
-    <ellipse cx="210" cy="195" rx="30" ry="18" fill="rgba(255,255,255,0.15)" />
-    <ellipse cx="302" cy="195" rx="30" ry="18" fill="rgba(255,255,255,0.15)" />
-    <ellipse cx="256" cy="175" rx="28" ry="16" fill="rgba(255,255,255,0.15)" />
-  </g>
+  <!-- Front card body -->
+  <rect x="160" y="208" width="272" height="228" rx="10" fill="#F8ECD0" stroke="#3C2415" stroke-width="6"/>
+  <!-- Tab at top edge -->
+  <rect x="256" y="180" width="64" height="48" rx="10" fill="#F8ECD0"/>
+  <rect x="260" y="184" width="56" height="40" rx="8" fill="#F8ECD0" stroke="#3C2415" stroke-width="6"/>
+  <line x1="266" y1="220" x2="310" y2="220" stroke="#F8ECD0" stroke-width="10"/>
+  <!-- Header band -->
+  <rect x="184" y="296" width="224" height="32" rx="4" fill="#5B8C8E"/>
+  <!-- Title line (bold) -->
+  <line x1="184" y1="352" x2="408" y2="352" stroke="#3C2415" stroke-width="7"/>
+  <!-- Text lines -->
+  <line x1="184" y1="380" x2="408" y2="380" stroke="#3C2415" stroke-width="3.5" opacity="0.45"/>
+  <line x1="184" y1="408" x2="408" y2="408" stroke="#3C2415" stroke-width="3.5" opacity="0.45"/>
+  <line x1="184" y1="436" x2="320" y2="436" stroke="#3C2415" stroke-width="3.5" opacity="0.45"/>
 </svg>`;
 
 // ─── Output paths ─────────────────────────────────────────────────────────────
@@ -104,7 +98,7 @@ function createIco(pngBuffers) {
 // ─── Generate ─────────────────────────────────────────────────────────────────
 
 async function generateIcons() {
-  console.log('🎨 Generating NutriLabel app icons...\n');
+  console.log('Generating DietLedger app icons...\n');
 
   // Ensure output directories exist
   fs.mkdirSync(publicDir, { recursive: true });

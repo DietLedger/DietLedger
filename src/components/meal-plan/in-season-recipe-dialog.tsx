@@ -122,7 +122,7 @@ function RecipeDialogRow({
   const [selectedSlot, setSelectedSlot] = useState<DaySlot>(firstEmptySlot);
 
   return (
-    <div className="flex items-center gap-2 p-2 rounded-md border border-stone-200 hover:border-emerald-200">
+    <div className="flex items-center gap-2 p-2 rounded-md border border-stone-200 hover:border-brand-200">
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-stone-800 truncate">{recipe.name}</p>
         <p className="text-[10px] text-stone-400 mt-0.5">
@@ -144,7 +144,7 @@ function RecipeDialogRow({
         </Select>
         <Button
           size="sm"
-          className="h-7 bg-emerald-600 hover:bg-emerald-700 gap-1 text-xs"
+          className="h-7 bg-brand-600 hover:bg-brand-700 gap-1 text-xs"
           onClick={() => {
             onAddToSlot(recipe.id, selectedSlot);
             onClose();

@@ -35,7 +35,7 @@ const TYPE_TABS = [
 
 function typeBadgeColor(type: TemplateRecord['type']) {
   switch (type) {
-    case 'recipe': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    case 'recipe': return 'bg-brand-100 text-brand-700 border-brand-200';
     case 'book-page': return 'bg-blue-100 text-blue-700 border-blue-200';
     case 'book-recipe': return 'bg-purple-100 text-purple-700 border-purple-200';
   }
@@ -75,7 +75,7 @@ export default function TemplatesPage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white">
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-brand-600 text-white">
             <LayoutTemplate className="w-5 h-5" />
           </div>
           <div>
@@ -85,7 +85,7 @@ export default function TemplatesPage() {
         </div>
         <Button
           onClick={() => router.push('/settings/templates/new')}
-          className="bg-emerald-600 hover:bg-emerald-700 gap-1"
+          className="bg-brand-600 hover:bg-brand-700 gap-1"
         >
           <Plus className="w-4 h-4" />Create Template
         </Button>
