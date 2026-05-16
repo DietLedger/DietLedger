@@ -73,6 +73,10 @@ export default function ProfilesPage() {
   const [formWeightDisplay, setFormWeightDisplay] = useState('');
   const [formWeightDate, setFormWeightDate] = useState('');
   const [formWeightNotes, setFormWeightNotes] = useState('');
+  const [formBloodSugar, setFormBloodSugar] = useState('');
+  const [formBPSystolic, setFormBPSystolic] = useState('');
+  const [formBPDiastolic, setFormBPDiastolic] = useState('');
+  const [formMeasurementContext, setFormMeasurementContext] = useState<'fasting' | 'postMeal' | 'random' | ''>('');
 
   useEffect(() => {
     fetchProfiles();
@@ -211,17 +215,22 @@ export default function ProfilesPage() {
 
   const handleSaveWeight = useCallback(async () => {
     if (!weightProfileId || formWeightKg === null) return;
-    await logWeight({
+    const data: Record<string, unknown> = {
       profileId: weightProfileId,
       date: formWeightDate || new Date().toISOString().split('T')[0],
       weightKg: formWeightKg,
       notes: formWeightNotes || null,
       lastSyncedAt: null,
-    });
+    };
+    if (formBloodSugar) data.bloodSugar = Number(formBloodSugar);
+    if (formBPSystolic) data.bloodPressureSystolic = Number(formBPSystolic);
+    if (formBPDiastolic) data.bloodPressureDiastolic = Number(formBPDiastolic);
+    if (formMeasurementContext) data.measurementContext = formMeasurementContext;
+    await logWeight(data as Parameters<typeof logWeight>[0]);
     setWeightDialogOpen(false);
     const updated = await getLatestWeight(weightProfileId);
     setWeightCache(prev => ({ ...prev, [weightProfileId]: updated }));
-  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, logWeight]);
+  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeight]);
 
   const handleDelete = useCallback(async () => {
     if (!deletingProfileId) return;
@@ -387,6 +396,34 @@ export default function ProfilesPage() {
             <div>
               <Label>Notes (optional)</Label>
               <Input value={formWeightNotes} onChange={(e) => setFormWeightNotes(e.target.value)} placeholder="Optional notes" />
+            </div>
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs text-muted-foreground font-medium">Health Metrics (optional)</p>
+              <div>
+                <Label>Blood Sugar (mg/dL)</Label>
+                <Input type="number" value={formBloodSugar} onChange={(e) => setFormBloodSugar(e.target.value)} placeholder="e.g. 95" />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label>Systolic</Label>
+                  <Input type="number" value={formBPSystolic} onChange={(e) => setFormBPSystolic(e.target.value)} placeholder="120" />
+                </div>
+                <div className="flex-1">
+                  <Label>Diastolic</Label>
+                  <Input type="number" value={formBPDiastolic} onChange={(e) => setFormBPDiastolic(e.target.value)} placeholder="80" />
+                </div>
+              </div>
+              <div>
+                <Label>Measurement Context</Label>
+                <Select value={formMeasurementContext || 'random'} onValueChange={(v) => setFormMeasurementContext(v as 'fasting' | 'postMeal' | 'random')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fasting">Fasting</SelectItem>
+                    <SelectItem value="postMeal">Post-Meal</SelectItem>
+                    <SelectItem value="random">Random</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>

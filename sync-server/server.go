@@ -39,6 +39,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sync/device/", s.requireAuth(s.deviceRouter))
 	mux.HandleFunc("/api/sync/full-dump", s.requireAuth(s.fullDumpRouter))
 
+	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
+	mux.HandleFunc("/api/share/", s.shareItemRouter)
+	mux.HandleFunc("/api/community", s.communitySearch)
+	mux.HandleFunc("/api/community/categories", s.communityCategories)
+
 	return s.corsMiddleware(mux)
 }
 

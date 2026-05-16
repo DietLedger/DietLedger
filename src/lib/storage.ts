@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { SyncServerConfig, SyncChangeLogEntry } from './types';
+import type { SyncServerConfig, SyncChangeLogEntry, DietaryProfileRecord, AllergenRuleRecord, SharedRecipeRecord, BrandKit } from './types';
 
 interface IngredientGroup {
   id: string;
@@ -246,6 +246,16 @@ interface NutritionProfileRecord {
   activityLevel: ActivityLevel;
   goalWeightKg: number | null;
   goalDate: string | null;
+  proteinGoalG?: number;
+  carbsGoalG?: number;
+  fatGoalG?: number;
+  fiberGoalG?: number;
+  sodiumMaxMg?: number;
+  sugarMaxG?: number;
+  vitaminDGoalUg?: number;
+  calciumGoalMg?: number;
+  ironGoalMg?: number;
+  potassiumGoalMg?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -286,6 +296,10 @@ interface WeightEntryRecord {
   weightKg: number;
   notes: string | null;
   lastSyncedAt: string | null;
+  bloodSugar?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  measurementContext?: 'fasting' | 'postMeal' | 'random';
   createdAt: string;
   updatedAt: string;
 }
@@ -415,10 +429,30 @@ interface DietLedgerDB extends DBSchema {
       'by-timestamp': string;
     };
   };
+  dietaryProfiles: {
+    key: string;
+    value: DietaryProfileRecord;
+    indexes: { 'by-updatedAt': string };
+  };
+  allergenRules: {
+    key: string;
+    value: AllergenRuleRecord;
+    indexes: { 'by-profileId': string };
+  };
+  sharedRecipeCache: {
+    key: string;
+    value: SharedRecipeRecord;
+    indexes: { 'by-recipeId': string; 'by-shareToken': string };
+  };
+  brandKits: {
+    key: string;
+    value: BrandKit;
+    indexes: { 'by-updatedAt': string };
+  };
 }
 
 const DB_NAME = 'dietledger-db';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 
 let dbPromise: Promise<IDBPDatabase<DietLedgerDB>> | null = null;
 
@@ -509,6 +543,20 @@ export function getDB(): Promise<IDBPDatabase<DietLedgerDB>> {
           changeLogStore.createIndex('by-synced', 'synced');
           changeLogStore.createIndex('by-storeName', 'storeName');
           changeLogStore.createIndex('by-timestamp', 'timestamp');
+        }
+        if (oldVersion < 11) {
+          const dietaryProfileStore = db.createObjectStore('dietaryProfiles', { keyPath: 'id' });
+          dietaryProfileStore.createIndex('by-updatedAt', 'updatedAt');
+
+          const allergenRuleStore = db.createObjectStore('allergenRules', { keyPath: 'id' });
+          allergenRuleStore.createIndex('by-profileId', 'profileId');
+
+          const sharedRecipeCacheStore = db.createObjectStore('sharedRecipeCache', { keyPath: 'id' });
+          sharedRecipeCacheStore.createIndex('by-recipeId', 'recipeId');
+          sharedRecipeCacheStore.createIndex('by-shareToken', 'shareToken');
+
+          const brandKitStore = db.createObjectStore('brandKits', { keyPath: 'id' });
+          brandKitStore.createIndex('by-updatedAt', 'updatedAt');
         }
       },
     });
@@ -2102,6 +2150,163 @@ export async function getLatestWeight(profileId: string): Promise<WeightEntryRec
   return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 }
 
+// ── DietaryProfile CRUD ──────────────────────────────────────────────
+
+export async function getAllDietaryProfiles(): Promise<DietaryProfileRecord[]> {
+  const db = await getDB();
+  const profiles = await db.getAll('dietaryProfiles');
+  return profiles.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function getDietaryProfile(id: string): Promise<DietaryProfileRecord | undefined> {
+  const db = await getDB();
+  return db.get('dietaryProfiles', id);
+}
+
+export async function createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: DietaryProfileRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('dietaryProfiles', record);
+  await logChange('dietaryProfiles', record.id, 'upsert', record);
+  return record;
+}
+
+export async function updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord> {
+  const db = await getDB();
+  const record = await db.get('dietaryProfiles', id);
+  if (!record) throw new Error('Dietary profile not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('dietaryProfiles', record);
+  await logChange('dietaryProfiles', record.id, 'upsert', record);
+  return record;
+}
+
+export async function deleteDietaryProfile(id: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['dietaryProfiles', 'allergenRules'], 'readwrite');
+  const rules = await tx.objectStore('allergenRules').index('by-profileId').getAllKeys(id);
+  for (const key of rules) await tx.objectStore('allergenRules').delete(key);
+  await tx.objectStore('dietaryProfiles').delete(id);
+  await tx.done;
+  await logChange('dietaryProfiles', id, 'delete');
+}
+
+// ── AllergenRule CRUD ────────────────────────────────────────────────
+
+export async function getAllergenRulesByProfile(profileId: string): Promise<AllergenRuleRecord[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('allergenRules', 'by-profileId', profileId);
+}
+
+export async function createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: AllergenRuleRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('allergenRules', record);
+  await logChange('allergenRules', record.id, 'upsert', record);
+  return record;
+}
+
+export async function updateAllergenRule(id: string, data: Partial<Omit<AllergenRuleRecord, 'id' | 'createdAt'>>): Promise<AllergenRuleRecord> {
+  const db = await getDB();
+  const record = await db.get('allergenRules', id);
+  if (!record) throw new Error('Allergen rule not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('allergenRules', record);
+  await logChange('allergenRules', record.id, 'upsert', record);
+  return record;
+}
+
+export async function deleteAllergenRule(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('allergenRules', id);
+  await logChange('allergenRules', id, 'delete');
+}
+
+// ── SharedRecipeCache CRUD ───────────────────────────────────────────
+
+export async function getSharedRecipeByToken(shareToken: string): Promise<SharedRecipeRecord | undefined> {
+  const db = await getDB();
+  const results = await db.getAllFromIndex('sharedRecipeCache', 'by-shareToken', shareToken);
+  return results[0];
+}
+
+export async function getSharedRecipeByRecipeId(recipeId: string): Promise<SharedRecipeRecord | undefined> {
+  const db = await getDB();
+  const results = await db.getAllFromIndex('sharedRecipeCache', 'by-recipeId', recipeId);
+  return results[0];
+}
+
+export async function putSharedRecipe(record: SharedRecipeRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('sharedRecipeCache', record);
+}
+
+export async function deleteSharedRecipe(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('sharedRecipeCache', id);
+}
+
+export async function getAllSharedRecipes(): Promise<SharedRecipeRecord[]> {
+  const db = await getDB();
+  return db.getAll('sharedRecipeCache');
+}
+
+// ── BrandKit CRUD ────────────────────────────────────────────────────
+
+export async function getAllBrandKits(): Promise<BrandKit[]> {
+  const db = await getDB();
+  const kits = await db.getAll('brandKits');
+  return kits.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function getBrandKit(id: string): Promise<BrandKit | undefined> {
+  const db = await getDB();
+  return db.get('brandKits', id);
+}
+
+export async function createBrandKit(data: Omit<BrandKit, 'id' | 'createdAt' | 'updatedAt'>): Promise<BrandKit> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: BrandKit = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('brandKits', record);
+  return record;
+}
+
+export async function updateBrandKit(id: string, data: Partial<Omit<BrandKit, 'id' | 'createdAt'>>): Promise<BrandKit> {
+  const db = await getDB();
+  const record = await db.get('brandKits', id);
+  if (!record) throw new Error('Brand kit not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('brandKits', record);
+  return record;
+}
+
+export async function deleteBrandKit(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('brandKits', id);
+}
+
 export type {
   RecipeRecord,
   IngredientRecord,
@@ -2202,6 +2407,7 @@ export async function getAllStoreData(storeName: string): Promise<unknown[]> {
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return [];
   return db.getAll(storeName as never);
@@ -2214,6 +2420,7 @@ export async function putStoreData(storeName: string, records: unknown[]): Promi
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return;
   const tx = db.transaction(storeName as never, 'readwrite');
@@ -2230,6 +2437,7 @@ export async function deleteStoreRecord(storeName: string, id: string): Promise<
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return;
   await db.delete(storeName as never, id);

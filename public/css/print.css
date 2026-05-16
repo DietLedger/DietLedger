@@ -80,4 +80,98 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  .print-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .break-before {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .break-after {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .no-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+@page card-3x5 {
+  size: 3in 5in;
+  margin: 0.125in;
+}
+
+@page card-4x6 {
+  size: 4in 6in;
+  margin: 0.125in;
+}
+
+@page card-a6 {
+  size: 105mm 148mm;
+  margin: 3mm;
+}
+
+@page booklet {
+  size: letter;
+  margin: 0.5in;
+}
+
+.print-card-3x5 {
+  page: card-3x5;
+}
+
+.print-card-4x6 {
+  page: card-4x6;
+}
+
+.print-card-a6 {
+  page: card-a6;
+}
+
+.print-booklet {
+  page: booklet;
+  column-count: 2;
+  column-gap: 0.5in;
+}
+
+.print-dual-front {
+  break-after: page;
+}
+
+.print-dual-back {
+  break-before: page;
+}
+
+@media print {
+  .print-card-3x5,
+  .print-card-4x6,
+  .print-card-a6 {
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0.125in !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .print-booklet .print-section {
+    break-inside: avoid;
+    column-break-inside: avoid;
+  }
+
+  .print-dual-front + .print-dual-back {
+    break-before: page;
+  }
+
+  .cmyk-safe {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
