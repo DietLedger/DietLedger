@@ -10,13 +10,18 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Copy, Eye, Download, Share2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { RecipeRecord, IngredientRecord } from '@/lib/storage';
 import { detectAllergens } from '@/lib/dietary-rules';
+
+interface ShareableRecipe {
+  id: string;
+  name: string;
+  ingredients: Array<{ name: string }>;
+}
 
 interface ShareDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  recipe: RecipeRecord;
+  recipe: ShareableRecipe;
 }
 
 export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {

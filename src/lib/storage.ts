@@ -154,12 +154,13 @@ interface TemplateRecord {
   layout: TemplateLayoutRecord;
 }
 
-type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night';
 
 interface MealPlanRecord {
   id: string;
   name: string;
   weekStart: string;
+  slotTimes?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -169,11 +170,28 @@ interface DayPlanEntryRecord {
   mealPlanId: string;
   date: string;
   slot: DaySlot;
-  recipeId: string;
+  recipeId: string | null;
   position: number;
   groupId: string | null;
   servings: number;
   isLeftover: boolean;
+  sourceType: 'recipe' | 'food' | 'customFood' | 'manual';
+  foodName?: string;
+  calories?: number;
+  totalFat?: number;
+  saturatedFat?: number;
+  transFat?: number;
+  cholesterol?: number;
+  sodium?: number;
+  totalCarbs?: number;
+  dietaryFiber?: number;
+  totalSugars?: number;
+  addedSugars?: number;
+  protein?: number;
+  vitaminD?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
 }
 
 interface MealGroupRecord {
@@ -234,8 +252,10 @@ interface CustomFoodRecord {
 }
 
 type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
-type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'snack';
+type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night' | 'snack';
 type FoodSourceType = 'recipe' | 'customFood' | 'manual';
+
+type BmrEquation = 'auto' | 'mifflin' | 'harrisBenedict' | 'owen' | 'indirectCalorimetry';
 
 interface NutritionProfileRecord {
   id: string;
@@ -246,6 +266,9 @@ interface NutritionProfileRecord {
   activityLevel: ActivityLevel;
   goalWeightKg: number | null;
   goalDate: string | null;
+  bmrEquation?: BmrEquation;
+  manualBmrValue?: number | null;
+  calorieTarget?: number | null;
   proteinGoalG?: number;
   carbsGoalG?: number;
   fatGoalG?: number;
@@ -264,6 +287,7 @@ interface FoodLogEntryRecord {
   id: string;
   profileId: string;
   date: string;
+  time?: string;
   mealSlot: MealSlot;
   sourceType: FoodSourceType;
   sourceId: string | null;
@@ -301,6 +325,12 @@ interface WeightEntryRecord {
   bloodPressureDiastolic?: number;
   measurementContext?: 'fasting' | 'postMeal' | 'random';
   createdAt: string;
+  updatedAt: string;
+}
+
+interface AppSettingsRecord {
+  id: string;
+  defaultMealSlotTimes: Record<string, string>;
   updatedAt: string;
 }
 
@@ -449,10 +479,14 @@ interface DietLedgerDB extends DBSchema {
     value: BrandKit;
     indexes: { 'by-updatedAt': string };
   };
+  appSettings: {
+    key: string;
+    value: AppSettingsRecord;
+  };
 }
 
 const DB_NAME = 'dietledger-db';
-const DB_VERSION = 11;
+const DB_VERSION = 13;
 
 let dbPromise: Promise<IDBPDatabase<DietLedgerDB>> | null = null;
 
@@ -557,6 +591,13 @@ export function getDB(): Promise<IDBPDatabase<DietLedgerDB>> {
 
           const brandKitStore = db.createObjectStore('brandKits', { keyPath: 'id' });
           brandKitStore.createIndex('by-updatedAt', 'updatedAt');
+        }
+        if (oldVersion < 12) {
+          // nutritionProfiles gains optional fields bmrEquation, manualBmrValue, calorieTarget
+          // IndexedDB object stores are schemaless, so no structural change needed
+        }
+        if (oldVersion < 13) {
+          db.createObjectStore('appSettings', { keyPath: 'id' });
         }
       },
     });
@@ -1644,12 +1685,13 @@ export async function createMealPlan(name: string, weekStart: string): Promise<M
 
 export async function updateMealPlan(
   id: string,
-  data: { name?: string }
+  data: { name?: string; slotTimes?: Record<string, string> }
 ): Promise<MealPlanRecord> {
   const db = await getDB();
   const plan = await db.get('mealPlans', id);
   if (!plan) throw new Error('Meal plan not found');
   if (data.name !== undefined) plan.name = data.name.trim();
+  if (data.slotTimes !== undefined) plan.slotTimes = data.slotTimes;
   plan.updatedAt = new Date().toISOString();
   await db.put('mealPlans', plan);
   await logChange('mealPlans', plan.id, 'upsert', plan);
@@ -1679,6 +1721,7 @@ export async function getDayEntriesByMealPlanId(mealPlanId: string): Promise<Day
   const entries = await db.getAllFromIndex('dayPlanEntries', 'by-mealPlanId', mealPlanId);
   for (const e of entries) {
     if (e.isLeftover === undefined) e.isLeftover = false;
+    if (e.sourceType === undefined) e.sourceType = 'recipe';
   }
   return entries.sort((a, b) => a.position - b.position);
 }
@@ -1693,8 +1736,28 @@ export async function createDayPlanEntry(
   mealPlanId: string,
   date: string,
   slot: DaySlot,
-  recipeId: string,
-  position: number
+  recipeId: string | null,
+  position: number,
+  options?: {
+    sourceType?: 'recipe' | 'food' | 'customFood' | 'manual';
+    foodName?: string;
+    servings?: number;
+    calories?: number;
+    totalFat?: number;
+    saturatedFat?: number;
+    transFat?: number;
+    cholesterol?: number;
+    sodium?: number;
+    totalCarbs?: number;
+    dietaryFiber?: number;
+    totalSugars?: number;
+    addedSugars?: number;
+    protein?: number;
+    vitaminD?: number;
+    calcium?: number;
+    iron?: number;
+    potassium?: number;
+  }
 ): Promise<DayPlanEntryRecord> {
   const db = await getDB();
   const entry: DayPlanEntryRecord = {
@@ -1705,8 +1768,25 @@ export async function createDayPlanEntry(
     recipeId,
     position,
     groupId: null,
-    servings: 1,
+    servings: options?.servings ?? 1,
     isLeftover: false,
+    sourceType: options?.sourceType ?? (recipeId ? 'recipe' : 'manual'),
+    foodName: options?.foodName,
+    calories: options?.calories,
+    totalFat: options?.totalFat,
+    saturatedFat: options?.saturatedFat,
+    transFat: options?.transFat,
+    cholesterol: options?.cholesterol,
+    sodium: options?.sodium,
+    totalCarbs: options?.totalCarbs,
+    dietaryFiber: options?.dietaryFiber,
+    totalSugars: options?.totalSugars,
+    addedSugars: options?.addedSugars,
+    protein: options?.protein,
+    vitaminD: options?.vitaminD,
+    calcium: options?.calcium,
+    iron: options?.iron,
+    potassium: options?.potassium,
   };
   await db.put('dayPlanEntries', entry);
   await logChange('dayPlanEntries', entry.id, 'upsert', entry);
@@ -2336,6 +2416,7 @@ export type {
   ActivityLevel,
   MealSlot,
   FoodSourceType,
+  BmrEquation,
 };
 
 export async function logChange(storeName: string, recordId: string, action: 'upsert' | 'delete', data?: unknown): Promise<void> {
@@ -2441,4 +2522,14 @@ export async function deleteStoreRecord(storeName: string, id: string): Promise<
   ];
   if (!storeNames.includes(storeName)) return;
   await db.delete(storeName as never, id);
+}
+
+export async function getAppSettings(): Promise<AppSettingsRecord | undefined> {
+  const db = await getDB();
+  return db.get('appSettings', 'default');
+}
+
+export async function putAppSettings(settings: AppSettingsRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('appSettings', settings);
 }

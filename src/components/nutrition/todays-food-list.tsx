@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { FoodLogEntryRecord, MealSlot } from '@/lib/storage';
 import { FoodLogEntry, MEAL_LABELS } from '@/components/nutrition/food-log-entry';
 
-const MEAL_ORDER: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack'];
+const MEAL_ORDER: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];
 
 interface TodaysFoodListProps {
   entries: FoodLogEntryRecord[];
@@ -15,7 +15,7 @@ interface TodaysFoodListProps {
 export function TodaysFoodList({ entries, onEdit, onDelete }: TodaysFoodListProps) {
   const grouped = useMemo(() => {
     const map: Record<MealSlot, FoodLogEntryRecord[]> = {
-      morning: [], midMorning: [], noon: [], afternoon: [], evening: [], snack: [],
+      morning: [], midMorning: [], noon: [], afternoon: [], evening: [], night: [], snack: [],
     };
     for (const e of entries) {
       if (map[e.mealSlot]) map[e.mealSlot].push(e);

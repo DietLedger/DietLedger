@@ -14,13 +14,14 @@ import { getAllMealPlans, getDayEntriesByMealPlanId, getMealGroupsByMealPlanId, 
 import { format, startOfWeek, parseISO } from 'date-fns';
 import type { DaySlot } from '@/lib/types';
 
-const SLOT_ORDER: DaySlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening'];
+const SLOT_ORDER: DaySlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night'];
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: 'Morning',
   midMorning: 'Mid-Morning',
   noon: 'Noon',
   afternoon: 'Afternoon',
   evening: 'Evening',
+  night: 'Night',
 };
 
 const COMPLETED_KEY = 'kitchen-helper-completed';
@@ -62,7 +63,7 @@ function saveCompletedRecipes(
     const date = group?.date || todayStr;
     const seen = new Set<string>();
     for (const e of groupEnts) {
-      if (!seen.has(e.recipeId)) {
+      if (e.recipeId && !seen.has(e.recipeId)) {
         seen.add(e.recipeId);
         markRecipeCompleted(e.recipeId, date);
       }
@@ -269,7 +270,7 @@ function KitchenHelperContent() {
 
       const allDepRecipeIds: string[] = [];
       for (const entry of groupEntries) {
-        if (seenRecipeIds.has(entry.recipeId)) continue;
+        if (!entry.recipeId || seenRecipeIds.has(entry.recipeId)) continue;
         seenRecipeIds.add(entry.recipeId);
         const deps = getRecipeDependencyOrder(entry.recipeId, recipes);
         allDepRecipeIds.push(...deps.filter((id) => !allDepRecipeIds.includes(id)));
@@ -395,7 +396,7 @@ function KitchenHelperContent() {
       const groupEntries = mealEntries.filter((e) => e.groupId === selectedGroupId);
       const seenRecipeIds = new Set<string>();
       for (const entry of groupEntries) {
-        if (seenRecipeIds.has(entry.recipeId)) continue;
+        if (!entry.recipeId || seenRecipeIds.has(entry.recipeId)) continue;
         seenRecipeIds.add(entry.recipeId);
         const recipe = recipes.find((r) => r.id === entry.recipeId);
         if (!recipe) continue;
@@ -503,7 +504,7 @@ function KitchenHelperContent() {
                       {entries.map((entry) => {
                         const recipe = recipes.find((r) => r.id === entry.recipeId);
                         const group = entry.groupId ? weekGroups.find((g) => g.id === entry.groupId) : null;
-                        const isDone = completedRecipeMap[entry.recipeId] === entry.date;
+                        const isDone = entry.recipeId ? completedRecipeMap[entry.recipeId] === entry.date : false;
                         return (
                           <button
                             key={entry.id}

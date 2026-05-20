@@ -6,6 +6,8 @@ import { useRecipeStore } from '@/lib/recipe-store';
 import { useBookStore, type CategoryNode } from '@/lib/book-store';
 import { getCategoryDescendants, getRecipesByCategory, addCustomFood } from '@/lib/storage';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
+import { computeRecipeGL, type GLResult } from '@/lib/glycemic-load';
+import { GL_HOVER_KEY } from '@/data/glycemic-index';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,10 +57,17 @@ import {
   ChevronDown,
   ChevronRight,
   Eye,
+  Share2,
+  Download,
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { fmt } from '@/lib/format';
 import { useTemplateStore } from '@/lib/template-store';
+import { DietaryFilters, applyDietaryFilters } from '@/components/dietary/dietary-filters';
+import { useDietaryStore } from '@/lib/dietary-store';
+import type { DietaryTag } from '@/lib/types';
 import RecipeRenderer from '@/components/recipe-renderer';
+import { ShareDialog } from '@/components/recipe/share-dialog';
 import { STORAGE_LOCATIONS, STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 
 type IngredientSlot =
@@ -212,8 +221,18 @@ function RecipePage() {
     fetchTemplates,
   } = useTemplateStore();
 
+  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryStore();
+  const activeDietaryProfile = useMemo(
+    () => dietaryProfiles.find((p) => p.id === activeDietaryProfileId) ?? null,
+    [dietaryProfiles, activeDietaryProfileId]
+  );
+
+  const [dietaryTags, setDietaryTags] = useState<DietaryTag[]>([]);
+  const [excludeAllergens, setExcludeAllergens] = useState(false);
+
   const [selectedRecipeTemplateId, setSelectedRecipeTemplateId] = useState<string | null>(null);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [categoryDialogRecipeId, setCategoryDialogRecipeId] = useState<string | null>(null);
@@ -283,9 +302,15 @@ function RecipePage() {
   const shiftRef = useRef(false);
 
   const displayRecipes = useMemo(() => {
-    if (!filteredRecipeIds) return recipes;
-    return recipes.filter(r => filteredRecipeIds.has(r.id));
-  }, [recipes, filteredRecipeIds]);
+    let result: Recipe[] = recipes;
+    if (filteredRecipeIds) {
+      result = result.filter(r => filteredRecipeIds.has(r.id));
+    }
+    if (dietaryTags.length > 0 || excludeAllergens) {
+      result = applyDietaryFilters(result as any, dietaryTags, excludeAllergens, activeDietaryProfile) as any;
+    }
+    return result;
+  }, [recipes, filteredRecipeIds, dietaryTags, excludeAllergens, activeDietaryProfile]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -299,6 +324,7 @@ function RecipePage() {
   }, [fetchRecipes, fetchCategories, fetchTemplates]);
 
   const initialRecipeId = useRef(searchParams.get('recipeId'));
+  const nutritionLabelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (initialRecipeId.current) {
       selectRecipe(initialRecipeId.current);
@@ -448,6 +474,20 @@ function RecipePage() {
     await deleteRecipe(id);
     setDeleteConfirmId(null);
   }, [deleteRecipe]);
+
+  const handleExportNutritionLabel = useCallback(async () => {
+    if (!nutritionLabelRef.current || !activeRecipe) return;
+    const canvas = await html2canvas(nutritionLabelRef.current, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+    });
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const safeName = activeRecipe.name.replace(/\s+/g, '_');
+    link.download = `${safeName}_${dateStr}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }, [activeRecipe]);
 
   const handleUpdateName = useCallback(async () => {
     if (!activeRecipe || !nameValue.trim()) {
@@ -634,6 +674,11 @@ function RecipePage() {
     potassium: Math.round((totalNutrition.potassium / (activeRecipe?.servings || 1)) * 10) / 10,
   };
 
+  const estimatedGL: GLResult | null = useMemo(() => {
+    if (!activeRecipe) return null;
+    return computeRecipeGL(activeRecipe, 1, recipes);
+  }, [activeRecipe, recipes]);
+
   const ingredientSlots = activeRecipe ? computeIngredientSlots(activeRecipe.ingredients, activeRecipe.ingredientGroups) : [];
   const instructionSlots = activeRecipe ? computeInstructionSlots(activeRecipe.instructionSteps, activeRecipe.instructionGroups) : [];
   const recipeTemplates = useMemo(() => templates.filter((t) => t.type === 'recipe'), [templates]);
@@ -719,6 +764,14 @@ function RecipePage() {
                     </Popover>
                   </div>
                 )}
+                <div className="mb-3">
+                  <DietaryFilters
+                    activeTags={dietaryTags}
+                    onTagsChange={setDietaryTags}
+                    excludeAllergens={excludeAllergens}
+                    onExcludeAllergensChange={setExcludeAllergens}
+                  />
+                </div>
                 <ScrollArea className="max-h-[calc(100vh-280px)]">
                   <div className="space-y-1.5">
                     {displayRecipes.length === 0 ? (
@@ -783,7 +836,6 @@ function RecipePage() {
             {activeRecipe ? (
               <Card className="border-stone-200 shadow-sm">
                 <CardHeader className="pb-4">
-                  <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       {editingName ? (
                         <div className="flex gap-2">
@@ -818,36 +870,43 @@ function RecipePage() {
                            ))}
                          </select>
                         </div>
-                      </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1 text-xs"
-                        onClick={() => {
-                          setCategoryDialogRecipeId(activeRecipe.id);
-                          setCategoryDialogOpen(true);
-                        }}
-                      >
-                        <Tag className="w-3.5 h-3.5" />Categories
-                      </Button>
-                      <Dialog open={searchDialogOpen} onOpenChange={(open) => {
-                      setSearchDialogOpen(open);
-                      if (open) {
-                        setSelectedFood(null);
-                        setSelectedRecipeToAdd(null);
-                        setRecipeMultiplier('1');
-                        setRecipeAddMode('whole');
-                        setRecipeServingsCount('1');
-                        setSearchTab('fda');
-                      }
-                    }}>
-                      <DialogTrigger asChild>
-                        <Button className="bg-brand-600 hover:bg-brand-700 gap-2">
-                          <Search className="w-4 h-4" />Add Ingredient
+                      <div className="flex items-center gap-2 mt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 text-xs"
+                          onClick={() => {
+                            setCategoryDialogRecipeId(activeRecipe.id);
+                            setCategoryDialogOpen(true);
+                          }}
+                        >
+                          <Tag className="w-3.5 h-3.5" />Categories
                         </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-[540px] max-h-[80vh] flex flex-col overflow-hidden">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 text-xs"
+                          onClick={() => setShareDialogOpen(true)}
+                        >
+                          <Share2 className="w-3.5 h-3.5" />Share
+                        </Button>
+                        <Button className="bg-brand-600 hover:bg-brand-700 gap-1 text-xs" size="sm" onClick={() => {
+                          setSearchDialogOpen(true);
+                          setSelectedFood(null);
+                          setSelectedRecipeToAdd(null);
+                          setRecipeMultiplier('1');
+                          setRecipeAddMode('whole');
+                          setRecipeServingsCount('1');
+                          setSearchTab('fda');
+                        }}>
+                          <Search className="w-3.5 h-3.5" />Add Ingredient
+                        </Button>
+                       </div>
+                     </div>
+                </CardHeader>
+
+                <Dialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
+                       <DialogContent className="sm:max-w-[540px] max-h-[80vh] flex flex-col overflow-hidden">
                         <DialogHeader>
                           <DialogTitle className="flex items-center gap-2">
                             <Search className="w-4 h-4 text-brand-600" />Add Ingredient
@@ -1089,11 +1148,8 @@ function RecipePage() {
                             </div>
                           </TabsContent>
                         </Tabs>
-                      </DialogContent>
-                    </Dialog>
-                    </div>
-                  </div>
-                </CardHeader>
+                       </DialogContent>
+                     </Dialog>
 
                 <CardContent className="pt-0">
                   <Separator className="mb-4" />
@@ -1387,9 +1443,26 @@ function RecipePage() {
                       <Eye className="w-4 h-4" />Preview Recipe
                     </Button>
                   )}
+                  {activeRecipe && (
+                    <Button
+                      variant="outline"
+                      className="w-full mt-2 gap-2"
+                      onClick={handleExportNutritionLabel}
+                    >
+                      <Download className="w-4 h-4" />Export Nutrition Label
+                    </Button>
+                  )}
+                  {activeRecipe && estimatedGL && (
+                    <div className="flex items-center gap-2 mt-3" title={`The Estimated Glycemic Load for this recipe is ${estimatedGL.category} (${estimatedGL.gl})${GL_HOVER_KEY}`}>
+                      <span className="text-xs text-stone-600">Estimated Glycemic Load:</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${estimatedGL.colorClass}`}>
+                        {estimatedGL.category} ({estimatedGL.gl})
+                      </span>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="flex justify-center">
+                  <div className="flex justify-center" ref={nutritionLabelRef}>
                     <NutritionLabel
                       data={activeRecipe && activeRecipe.servings > 1 ? perServingNutrition : nutritionData}
                       servingDescription={activeRecipe ? `1 ${activeRecipe.servingName || 'serving'}` : undefined}
@@ -1593,6 +1666,14 @@ function RecipePage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {activeRecipe && (
+        <ShareDialog
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          recipe={activeRecipe as any}
+        />
+      )}
     </>
   );
 }

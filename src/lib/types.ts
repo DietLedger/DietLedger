@@ -105,7 +105,18 @@ export interface TemplateTheme {
   borderRadius: number;
 }
 
-export type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+export type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night';
+
+export type MealSlotTimes = Record<DaySlot, string>;
+
+export const DEFAULT_MEAL_SLOT_TIMES: MealSlotTimes = {
+  morning: '07:30',
+  midMorning: '09:45',
+  noon: '12:00',
+  afternoon: '15:30',
+  evening: '19:00',
+  night: '22:00',
+};
 
 export interface MealPlanRecord {
   id: string;
@@ -120,10 +131,28 @@ export interface DayPlanEntryRecord {
   mealPlanId: string;
   date: string;
   slot: DaySlot;
-  recipeId: string;
+  recipeId: string | null;
   position: number;
   groupId: string | null;
   servings: number;
+  isLeftover?: boolean;
+  sourceType: 'recipe' | 'food' | 'customFood' | 'manual';
+  foodName?: string;
+  calories?: number;
+  totalFat?: number;
+  saturatedFat?: number;
+  transFat?: number;
+  cholesterol?: number;
+  sodium?: number;
+  totalCarbs?: number;
+  dietaryFiber?: number;
+  totalSugars?: number;
+  addedSugars?: number;
+  protein?: number;
+  vitaminD?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
 }
 
 export interface MealGroupRecord {

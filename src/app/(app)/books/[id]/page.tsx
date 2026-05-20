@@ -234,8 +234,6 @@ export default function BookDetailPage() {
   const router = useRouter();
   const bookId = params.id as string;
 
-  useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
-
   const {
     activeBook,
     isLoading: bookLoading,
@@ -253,6 +251,8 @@ export default function BookDetailPage() {
     movePageToBookLevel,
     movePageToChapter,
   } = useBookStore();
+
+  useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
 
   const { recipes, fetchRecipes } = useRecipeStore();
 

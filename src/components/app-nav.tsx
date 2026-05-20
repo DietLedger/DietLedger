@@ -35,6 +35,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  ClipboardList,
 } from 'lucide-react';
 import FoodDatabasePanel from '@/components/food-database-panel';
 import CategoriesPanel from '@/components/categories-panel';
@@ -53,6 +54,7 @@ const NAV_ITEMS = [
   { href: '/meal-plans', label: 'Meal Plans', icon: UtensilsCrossed },
   { href: '/kitchen-helper', label: 'Kitchen Helper', icon: ChefHat },
   { href: '/nutrition', label: 'Nutrition', icon: Activity },
+  { href: '/nutrition/log', label: 'Food Log', icon: ClipboardList },
 ] as const;
 
 export default function AppNav() {

@@ -19,7 +19,7 @@ const syncSchema = z.object({
     id: z.string(),
     profileId: z.string(),
     date: z.string(),
-    mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack']),
+    mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack']),
     sourceType: z.enum(['recipe', 'customFood', 'manual']),
     sourceId: z.string().nullable().optional(),
     name: z.string(),
