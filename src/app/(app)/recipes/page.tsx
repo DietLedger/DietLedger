@@ -60,7 +60,7 @@ import {
   Share2,
   Download,
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { toCanvas } from 'html-to-image';
 import { fmt } from '@/lib/format';
 import { useTemplateStore } from '@/lib/template-store';
 import { DietaryFilters, applyDietaryFilters } from '@/components/dietary/dietary-filters';
@@ -477,16 +477,26 @@ function RecipePage() {
 
   const handleExportNutritionLabel = useCallback(async () => {
     if (!nutritionLabelRef.current || !activeRecipe) return;
-    const canvas = await html2canvas(nutritionLabelRef.current, {
-      backgroundColor: '#ffffff',
-      scale: 2,
-    });
-    const link = document.createElement('a');
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const safeName = activeRecipe.name.replace(/\s+/g, '_');
-    link.download = `${safeName}_${dateStr}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+    const wrapper = document.createElement('div');
+    wrapper.style.padding = '24px';
+    wrapper.style.background = '#ffffff';
+    wrapper.style.display = 'inline-block';
+    wrapper.appendChild(nutritionLabelRef.current.cloneNode(true));
+    document.body.appendChild(wrapper);
+    try {
+      const canvas = await toCanvas(wrapper, {
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+      });
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const safeName = activeRecipe.name.replace(/\s+/g, '_');
+      link.download = `${safeName}_${dateStr}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } finally {
+      document.body.removeChild(wrapper);
+    }
   }, [activeRecipe]);
 
   const handleUpdateName = useCallback(async () => {

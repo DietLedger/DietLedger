@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { toCanvas } from 'html-to-image';
 import type { CookbookExportOptions, BrandKit, TemplateTheme } from '@/lib/types';
 import { getRecipe, getBook, getChaptersByBook, getChapterRecipes, getBrandKit, getTemplate } from '@/lib/storage';
 
@@ -35,19 +36,17 @@ interface RecipeData {
 
 const MM_PER_INCH = 25.4;
 const PT_PER_MM = 2.8346;
+const PX_PER_INCH = 96;
+const RENDER_SCALE = 1;
 
 function pageSizeToMm(size: 'a4' | 'letter'): { w: number; h: number } {
   if (size === 'a4') return { w: 210, h: 297 };
   return { w: 215.9, h: 279.4 };
 }
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '');
-  return {
-    r: parseInt(h.substring(0, 2), 16),
-    g: parseInt(h.substring(2, 4), 16),
-    b: parseInt(h.substring(4, 6), 16),
-  };
+function pageSizeToPx(size: 'a4' | 'letter'): number {
+  const { w } = pageSizeToMm(size);
+  return Math.round((w / MM_PER_INCH) * PX_PER_INCH);
 }
 
 function mmToPt(mm: number): number {
@@ -178,35 +177,133 @@ ${entries}
 }
 
 async function htmlToCanvas(html: string, widthPx: number): Promise<HTMLCanvasElement> {
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.style.width = `${widthPx}px`;
-  container.innerHTML = html;
-  document.body.appendChild(container);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.left = '0';
+  iframe.style.top = '0';
+  iframe.style.width = `${widthPx}px`;
+  iframe.style.height = '100%';
+  iframe.style.border = 'none';
+  iframe.style.zIndex = '-9999';
+  iframe.style.opacity = '0';
+  document.body.appendChild(iframe);
 
+  const iframeDoc = iframe.contentDocument!;
+  iframeDoc.open();
+  iframeDoc.write(`<!DOCTYPE html><html><head><style>body{margin:0;padding:0}</style></head><body>${html}</body></html>`);
+  iframeDoc.close();
+
+  const container = iframeDoc.body.firstElementChild as HTMLElement;
   try {
     const canvas = await html2canvas(container, {
       width: widthPx,
-      scale: 2,
+      scale: RENDER_SCALE,
       useCORS: true,
       logging: false,
-      backgroundColor: null,
+      backgroundColor: '#ffffff',
     });
     return canvas;
   } finally {
-    document.body.removeChild(container);
+    document.body.removeChild(iframe);
   }
 }
 
-async function captureElement(element: HTMLElement): Promise<HTMLCanvasElement> {
-  return html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
-    backgroundColor: null,
-  });
+async function elementToCanvas(element: HTMLElement, widthPx?: number): Promise<HTMLCanvasElement> {
+  const options: Record<string, unknown> = {
+    pixelRatio: RENDER_SCALE,
+    backgroundColor: '#ffffff',
+  };
+  if (widthPx) {
+    options.width = widthPx;
+  }
+  return toCanvas(element, options) as Promise<HTMLCanvasElement>;
+}
+
+function addCanvasToPage(canvas: HTMLCanvasElement, doc: jsPDF, pageW: number, pageH: number, marginMm: number = 10) {
+  const availW = pageW - marginMm * 2;
+  const availH = pageH - marginMm * 2;
+  const imgW = availW;
+  const imgH = (canvas.height / canvas.width) * imgW;
+  if (imgH <= availH) {
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', marginMm, marginMm, imgW, imgH);
+  } else {
+    const scale = availH / imgH;
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', marginMm, marginMm, imgW * scale, availH);
+  }
+}
+
+function canvasToPages(canvas: HTMLCanvasElement, doc: jsPDF, pageW: number, pageH: number, marginMm: number = 0) {
+  const availW = pageW - marginMm * 2;
+  const availH = pageH - marginMm * 2;
+  const naturalH = (canvas.height / canvas.width) * availW;
+  if (naturalH <= 0) return;
+
+  if (naturalH <= availH) {
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', marginMm, marginMm, availW, naturalH);
+    return;
+  }
+
+  const scale = availH / naturalH;
+  doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', marginMm, marginMm, availW * scale, availH);
+}
+
+export interface NutritionExportOptions {
+  profileName?: string;
+  periodLabel: string;
+  dateRange?: string;
+  dietaryTags?: string[];
+  allergens?: string[];
+}
+
+export async function exportNutritionDashboard(
+  element: HTMLElement,
+  options: NutritionExportOptions,
+): Promise<Blob> {
+  const { w: pageW, h: pageH } = pageSizeToMm('letter');
+  const pxWidth = pageSizeToPx('letter');
+  const marginPx = 20;
+
+  const tags = options.dietaryTags?.length
+    ? `<div style="font-size:11px;color:#666;margin-top:4px">Diets: ${options.dietaryTags.join(', ')}</div>` : '';
+  const allergens = options.allergens?.length
+    ? `<div style="font-size:11px;color:#666;margin-top:2px">Allergens: ${options.allergens.join(', ')}</div>` : '';
+
+  const wrapper = document.createElement('div');
+  wrapper.style.width = `${pxWidth}px`;
+  wrapper.style.background = '#ffffff';
+  wrapper.style.padding = `${marginPx}px`;
+  wrapper.style.boxSizing = 'border-box';
+  wrapper.style.fontFamily = 'system-ui,-apple-system,sans-serif';
+
+  const headerHtml = `
+    <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0">
+      <div style="font-size:20px;font-weight:700;color:#000;margin-bottom:2px">Nutrition Information${options.profileName ? ` — User: ${options.profileName}` : ''}</div>
+      ${tags}${allergens}
+      <div style="font-size:10px;color:#aaa;margin-top:2px">Nutrition for ${options.periodLabel}${options.dateRange ? ` — ${options.dateRange}` : ''}</div>
+    </div>
+  `;
+  const headerSlot = document.createElement('div');
+  headerSlot.innerHTML = headerHtml;
+  wrapper.appendChild(headerSlot.firstElementChild!);
+  wrapper.appendChild(element.cloneNode(true));
+
+  const outer = document.createElement('div');
+  outer.style.position = 'fixed';
+  outer.style.left = '0';
+  outer.style.top = '0';
+  outer.style.zIndex = '-9999';
+  outer.style.opacity = '0';
+  outer.appendChild(wrapper);
+  document.body.appendChild(outer);
+
+  try {
+    const canvas = await elementToCanvas(wrapper, pxWidth);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+    canvasToPages(canvas, doc, pageW, pageH);
+    return doc.output('blob');
+  } finally {
+    document.body.removeChild(outer);
+  }
 }
 
 async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; chapterMap: Map<string, string[]> }> {
@@ -280,7 +377,7 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
   const { recipes, chapterMap } = await collectRecipes(bookId);
 
   const { w: pageW, h: pageH } = pageSizeToMm(pageSize);
-  const pxWidth = Math.round((pageW / MM_PER_INCH) * 150);
+  const pxWidth = pageSizeToPx(pageSize);
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -300,7 +397,7 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
       renderCoverHtml(book.title, book.description, book.coverColor, brandKit),
       pxWidth,
     );
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
   }
 
   if (includeToc) {
@@ -309,7 +406,7 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
     progress(Math.round(((pageNum) / totalPages) * 100));
     const chapters = Array.from(chapterMap.entries()).map(([title, recipes]) => ({ title, recipes }));
     const canvas = await htmlToCanvas(renderTocHtml(chapters, brandKit), pxWidth);
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
   }
 
   for (let i = 0; i < recipes.length; i++) {
@@ -322,7 +419,7 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
       renderRecipePageHtml(recipe, theme, brandKit, includePageNumbers ? pageNum : undefined, includePageNumbers ? totalPages : undefined),
       pxWidth,
     );
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
   }
 
   if (includeIndex) {
@@ -337,7 +434,7 @@ ${brandKit?.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:28px
 ${sorted.map(r => `<div style="font-size:13px;padding:2px 0">${r.name}</div>`).join('')}
 </div>`;
     const canvas = await htmlToCanvas(indexHtml, pxWidth);
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
   }
 
   progress(100);
@@ -362,7 +459,7 @@ export async function exportRecipeCard(
 
   const pageW = 152.4;
   const pageH = 101.6;
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+  doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
 
   return doc.output('blob');
 }
@@ -389,14 +486,12 @@ ${brandKit ? `<div style="font-weight:700;font-size:14px;color:${brandKit.primar
 </div>`;
 
   const coverCanvas = await htmlToCanvas(coverHtml, 794);
-  doc.addImage(coverCanvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+  doc.addImage(coverCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
 
   for (let i = 0; i < elements.length; i++) {
     doc.addPage();
-    const canvas = await captureElement(elements[i]);
-    const imgW = pageW - 20;
-    const imgH = (canvas.height / canvas.width) * imgW;
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, imgW, Math.min(imgH, pageH - 20));
+    const canvas = await elementToCanvas(elements[i]);
+    addCanvasToPage(canvas, doc, pageW, pageH, 10);
   }
 
   return doc.output('blob');
@@ -416,12 +511,194 @@ export async function exportElementAsPdf(
     format: size === 'a4' ? 'a4' : 'letter',
   });
 
-  const canvas = await captureElement(element);
-  const docW = isLandscape ? pageH : pageW;
-  const docH = isLandscape ? pageW : pageH;
-  const imgW = docW - 20;
-  const imgH = (canvas.height / canvas.width) * imgW;
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, imgW, Math.min(imgH, docH - 20));
+  const canvas = await elementToCanvas(element);
+  addCanvasToPage(canvas, doc, isLandscape ? pageH : pageW, isLandscape ? pageW : pageH, 10);
+
+  return doc.output('blob');
+}
+
+const SLOT_LABELS: Record<string, string> = {
+  morning: 'Morning',
+  midMorning: 'Mid-Morning',
+  noon: 'Noon',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  night: 'Night',
+};
+const SLOT_ORDER = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night'];
+
+export interface NutritionSummary {
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+}
+
+export interface MealPlanDayData {
+  date: string;
+  dayLabel: string;
+  slots: Array<{
+    slot: string;
+    label: string;
+    entries: Array<{
+      name: string;
+      servings: number;
+      isLeftover: boolean;
+    }>;
+  }>;
+  nutrition?: NutritionSummary | null;
+}
+
+function renderNutritionFactsHtml(n: NutritionSummary, servingLabel?: string): string {
+  const dv = (val: number, ref: number) => ref > 0 ? Math.round((val / ref) * 100) : 0;
+  const rows = [
+    { name: 'Total Fat', val: n.totalFat, unit: 'g', dv: dv(n.totalFat, 78), bold: true },
+    { name: 'Saturated Fat', val: n.saturatedFat, unit: 'g', dv: dv(n.saturatedFat, 20), indent: true },
+    { name: 'Trans Fat', val: n.transFat, unit: 'g', noDv: true, indent: true },
+    { name: 'Cholesterol', val: n.cholesterol, unit: 'mg', dv: dv(n.cholesterol, 300), bold: true },
+    { name: 'Sodium', val: n.sodium, unit: 'mg', dv: dv(n.sodium, 2300), bold: true },
+    { name: 'Total Carbohydrate', val: n.totalCarbs, unit: 'g', dv: dv(n.totalCarbs, 275), bold: true },
+    { name: 'Dietary Fiber', val: n.dietaryFiber, unit: 'g', dv: dv(n.dietaryFiber, 28), indent: true },
+    { name: 'Total Sugars', val: n.totalSugars, unit: 'g', noDv: true, indent: true },
+    { name: 'Protein', val: n.protein, unit: 'g', dv: dv(n.protein, 50), bold: true },
+    { name: 'Vitamin D', val: n.vitaminD, unit: 'mcg', dv: dv(n.vitaminD, 20) },
+    { name: 'Calcium', val: n.calcium, unit: 'mg', dv: dv(n.calcium, 1300) },
+    { name: 'Iron', val: n.iron, unit: 'mg', dv: dv(n.iron, 18) },
+    { name: 'Potassium', val: n.potassium, unit: 'mg', dv: dv(n.potassium, 4700) },
+  ];
+  const rowHtml = rows.map((r, i) => {
+    const sep = i === 4 || i === 8 ? 'border-top:4px solid #000' : i > 0 ? 'border-top:1px solid #000' : '';
+    const fw = r.bold ? 'font-weight:700' : 'font-weight:400';
+    const pd = r.indent ? 'padding-left:16px' : '';
+    const dvCell = r.noDv ? '<span></span>' : `<span style="font-weight:700;font-size:13px;white-space:nowrap">${r.dv}%</span>`;
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;${sep}"><span style="${fw};font-size:13px;${pd}">${r.name} ${Math.round(r.val * 100) / 100}${r.unit}</span>${dvCell}</div>`;
+  }).join('');
+
+  return `<div style="width:280px;border:3px solid #000;padding:10px 8px 8px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;line-height:1.4;box-sizing:border-box">
+<div style="font-weight:900;font-size:28px;line-height:1.1;margin-bottom:6px">Nutrition Facts</div>
+<div style="height:4px;background:#000;margin:5px 0"></div>
+<div style="font-size:13px;margin:5px 0">${servingLabel ?? 'Daily Total'}</div>
+<div style="height:4px;background:#000;margin:5px 0"></div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin:5px 0"><span style="font-weight:700;font-size:13px">Calories</span><span style="font-weight:900;font-size:24px">${Math.round(n.calories)}</span></div>
+<div style="height:4px;background:#000;margin:5px 0"></div>
+<div style="display:flex;justify-content:flex-end;font-size:13px;margin:5px 0;padding:5px 0"><span style="font-weight:700">% Daily Value*</span></div>
+${rowHtml}
+<div style="height:4px;background:#000;margin:5px 0"></div>
+<div style="font-size:8px;line-height:1.4;margin-top:5px">* Percent Daily Values are based on a 2,000 calorie diet.</div>
+</div>`;
+}
+
+function renderMealPlanDayHtml(day: MealPlanDayData): string {
+  const slotRows = day.slots
+    .filter(s => s.entries.length > 0)
+    .map(s => {
+      const entryHtml = s.entries.map(e => {
+        const leftover = e.isLeftover ? ' <span style="font-size:10px;color:#888">(leftover)</span>' : '';
+        const servings = e.servings !== 1 ? ` <span style="font-size:10px;color:#888">(${e.servings} sv)</span>` : '';
+        return `<div style="padding:2px 0 2px 10px;font-size:12px;line-height:1.4">${e.name}${servings}${leftover}</div>`;
+      }).join('');
+      return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:600;color:#555">${s.label}</div>${entryHtml}</div>`;
+    }).join('');
+
+  const noMeals = day.slots.every(s => s.entries.length === 0)
+    ? '<div style="font-size:12px;color:#aaa;padding:4px 0">No meals planned</div>'
+    : '';
+
+  const nutritionHtml = day.nutrition
+    ? `<div style="flex:0 0 260px">${renderNutritionFactsHtml(day.nutrition, day.dayLabel)}</div>`
+    : '';
+
+  return `<div style="width:100%;background:#ffffff;color:#000;padding:30px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
+    <div style="font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #333">${day.dayLabel}</div>
+    <div style="display:flex;gap:24px;align-items:flex-start">
+      <div style="flex:1;min-width:0">${slotRows}${noMeals}</div>
+      ${nutritionHtml}
+    </div>
+  </div>`;
+}
+
+export async function exportMealPlanPdf(
+  dateRange: string,
+  days: MealPlanDayData[],
+): Promise<Blob> {
+  const { w: pageW, h: pageH } = pageSizeToMm('letter');
+  const pxWidth = pageSizeToPx('letter');
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+
+  const coverHtml = `<div style="width:100%;height:100vh;background:#ffffff;color:#000;display:flex;flex-direction:column;justify-content:center;padding:60px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
+    <div style="font-size:36px;font-weight:700;margin-bottom:12px">Weekly Meal Plan</div>
+    <div style="font-size:18px;color:#555;margin-bottom:24px">${dateRange}</div>
+    <div style="width:80px;height:4px;background:#333;border-radius:2px"></div>
+  </div>`;
+  const coverCanvas = await htmlToCanvas(coverHtml, pxWidth);
+  doc.addImage(coverCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
+
+  for (let i = 0; i < days.length; i++) {
+    doc.addPage();
+    const dayHtml = renderMealPlanDayHtml(days[i]);
+    const canvas = await htmlToCanvas(dayHtml, pxWidth);
+    addCanvasToPage(canvas, doc, pageW, pageH);
+  }
+
+  return doc.output('blob');
+}
+
+export interface GroceryItemData {
+  name: string;
+  displayAmount: string;
+  recipeNames?: string[];
+}
+
+function renderGroceryListHtml(
+  dateRange: string,
+  items: GroceryItemData[],
+): string {
+  const rows = items.map(item => {
+    const recipes = item.recipeNames?.length
+      ? `<span style="font-size:11px;color:#888;margin-left:8px">${item.recipeNames.join(', ')}</span>`
+      : '';
+    return `<div style="display:flex;align-items:baseline;padding:5px 0;border-bottom:1px solid #f0f0f0">
+      <div style="width:18px;flex-shrink:0;text-align:center;font-size:14px;color:#ccc">&#9744;</div>
+      <div style="flex:1;font-size:13px">${item.name}${recipes}</div>
+      <div style="font-size:12px;color:#555;white-space:nowrap;margin-left:8px">${item.displayAmount}</div>
+    </div>`;
+  }).join('');
+
+  const empty = items.length === 0
+    ? '<div style="font-size:13px;color:#aaa;padding:16px 0;text-align:center">No ingredients this week</div>'
+    : '';
+
+  return `<div style="width:100%;background:#ffffff;color:#000;padding:40px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
+    <h1 style="font-size:24px;font-weight:700;margin:0 0 4px">Grocery List</h1>
+    <div style="font-size:13px;color:#666;margin-bottom:20px">${dateRange}</div>
+    ${rows}${empty}
+  </div>`;
+}
+
+export async function exportGroceryListPdf(
+  dateRange: string,
+  items: GroceryItemData[],
+): Promise<Blob> {
+  const { w: pageW, h: pageH } = pageSizeToMm('letter');
+  const pxWidth = pageSizeToPx('letter');
+
+  const html = renderGroceryListHtml(dateRange, items);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+
+  const canvas = await htmlToCanvas(html, pxWidth);
+  canvasToPages(canvas, doc, pageW, pageH);
 
   return doc.output('blob');
 }

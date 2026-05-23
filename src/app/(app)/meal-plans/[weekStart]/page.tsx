@@ -9,7 +9,7 @@ import {
   isValid,
 } from 'date-fns';
 import {
-  ChevronLeft, ChevronRight, ShoppingBasket, Plus, X, GripVertical, Minus, Trash2, ChefHat, UtensilsCrossed, Search, Loader2, Store, Apple, PenLine, Salad, Clock
+  ChevronLeft, ChevronRight, ShoppingBasket, Plus, X, GripVertical, Minus, Trash2, ChefHat, UtensilsCrossed, Search, Loader2, Store, Apple, PenLine, Salad, Clock, FileDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +38,7 @@ import { computeEntryGL, computeRecipeGL, sumGL, type GLResult } from '@/lib/gly
 import { GL_HOVER_KEY } from '@/data/glycemic-index';
 import FoodSynergiesPanel from '@/components/meal-plan/food-synergies-panel';
 import InSeasonRecipeDialog from '@/components/meal-plan/in-season-recipe-dialog';
+import { exportMealPlanPdf, type MealPlanDayData } from '@/lib/pdf-export';
 
 const COMPLETED_KEY = 'kitchen-helper-completed';
 function getCompletedRecipes(): Record<string, string> {
@@ -335,6 +336,40 @@ export default function WeeklyPlanPage() {
   const prevWeek = format(addDays(weekDate, -7), 'yyyy-MM-dd');
   const nextWeek = format(addDays(weekDate, 7), 'yyyy-MM-dd');
   const weekEnd = format(addDays(weekDate, 6), 'MMMM d, yyyy');
+  const dateRange = `${format(weekDate, 'MMM d')} – ${weekEnd}`;
+
+  const handleExportPdf = useCallback(async () => {
+    const mealPlanDays: MealPlanDayData[] = days.map(day => {
+      const dayEntriesForDate = dayEntries.filter(e => e.date === day.date);
+      return {
+        date: day.date,
+        dayLabel: day.fullLabel,
+        slots: SLOT_ORDER.map(slot => {
+          const slotEntries = dayEntriesForDate
+            .filter(e => e.slot === slot)
+            .sort((a, b) => a.position - b.position);
+          return {
+            slot,
+            label: SLOT_LABELS[slot],
+            entries: slotEntries.map(e => ({
+              name: getEntryName(e),
+              servings: e.servings,
+              isLeftover: !!e.isLeftover,
+            })),
+          };
+        }),
+        nutrition: getCombinedNutrition(dayEntriesForDate),
+      };
+    });
+
+    const blob = await exportMealPlanPdf(dateRange, mealPlanDays);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meal-plan-${weekStart}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [days, dayEntries, dateRange, weekStart]);
 
   const selectedEntry = dayEntries.find((e) => e.id === selectedEntryId);
   const selectedGroup = selectedGroupId
@@ -452,6 +487,14 @@ export default function WeeklyPlanPage() {
             onClick={() => router.push(`/meal-plans/grocery-list/${weekStart}`)}
           >
             <ShoppingBasket className="w-3.5 h-3.5" />Grocery List
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1"
+            onClick={handleExportPdf}
+          >
+            <FileDown className="w-3.5 h-3.5" />Export PDF
           </Button>
           <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => router.push(`/meal-plans/${prevWeek}`)}>
             <ChevronLeft className="w-4 h-4" />

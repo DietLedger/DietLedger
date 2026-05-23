@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { format, parseISO, isValid, addDays } from 'date-fns';
-import { ShoppingBasket, Check, ArrowLeft } from 'lucide-react';
+import { ShoppingBasket, Check, ArrowLeft, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,7 @@ import { aggregateIngredients, getUnitSystem, setUnitSystem, type UnitSystem } f
 import { STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Link from 'next/link';
+import { exportGroceryListPdf, type GroceryItemData } from '@/lib/pdf-export';
 
 export default function GroceryListPage() {
   const params = useParams();
@@ -227,6 +228,25 @@ export default function GroceryListPage() {
     setUnitSystemState(newSystem);
   }, [unitSystem]);
 
+  const handleExportPdf = useCallback(async () => {
+    const items: GroceryItemData[] = aggregatedIngredients.map(ing => ({
+      name: ing.name,
+      displayAmount: ing.displayAmount,
+      recipeNames: Array.from(recipeIngredientMap.get(ing.name.toLowerCase().trim()) || []).map(id => {
+        const r = recipes.find(r => r.id === id);
+        return r?.name;
+      }).filter(Boolean) as string[],
+    }));
+    const dateRange = `${format(weekDate, 'MMM d')} – ${format(addDays(weekDate, 6), 'MMM d, yyyy')}`;
+    const blob = await exportGroceryListPdf(dateRange, items);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grocery-list-${weekStart}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [aggregatedIngredients, recipeIngredientMap, recipes, weekDate, weekStart]);
+
   return (
     <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -246,9 +266,14 @@ export default function GroceryListPage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="text-xs" onClick={handleUnitToggle}>
-          {unitSystem === 'imperial' ? 'Switch to Metric' : 'Switch to Imperial'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="text-xs gap-1" onClick={handleExportPdf}>
+            <FileDown className="w-3.5 h-3.5" />Export PDF
+          </Button>
+          <Button variant="outline" size="sm" className="text-xs" onClick={handleUnitToggle}>
+            {unitSystem === 'imperial' ? 'Switch to Metric' : 'Switch to Imperial'}
+          </Button>
+        </div>
       </div>
 
       {isMobile ? (

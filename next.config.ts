@@ -24,6 +24,14 @@ const nextConfig: NextConfig = {
   turbopack: {},
   webpack: (config, { isServer }) => {
     config.resolve.symlinks = false;
+    if (process.platform === 'win32') {
+      config.snapshot = {
+        ...config.snapshot,
+        managedPaths: [],
+        immutablePaths: [],
+      };
+      config.cache = typeof config.cache === 'object' ? { ...config.cache, buildDependencies: {} } : false;
+    }
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
