@@ -105,7 +105,18 @@ export interface TemplateTheme {
   borderRadius: number;
 }
 
-export type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+export type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night';
+
+export type MealSlotTimes = Record<DaySlot, string>;
+
+export const DEFAULT_MEAL_SLOT_TIMES: MealSlotTimes = {
+  morning: '07:30',
+  midMorning: '09:45',
+  noon: '12:00',
+  afternoon: '15:30',
+  evening: '19:00',
+  night: '22:00',
+};
 
 export interface MealPlanRecord {
   id: string;
@@ -120,10 +131,28 @@ export interface DayPlanEntryRecord {
   mealPlanId: string;
   date: string;
   slot: DaySlot;
-  recipeId: string;
+  recipeId: string | null;
   position: number;
   groupId: string | null;
   servings: number;
+  isLeftover?: boolean;
+  sourceType: 'recipe' | 'food' | 'customFood' | 'manual';
+  foodName?: string;
+  calories?: number;
+  totalFat?: number;
+  saturatedFat?: number;
+  transFat?: number;
+  cholesterol?: number;
+  sodium?: number;
+  totalCarbs?: number;
+  dietaryFiber?: number;
+  totalSugars?: number;
+  addedSugars?: number;
+  protein?: number;
+  vitaminD?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
 }
 
 export interface MealGroupRecord {
@@ -203,6 +232,8 @@ export const SYNC_STORE_NAMES = [
   'nutritionProfiles',
   'foodLogEntries',
   'weightEntries',
+  'dietaryProfiles',
+  'allergenRules',
 ] as const;
 
 export type SyncStoreName = (typeof SYNC_STORE_NAMES)[number];
@@ -213,3 +244,156 @@ export const BOOK_COLORS = [
 ] as const;
 
 export type BookColor = (typeof BOOK_COLORS)[number];
+
+export type Allergen =
+  | 'milk'
+  | 'eggs'
+  | 'fish'
+  | 'shellfish'
+  | 'treeNuts'
+  | 'peanuts'
+  | 'wheat'
+  | 'soybeans'
+  | 'sesame';
+
+export type DietaryTag =
+  | 'vegetarian'
+  | 'vegan'
+  | 'glutenFree'
+  | 'dairyFree'
+  | 'nutFree'
+  | 'soyFree'
+  | 'eggFree'
+  | 'keto'
+  | 'paleo'
+  | 'lowFodmap'
+  | 'dASH'
+  | 'mediterranean';
+
+export interface AllergenDetection {
+  allergen: Allergen;
+  matchedKeywords: string[];
+  ingredients: string[];
+}
+
+export interface NutrientThreshold {
+  nutrient: string;
+  dailyMax?: number;
+  perMealMax?: number;
+  alertLevel: 'warning' | 'danger';
+}
+
+export interface DietaryProfileRecord {
+  id: string;
+  name: string;
+  allergens: Allergen[];
+  dietaryTags: DietaryTag[];
+  nutrientThresholds: NutrientThreshold[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AllergenRuleRecord {
+  id: string;
+  profileId: string;
+  allergen: Allergen;
+  severity: 'avoid' | 'caution';
+  customKeywords: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SharedRecipeRecord {
+  id: string;
+  recipeId: string;
+  shareToken: string;
+  isPublic: boolean;
+  title: string;
+  description?: string;
+  category?: string;
+  tags: string[];
+  viewCount: number;
+  importCount: number;
+  averageRating: number;
+  ratingCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrandKit {
+  id: string;
+  name: string;
+  logoDataUrl?: string;
+  primaryColor: string;
+  secondaryColor: string;
+  fontFamily: string;
+  tagline?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ScaleMode = 'servings' | 'multiplier' | 'calorieTarget';
+
+export interface ScaleOptions {
+  mode: ScaleMode;
+  originalServings: number;
+  targetServings?: number;
+  multiplier?: number;
+  calorieTarget?: number;
+  originalCalories?: number;
+}
+
+export type IngredientClassification = 'linear' | 'spice' | 'leavening' | 'acid' | 'count';
+
+export interface ScaledIngredient {
+  id: string;
+  name: string;
+  originalAmount: number;
+  originalUnit: string;
+  scaledAmount: number;
+  scaledUnit: string;
+  displayAmount: string;
+  classification: IngredientClassification;
+  scaleReason?: string;
+}
+
+export interface ScaledRecipe {
+  recipeId: string;
+  scaleFactor: number;
+  servings: number;
+  ingredients: ScaledIngredient[];
+  warnings: string[];
+}
+
+export interface CookbookExportOptions {
+  bookId: string;
+  templateId?: string;
+  brandKitId?: string;
+  pageSize: 'a4' | 'letter';
+  includeCover: boolean;
+  includeToc: boolean;
+  includeIndex: boolean;
+  includePageNumbers: boolean;
+  onProgress?: (percent: number) => void;
+}
+
+export interface NutritionProfileGoals {
+  proteinGoalG?: number;
+  carbsGoalG?: number;
+  fatGoalG?: number;
+  fiberGoalG?: number;
+  sodiumMaxMg?: number;
+  sugarMaxG?: number;
+  vitaminDGoalUg?: number;
+  calciumGoalMg?: number;
+  ironGoalMg?: number;
+  potassiumGoalMg?: number;
+}
+
+export interface HealthMetrics {
+  bloodSugar?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  measurementContext?: 'fasting' | 'postMeal' | 'random';
+}

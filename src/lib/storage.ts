@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { SyncServerConfig, SyncChangeLogEntry } from './types';
+import type { SyncServerConfig, SyncChangeLogEntry, DietaryProfileRecord, AllergenRuleRecord, SharedRecipeRecord, BrandKit } from './types';
 
 interface IngredientGroup {
   id: string;
@@ -154,12 +154,13 @@ interface TemplateRecord {
   layout: TemplateLayoutRecord;
 }
 
-type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening';
+type DaySlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night';
 
 interface MealPlanRecord {
   id: string;
   name: string;
   weekStart: string;
+  slotTimes?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -169,11 +170,28 @@ interface DayPlanEntryRecord {
   mealPlanId: string;
   date: string;
   slot: DaySlot;
-  recipeId: string;
+  recipeId: string | null;
   position: number;
   groupId: string | null;
   servings: number;
   isLeftover: boolean;
+  sourceType: 'recipe' | 'food' | 'customFood' | 'manual';
+  foodName?: string;
+  calories?: number;
+  totalFat?: number;
+  saturatedFat?: number;
+  transFat?: number;
+  cholesterol?: number;
+  sodium?: number;
+  totalCarbs?: number;
+  dietaryFiber?: number;
+  totalSugars?: number;
+  addedSugars?: number;
+  protein?: number;
+  vitaminD?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
 }
 
 interface MealGroupRecord {
@@ -234,8 +252,10 @@ interface CustomFoodRecord {
 }
 
 type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
-type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'snack';
+type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night' | 'snack';
 type FoodSourceType = 'recipe' | 'customFood' | 'manual';
+
+type BmrEquation = 'auto' | 'mifflin' | 'harrisBenedict' | 'owen' | 'indirectCalorimetry';
 
 interface NutritionProfileRecord {
   id: string;
@@ -246,6 +266,19 @@ interface NutritionProfileRecord {
   activityLevel: ActivityLevel;
   goalWeightKg: number | null;
   goalDate: string | null;
+  bmrEquation?: BmrEquation;
+  manualBmrValue?: number | null;
+  calorieTarget?: number | null;
+  proteinGoalG?: number;
+  carbsGoalG?: number;
+  fatGoalG?: number;
+  fiberGoalG?: number;
+  sodiumMaxMg?: number;
+  sugarMaxG?: number;
+  vitaminDGoalUg?: number;
+  calciumGoalMg?: number;
+  ironGoalMg?: number;
+  potassiumGoalMg?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -254,6 +287,7 @@ interface FoodLogEntryRecord {
   id: string;
   profileId: string;
   date: string;
+  time?: string;
   mealSlot: MealSlot;
   sourceType: FoodSourceType;
   sourceId: string | null;
@@ -286,7 +320,17 @@ interface WeightEntryRecord {
   weightKg: number;
   notes: string | null;
   lastSyncedAt: string | null;
+  bloodSugar?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  measurementContext?: 'fasting' | 'postMeal' | 'random';
   createdAt: string;
+  updatedAt: string;
+}
+
+interface AppSettingsRecord {
+  id: string;
+  defaultMealSlotTimes: Record<string, string>;
   updatedAt: string;
 }
 
@@ -415,10 +459,34 @@ interface DietLedgerDB extends DBSchema {
       'by-timestamp': string;
     };
   };
+  dietaryProfiles: {
+    key: string;
+    value: DietaryProfileRecord;
+    indexes: { 'by-updatedAt': string };
+  };
+  allergenRules: {
+    key: string;
+    value: AllergenRuleRecord;
+    indexes: { 'by-profileId': string };
+  };
+  sharedRecipeCache: {
+    key: string;
+    value: SharedRecipeRecord;
+    indexes: { 'by-recipeId': string; 'by-shareToken': string };
+  };
+  brandKits: {
+    key: string;
+    value: BrandKit;
+    indexes: { 'by-updatedAt': string };
+  };
+  appSettings: {
+    key: string;
+    value: AppSettingsRecord;
+  };
 }
 
 const DB_NAME = 'dietledger-db';
-const DB_VERSION = 10;
+const DB_VERSION = 13;
 
 let dbPromise: Promise<IDBPDatabase<DietLedgerDB>> | null = null;
 
@@ -509,6 +577,27 @@ export function getDB(): Promise<IDBPDatabase<DietLedgerDB>> {
           changeLogStore.createIndex('by-synced', 'synced');
           changeLogStore.createIndex('by-storeName', 'storeName');
           changeLogStore.createIndex('by-timestamp', 'timestamp');
+        }
+        if (oldVersion < 11) {
+          const dietaryProfileStore = db.createObjectStore('dietaryProfiles', { keyPath: 'id' });
+          dietaryProfileStore.createIndex('by-updatedAt', 'updatedAt');
+
+          const allergenRuleStore = db.createObjectStore('allergenRules', { keyPath: 'id' });
+          allergenRuleStore.createIndex('by-profileId', 'profileId');
+
+          const sharedRecipeCacheStore = db.createObjectStore('sharedRecipeCache', { keyPath: 'id' });
+          sharedRecipeCacheStore.createIndex('by-recipeId', 'recipeId');
+          sharedRecipeCacheStore.createIndex('by-shareToken', 'shareToken');
+
+          const brandKitStore = db.createObjectStore('brandKits', { keyPath: 'id' });
+          brandKitStore.createIndex('by-updatedAt', 'updatedAt');
+        }
+        if (oldVersion < 12) {
+          // nutritionProfiles gains optional fields bmrEquation, manualBmrValue, calorieTarget
+          // IndexedDB object stores are schemaless, so no structural change needed
+        }
+        if (oldVersion < 13) {
+          db.createObjectStore('appSettings', { keyPath: 'id' });
         }
       },
     });
@@ -1596,12 +1685,13 @@ export async function createMealPlan(name: string, weekStart: string): Promise<M
 
 export async function updateMealPlan(
   id: string,
-  data: { name?: string }
+  data: { name?: string; slotTimes?: Record<string, string> }
 ): Promise<MealPlanRecord> {
   const db = await getDB();
   const plan = await db.get('mealPlans', id);
   if (!plan) throw new Error('Meal plan not found');
   if (data.name !== undefined) plan.name = data.name.trim();
+  if (data.slotTimes !== undefined) plan.slotTimes = data.slotTimes;
   plan.updatedAt = new Date().toISOString();
   await db.put('mealPlans', plan);
   await logChange('mealPlans', plan.id, 'upsert', plan);
@@ -1631,6 +1721,7 @@ export async function getDayEntriesByMealPlanId(mealPlanId: string): Promise<Day
   const entries = await db.getAllFromIndex('dayPlanEntries', 'by-mealPlanId', mealPlanId);
   for (const e of entries) {
     if (e.isLeftover === undefined) e.isLeftover = false;
+    if (e.sourceType === undefined) e.sourceType = 'recipe';
   }
   return entries.sort((a, b) => a.position - b.position);
 }
@@ -1645,8 +1736,28 @@ export async function createDayPlanEntry(
   mealPlanId: string,
   date: string,
   slot: DaySlot,
-  recipeId: string,
-  position: number
+  recipeId: string | null,
+  position: number,
+  options?: {
+    sourceType?: 'recipe' | 'food' | 'customFood' | 'manual';
+    foodName?: string;
+    servings?: number;
+    calories?: number;
+    totalFat?: number;
+    saturatedFat?: number;
+    transFat?: number;
+    cholesterol?: number;
+    sodium?: number;
+    totalCarbs?: number;
+    dietaryFiber?: number;
+    totalSugars?: number;
+    addedSugars?: number;
+    protein?: number;
+    vitaminD?: number;
+    calcium?: number;
+    iron?: number;
+    potassium?: number;
+  }
 ): Promise<DayPlanEntryRecord> {
   const db = await getDB();
   const entry: DayPlanEntryRecord = {
@@ -1657,8 +1768,25 @@ export async function createDayPlanEntry(
     recipeId,
     position,
     groupId: null,
-    servings: 1,
+    servings: options?.servings ?? 1,
     isLeftover: false,
+    sourceType: options?.sourceType ?? (recipeId ? 'recipe' : 'manual'),
+    foodName: options?.foodName,
+    calories: options?.calories,
+    totalFat: options?.totalFat,
+    saturatedFat: options?.saturatedFat,
+    transFat: options?.transFat,
+    cholesterol: options?.cholesterol,
+    sodium: options?.sodium,
+    totalCarbs: options?.totalCarbs,
+    dietaryFiber: options?.dietaryFiber,
+    totalSugars: options?.totalSugars,
+    addedSugars: options?.addedSugars,
+    protein: options?.protein,
+    vitaminD: options?.vitaminD,
+    calcium: options?.calcium,
+    iron: options?.iron,
+    potassium: options?.potassium,
   };
   await db.put('dayPlanEntries', entry);
   await logChange('dayPlanEntries', entry.id, 'upsert', entry);
@@ -2102,6 +2230,163 @@ export async function getLatestWeight(profileId: string): Promise<WeightEntryRec
   return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 }
 
+// ── DietaryProfile CRUD ──────────────────────────────────────────────
+
+export async function getAllDietaryProfiles(): Promise<DietaryProfileRecord[]> {
+  const db = await getDB();
+  const profiles = await db.getAll('dietaryProfiles');
+  return profiles.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function getDietaryProfile(id: string): Promise<DietaryProfileRecord | undefined> {
+  const db = await getDB();
+  return db.get('dietaryProfiles', id);
+}
+
+export async function createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: DietaryProfileRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('dietaryProfiles', record);
+  await logChange('dietaryProfiles', record.id, 'upsert', record);
+  return record;
+}
+
+export async function updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord> {
+  const db = await getDB();
+  const record = await db.get('dietaryProfiles', id);
+  if (!record) throw new Error('Dietary profile not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('dietaryProfiles', record);
+  await logChange('dietaryProfiles', record.id, 'upsert', record);
+  return record;
+}
+
+export async function deleteDietaryProfile(id: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['dietaryProfiles', 'allergenRules'], 'readwrite');
+  const rules = await tx.objectStore('allergenRules').index('by-profileId').getAllKeys(id);
+  for (const key of rules) await tx.objectStore('allergenRules').delete(key);
+  await tx.objectStore('dietaryProfiles').delete(id);
+  await tx.done;
+  await logChange('dietaryProfiles', id, 'delete');
+}
+
+// ── AllergenRule CRUD ────────────────────────────────────────────────
+
+export async function getAllergenRulesByProfile(profileId: string): Promise<AllergenRuleRecord[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('allergenRules', 'by-profileId', profileId);
+}
+
+export async function createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: AllergenRuleRecord = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('allergenRules', record);
+  await logChange('allergenRules', record.id, 'upsert', record);
+  return record;
+}
+
+export async function updateAllergenRule(id: string, data: Partial<Omit<AllergenRuleRecord, 'id' | 'createdAt'>>): Promise<AllergenRuleRecord> {
+  const db = await getDB();
+  const record = await db.get('allergenRules', id);
+  if (!record) throw new Error('Allergen rule not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('allergenRules', record);
+  await logChange('allergenRules', record.id, 'upsert', record);
+  return record;
+}
+
+export async function deleteAllergenRule(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('allergenRules', id);
+  await logChange('allergenRules', id, 'delete');
+}
+
+// ── SharedRecipeCache CRUD ───────────────────────────────────────────
+
+export async function getSharedRecipeByToken(shareToken: string): Promise<SharedRecipeRecord | undefined> {
+  const db = await getDB();
+  const results = await db.getAllFromIndex('sharedRecipeCache', 'by-shareToken', shareToken);
+  return results[0];
+}
+
+export async function getSharedRecipeByRecipeId(recipeId: string): Promise<SharedRecipeRecord | undefined> {
+  const db = await getDB();
+  const results = await db.getAllFromIndex('sharedRecipeCache', 'by-recipeId', recipeId);
+  return results[0];
+}
+
+export async function putSharedRecipe(record: SharedRecipeRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('sharedRecipeCache', record);
+}
+
+export async function deleteSharedRecipe(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('sharedRecipeCache', id);
+}
+
+export async function getAllSharedRecipes(): Promise<SharedRecipeRecord[]> {
+  const db = await getDB();
+  return db.getAll('sharedRecipeCache');
+}
+
+// ── BrandKit CRUD ────────────────────────────────────────────────────
+
+export async function getAllBrandKits(): Promise<BrandKit[]> {
+  const db = await getDB();
+  const kits = await db.getAll('brandKits');
+  return kits.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function getBrandKit(id: string): Promise<BrandKit | undefined> {
+  const db = await getDB();
+  return db.get('brandKits', id);
+}
+
+export async function createBrandKit(data: Omit<BrandKit, 'id' | 'createdAt' | 'updatedAt'>): Promise<BrandKit> {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  const record: BrandKit = {
+    id: crypto.randomUUID(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put('brandKits', record);
+  return record;
+}
+
+export async function updateBrandKit(id: string, data: Partial<Omit<BrandKit, 'id' | 'createdAt'>>): Promise<BrandKit> {
+  const db = await getDB();
+  const record = await db.get('brandKits', id);
+  if (!record) throw new Error('Brand kit not found');
+  Object.assign(record, data, { updatedAt: new Date().toISOString() });
+  await db.put('brandKits', record);
+  return record;
+}
+
+export async function deleteBrandKit(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('brandKits', id);
+}
+
 export type {
   RecipeRecord,
   IngredientRecord,
@@ -2131,6 +2416,7 @@ export type {
   ActivityLevel,
   MealSlot,
   FoodSourceType,
+  BmrEquation,
 };
 
 export async function logChange(storeName: string, recordId: string, action: 'upsert' | 'delete', data?: unknown): Promise<void> {
@@ -2202,6 +2488,7 @@ export async function getAllStoreData(storeName: string): Promise<unknown[]> {
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return [];
   return db.getAll(storeName as never);
@@ -2214,6 +2501,7 @@ export async function putStoreData(storeName: string, records: unknown[]): Promi
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return;
   const tx = db.transaction(storeName as never, 'readwrite');
@@ -2230,7 +2518,18 @@ export async function deleteStoreRecord(storeName: string, id: string): Promise<
     'recipeCategories', 'chapterPages', 'bookPages', 'templates',
     'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
     'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
+    'dietaryProfiles', 'allergenRules',
   ];
   if (!storeNames.includes(storeName)) return;
   await db.delete(storeName as never, id);
+}
+
+export async function getAppSettings(): Promise<AppSettingsRecord | undefined> {
+  const db = await getDB();
+  return db.get('appSettings', 'default');
+}
+
+export async function putAppSettings(settings: AppSettingsRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('appSettings', settings);
 }

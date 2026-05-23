@@ -189,6 +189,7 @@ enum MealSlot {
   noon
   afternoon
   evening
+  night
   snack
 }
 

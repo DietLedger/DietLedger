@@ -35,6 +35,8 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  ClipboardList,
+  Plus,
 } from 'lucide-react';
 import FoodDatabasePanel from '@/components/food-database-panel';
 import CategoriesPanel from '@/components/categories-panel';
@@ -53,6 +55,8 @@ const NAV_ITEMS = [
   { href: '/meal-plans', label: 'Meal Plans', icon: UtensilsCrossed },
   { href: '/kitchen-helper', label: 'Kitchen Helper', icon: ChefHat },
   { href: '/nutrition', label: 'Nutrition', icon: Activity },
+  { href: '/nutrition?action=addfood', label: 'Add Food', icon: Plus },
+  { href: '/nutrition/log', label: 'Food Log', icon: ClipboardList },
 ] as const;
 
 export default function AppNav() {
@@ -160,7 +164,7 @@ export default function AppNav() {
                 </DialogTitle>
               </DialogHeader>
               <Tabs defaultValue="general" className="mt-2 flex flex-col min-h-0 flex-1 overflow-hidden">
-                <TabsList className="w-full justify-start shrink-0">
+                <TabsList className="w-full justify-start shrink-0 flex-wrap h-auto">
                   <TabsTrigger value="general" className="text-xs gap-1"><Settings className="w-3 h-3" />General</TabsTrigger>
                   <TabsTrigger value="food-database" className="text-xs gap-1"><Database className="w-3 h-3" />Food Database</TabsTrigger>
                   <TabsTrigger value="categories" className="text-xs gap-1"><FolderOpen className="w-3 h-3" />Categories</TabsTrigger>
@@ -241,7 +245,7 @@ export default function AppNav() {
                         <HardDrive className="w-3.5 h-3.5 text-brand-600" />Local Storage
                       </label>
                       <p className="text-xs text-stone-400">
-                        All your recipes are stored locally in your browser&apos;s IndexedDB. No data is sent to any server.
+                        All your recipes are stored locally in your browser&apos;s IndexedDB. Configure a sync server in the Sync tab to back up and synchronize across devices.
                       </p>
                       <div className="mt-2 p-2 bg-stone-50 rounded-md text-xs text-stone-500">
                         {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} stored locally

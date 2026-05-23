@@ -130,3 +130,59 @@ type ResolveConflictRequest struct {
 	Resolution string `json:"resolution"`
 	Data       string `json:"data,omitempty"`
 }
+
+type SharedRecipe struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"userId"`
+	RecipeID      string    `json:"recipeId"`
+	ShareToken    string    `json:"shareToken"`
+	IsPublic      bool      `json:"isPublic"`
+	Title         string    `json:"title"`
+	Description   string    `json:"description,omitempty"`
+	Category      string    `json:"category,omitempty"`
+	Tags          string    `json:"tags"`
+	RecipeData    string    `json:"recipeData"`
+	ViewCount     int       `json:"viewCount"`
+	ImportCount   int       `json:"importCount"`
+	AverageRating float64   `json:"averageRating"`
+	RatingCount   int       `json:"ratingCount"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+type RecipeRating struct {
+	ID        string    `json:"id"`
+	RecipeID  string    `json:"recipeId"`
+	UserID    string    `json:"userId"`
+	Rating    int       `json:"rating"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type CommunityCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type ShareRecipeRequest struct {
+	RecipeID    string `json:"recipeId"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Tags        string `json:"tags,omitempty"`
+	RecipeData  string `json:"recipeData"`
+	IsPublic    bool   `json:"isPublic"`
+}
+
+type RateRecipeRequest struct {
+	Rating int `json:"rating"`
+}
+
+type CommunityQuery struct {
+	Query    string `json:"query"`
+	Category string `json:"category"`
+	Sort     string `json:"sort"`
+	Page     int    `json:"page"`
+	PerPage  int    `json:"perPage"`
+}

@@ -43,11 +43,13 @@ export default function HistoryPage() {
 
   const grouped = useMemo(() => {
     const byDate: Record<string, Record<MealSlot, FoodLogEntryRecord[]>> = {};
-    const slots: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack'];
+    const slots: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];
 
     for (const entry of foodLog) {
       if (!byDate[entry.date]) {
-        byDate[entry.date] = Object.fromEntries(slots.map(s => [s, []])) as Record<MealSlot, FoodLogEntryRecord[]>;
+        const slotMap = {} as Record<MealSlot, FoodLogEntryRecord[]>;
+        for (const s of slots) slotMap[s] = [];
+        byDate[entry.date] = slotMap;
       }
       byDate[entry.date][entry.mealSlot].push(entry);
     }

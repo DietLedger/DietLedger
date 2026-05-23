@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useUnitSystem, lbsToKg, kgToLbs, inchesToCm, cmToInches, cmToFtIn, ftInToCm, weightUnit, weightPlaceholder } from '@/hooks/use-unit-system';
+import { type BmrEquation, EQUATION_OPTIONS } from '@/lib/nutrition-calcs';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 
@@ -69,10 +70,17 @@ export default function ProfilesPage() {
   const [formGoalWeightKg, setFormGoalWeightKg] = useState<number | null>(null);
   const [formGoalWeightDisplay, setFormGoalWeightDisplay] = useState('');
   const [formGoalDate, setFormGoalDate] = useState('');
+  const [formBmrEquation, setFormBmrEquation] = useState<BmrEquation>('auto');
+  const [formManualBmrValue, setFormManualBmrValue] = useState<string>('');
+  const [formCalorieTarget, setFormCalorieTarget] = useState<string>('');
   const [formWeightKg, setFormWeightKg] = useState<number | null>(null);
   const [formWeightDisplay, setFormWeightDisplay] = useState('');
   const [formWeightDate, setFormWeightDate] = useState('');
   const [formWeightNotes, setFormWeightNotes] = useState('');
+  const [formBloodSugar, setFormBloodSugar] = useState('');
+  const [formBPSystolic, setFormBPSystolic] = useState('');
+  const [formBPDiastolic, setFormBPDiastolic] = useState('');
+  const [formMeasurementContext, setFormMeasurementContext] = useState<'fasting' | 'postMeal' | 'random' | ''>('');
 
   useEffect(() => {
     fetchProfiles();
@@ -102,6 +110,9 @@ export default function ProfilesPage() {
     setFormGoalWeightKg(null);
     setFormGoalWeightDisplay('');
     setFormGoalDate('');
+    setFormBmrEquation('auto');
+    setFormManualBmrValue('');
+    setFormCalorieTarget('');
     setProfileDialogOpen(true);
   }, []);
 
@@ -112,6 +123,9 @@ export default function ProfilesPage() {
     setFormBirthDate(profile.birthDate ?? '');
     setFormActivityLevel(profile.activityLevel);
     setFormGoalDate(profile.goalDate ?? '');
+    setFormBmrEquation(profile.bmrEquation ?? 'auto');
+    setFormManualBmrValue(profile.manualBmrValue != null ? String(profile.manualBmrValue) : '');
+    setFormCalorieTarget(profile.calorieTarget != null ? String(profile.calorieTarget) : '');
 
     if (profile.heightCm) {
       setFormHeightCm(profile.heightCm);
@@ -200,6 +214,9 @@ export default function ProfilesPage() {
       activityLevel: formActivityLevel,
       goalWeightKg: formGoalWeightKg,
       goalDate: formGoalDate || null,
+      bmrEquation: formBmrEquation,
+      manualBmrValue: formBmrEquation === 'indirectCalorimetry' && formManualBmrValue ? Number(formManualBmrValue) : null,
+      calorieTarget: formCalorieTarget ? Number(formCalorieTarget) : null,
     };
     if (editingProfile) {
       await updateProfile(editingProfile.id, data);
@@ -207,21 +224,26 @@ export default function ProfilesPage() {
       await createProfile(data);
     }
     setProfileDialogOpen(false);
-  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, editingProfile, createProfile, updateProfile]);
+  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, formBmrEquation, formManualBmrValue, formCalorieTarget, editingProfile, createProfile, updateProfile]);
 
   const handleSaveWeight = useCallback(async () => {
     if (!weightProfileId || formWeightKg === null) return;
-    await logWeight({
+    const data: Record<string, unknown> = {
       profileId: weightProfileId,
       date: formWeightDate || new Date().toISOString().split('T')[0],
       weightKg: formWeightKg,
       notes: formWeightNotes || null,
       lastSyncedAt: null,
-    });
+    };
+    if (formBloodSugar) data.bloodSugar = Number(formBloodSugar);
+    if (formBPSystolic) data.bloodPressureSystolic = Number(formBPSystolic);
+    if (formBPDiastolic) data.bloodPressureDiastolic = Number(formBPDiastolic);
+    if (formMeasurementContext) data.measurementContext = formMeasurementContext;
+    await logWeight(data as Parameters<typeof logWeight>[0]);
     setWeightDialogOpen(false);
     const updated = await getLatestWeight(weightProfileId);
     setWeightCache(prev => ({ ...prev, [weightProfileId]: updated }));
-  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, logWeight]);
+  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeight]);
 
   const handleDelete = useCallback(async () => {
     if (!deletingProfileId) return;
@@ -356,6 +378,37 @@ export default function ProfilesPage() {
               <Label>Goal Date</Label>
               <Input type="date" value={formGoalDate} onChange={(e) => setFormGoalDate(e.target.value)} />
             </div>
+            <div>
+              <Label>BMR/RMR Equation</Label>
+              <Select value={formBmrEquation} onValueChange={(v) => setFormBmrEquation(v as BmrEquation)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EQUATION_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {formBmrEquation === 'indirectCalorimetry' && (
+              <div>
+                <Label>Measured RMR (kcal/day)</Label>
+                <Input
+                  type="number"
+                  value={formManualBmrValue}
+                  onChange={(e) => setFormManualBmrValue(e.target.value)}
+                  placeholder="Enter value from doctor"
+                />
+              </div>
+            )}
+            <div>
+              <Label>Calorie Target (kcal/day)</Label>
+              <Input
+                type="number"
+                value={formCalorieTarget}
+                onChange={(e) => setFormCalorieTarget(e.target.value)}
+                placeholder="Optional override"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>Cancel</Button>
@@ -387,6 +440,34 @@ export default function ProfilesPage() {
             <div>
               <Label>Notes (optional)</Label>
               <Input value={formWeightNotes} onChange={(e) => setFormWeightNotes(e.target.value)} placeholder="Optional notes" />
+            </div>
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs text-muted-foreground font-medium">Health Metrics (optional)</p>
+              <div>
+                <Label>Blood Sugar (mg/dL)</Label>
+                <Input type="number" value={formBloodSugar} onChange={(e) => setFormBloodSugar(e.target.value)} placeholder="e.g. 95" />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label>Systolic</Label>
+                  <Input type="number" value={formBPSystolic} onChange={(e) => setFormBPSystolic(e.target.value)} placeholder="120" />
+                </div>
+                <div className="flex-1">
+                  <Label>Diastolic</Label>
+                  <Input type="number" value={formBPDiastolic} onChange={(e) => setFormBPDiastolic(e.target.value)} placeholder="80" />
+                </div>
+              </div>
+              <div>
+                <Label>Measurement Context</Label>
+                <Select value={formMeasurementContext || 'random'} onValueChange={(v) => setFormMeasurementContext(v as 'fasting' | 'postMeal' | 'random')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fasting">Fasting</SelectItem>
+                    <SelectItem value="postMeal">Post-Meal</SelectItem>
+                    <SelectItem value="random">Random</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>

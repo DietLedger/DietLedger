@@ -1,4 +1,5 @@
 import type { SyncServerConfig, SyncChangeLogEntry } from './types';
+import { SYNC_STORE_NAMES } from './types';
 import {
   getAllUnsyncedChanges,
   markChangesSynced,
@@ -71,13 +72,7 @@ export async function pushChanges(server: SyncServerConfig): Promise<{ pushed: n
 
     if (change.action === 'upsert' && !data) {
       try {
-        const storeNames = [
-          'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
-          'recipeCategories', 'chapterPages', 'bookPages', 'templates',
-          'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
-          'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
-        ];
-        if (storeNames.includes(change.storeName)) {
+        if ((SYNC_STORE_NAMES as readonly string[]).includes(change.storeName)) {
           const record = await db.get(change.storeName as never, change.recordId);
           if (record) data = JSON.stringify(record);
         }
@@ -156,24 +151,12 @@ export async function pullChanges(server: SyncServerConfig): Promise<{ pulled: n
   for (const change of response.changes) {
     try {
       if (change.action === 'delete') {
-        const storeNames = [
-          'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
-          'recipeCategories', 'chapterPages', 'bookPages', 'templates',
-          'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
-          'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
-        ];
-        if (storeNames.includes(change.storeName)) {
+        if ((SYNC_STORE_NAMES as readonly string[]).includes(change.storeName)) {
           await db.delete(change.storeName as never, change.recordId);
         }
       } else if (change.data) {
         const record = JSON.parse(change.data);
-        const storeNames = [
-          'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
-          'recipeCategories', 'chapterPages', 'bookPages', 'templates',
-          'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
-          'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
-        ];
-        if (storeNames.includes(change.storeName)) {
+        if ((SYNC_STORE_NAMES as readonly string[]).includes(change.storeName)) {
           await db.put(change.storeName as never, record);
         }
       }
@@ -188,16 +171,9 @@ export async function pullChanges(server: SyncServerConfig): Promise<{ pulled: n
 
 export async function fullDumpUpload(server: SyncServerConfig): Promise<{ synced: number }> {
   server = { ...server, serverUrl: secureUrl(server.serverUrl) };
-  const storeNames = [
-    'recipes', 'books', 'chapters', 'chapterRecipes', 'categories',
-    'recipeCategories', 'chapterPages', 'bookPages', 'templates',
-    'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
-    'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
-  ] as const;
-
   const data: Record<string, Array<{ recordId: string; data: string; checksum: string; timestamp: string }>> = {};
 
-  for (const storeName of storeNames) {
+  for (const storeName of SYNC_STORE_NAMES) {
     const records = await getAllStoreData(storeName);
     if (records.length > 0) {
       data[storeName] = records.map((r: any) => ({

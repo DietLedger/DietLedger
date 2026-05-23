@@ -5,7 +5,7 @@ import { z } from 'zod';
 const foodLogSchema = z.object({
   profileId: z.string().min(1),
   date: z.string().min(1),
-  mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack']),
+  mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack']),
   sourceType: z.enum(['recipe', 'customFood', 'manual']),
   sourceId: z.string().nullable().optional(),
   name: z.string().min(1),

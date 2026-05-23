@@ -119,7 +119,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
 
       {/* % Daily Value header */}
       <div style={styles.dvHeaderRow}>
-        <span style={{ float: 'right', fontWeight: 700, fontSize: 13 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, textAlign: 'right', display: 'block' }}>
           % Daily Value*
         </span>
       </div>
@@ -367,7 +367,7 @@ function NutrientRow({ name, value, unit, dv, bold, indent, noDV, highlightExcee
   }
 
   return (
-    <div className={highlightExceed && dv !== undefined && dv > 100 ? 'nutrient-row-highlight' : ''} style={{ ...styles.nutrientRow, ...highlightStyle }}>
+    <div className={highlightExceed && dv !== undefined && dv > 100 ? 'nutrient-row-highlight' : ''} style={{ ...styles.nutrientRow, ...highlightStyle, display: 'flex', justifyContent: 'space-between' }}>
       <span
         style={{
           fontWeight: bold ? 700 : 400,
@@ -383,7 +383,6 @@ function NutrientRow({ name, value, unit, dv, bold, indent, noDV, highlightExcee
       {!noDV && dv !== undefined && (
         <span
           style={{
-            float: 'right',
             fontWeight: 700,
             fontSize: 13,
           }}
@@ -401,11 +400,11 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     width: 280,
     border: '3px solid #000',
-    padding: '8px 8px 4px 8px',
+    padding: '8px 8px 10px 8px',
     backgroundColor: '#fff',
     fontFamily: 'Arial, Helvetica, sans-serif',
     color: '#000',
-    lineHeight: 1.4,
+    lineHeight: 1.5,
     boxSizing: 'border-box' as const,
   },
 
@@ -421,7 +420,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     fontSize: 28,
     lineHeight: 1.1,
-    marginBottom: 2,
+    marginBottom: 8,
   },
 
   thickRule: {
@@ -439,6 +438,7 @@ const styles: Record<string, React.CSSProperties> = {
   servingInfo: {
     fontSize: 13,
     lineHeight: 1.5,
+    marginBottom: 6,
   },
 
   servingSizeRow: {
@@ -454,15 +454,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   dvHeaderRow: {
-    overflow: 'hidden' as const,
     fontSize: 13,
     marginBottom: 0,
   },
 
   nutrientRow: {
-    overflow: 'hidden' as const,
-    paddingTop: 2,
-    paddingBottom: 2,
+    paddingTop: 3,
+    paddingBottom: 3,
   },
 
   footnote: {

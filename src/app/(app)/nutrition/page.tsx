@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useNutritionStore } from '@/lib/nutrition-store';
 import { getLatestWeight } from '@/lib/storage';
 import { WeightEntryRecord, FoodLogEntryRecord } from '@/lib/storage';
@@ -14,11 +15,22 @@ import { WeightTrendChart } from '@/components/nutrition/weight-trend-chart';
 import { TodaysFoodList } from '@/components/nutrition/todays-food-list';
 import { MostEatenList } from '@/components/nutrition/most-eaten-list';
 import { AddFoodLogDialog } from '@/components/nutrition/add-food-log-dialog';
+import { EnergySpikeChart } from '@/components/nutrition/energy-spike-chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Users, History } from 'lucide-react';
+import { Plus, Users, History, Heart, FileDown } from 'lucide-react';
 import Link from 'next/link';
-import { calculateTDEE, calculateBMR, calculateGoalCalories } from '@/lib/nutrition-calcs';
+import { calculateGoalCalories, calculateFullBmr } from '@/lib/nutrition-calcs';
+import { DietaryProfileList } from '@/components/dietary/dietary-profile-editor';
+import { ThresholdAlerts } from '@/components/nutrition/threshold-alerts';
+import { useDietaryStore } from '@/lib/dietary-store';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { findGI, glCategory, type GLCategory } from '@/data/glycemic-index';
+import { computeRecipeGL } from '@/lib/glycemic-load';
+import { useAppSettingsStore } from '@/lib/app-settings-store';
+import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
+import { useRecipeStore } from '@/lib/recipe-store';
+import { exportNutritionDashboard } from '@/lib/pdf-export';
 
 export default function NutritionDashboard() {
   const {
@@ -37,6 +49,17 @@ export default function NutritionDashboard() {
   const [latestWeight, setLatestWeight] = useState<WeightEntryRecord | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
+  const [dietsDialogOpen, setDietsDialogOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
+
+  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId, fetchProfiles: fetchDietaryProfiles } = useDietaryStore();
+  const { defaultMealSlotTimes, fetchSettings } = useAppSettingsStore();
+  const { recipes, fetchRecipes } = useRecipeStore();
+  const activeDietaryProfile = useMemo(
+    () => dietaryProfiles.find((p) => p.id === activeDietaryProfileId) ?? null,
+    [dietaryProfiles, activeDietaryProfileId]
+  );
 
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId),
@@ -45,7 +68,17 @@ export default function NutritionDashboard() {
 
   useEffect(() => {
     fetchProfiles();
-  }, [fetchProfiles]);
+    fetchDietaryProfiles();
+    fetchSettings();
+    fetchRecipes();
+  }, [fetchProfiles, fetchDietaryProfiles, fetchSettings, fetchRecipes]);
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'addfood') {
+      setEditEntry(null);
+      setDialogOpen(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (activeProfileId) {
@@ -73,15 +106,82 @@ export default function NutritionDashboard() {
     [todayEntries]
   );
 
-  const goalCalories = useMemo(() => {
+  const bmrResult = useMemo(() => {
     if (!activeProfile || !latestWeight) return null;
     const age = activeProfile.birthDate
       ? Math.floor((Date.now() - new Date(activeProfile.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
       : null;
-    const bmr = calculateBMR(latestWeight.weightKg, activeProfile.heightCm, age, activeProfile.sex);
-    const tdee = calculateTDEE(bmr, activeProfile.activityLevel);
-    return calculateGoalCalories(tdee, latestWeight.weightKg, activeProfile.goalWeightKg, activeProfile.goalDate) ?? tdee;
+    return calculateFullBmr({
+      weightKg: latestWeight.weightKg,
+      heightCm: activeProfile.heightCm,
+      age,
+      sex: activeProfile.sex,
+      activityLevel: activeProfile.activityLevel,
+      equation: activeProfile.bmrEquation ?? 'auto',
+      manualBmrValue: activeProfile.manualBmrValue ?? null,
+    });
   }, [activeProfile, latestWeight]);
+
+  const goalCalories = useMemo(() => {
+    if (!bmrResult || !latestWeight || !activeProfile) return null;
+    return calculateGoalCalories(bmrResult.tdee, latestWeight.weightKg, activeProfile.goalWeightKg, activeProfile.goalDate) ?? bmrResult.tdee;
+  }, [bmrResult, latestWeight, activeProfile]);
+
+  const effectiveCalorieTarget = useMemo(() => {
+    return activeProfile?.calorieTarget ?? goalCalories ?? bmrResult?.tdee ?? null;
+  }, [activeProfile, goalCalories, bmrResult]);
+
+  const mealEnergyData = useMemo(() => {
+    const slotTimes: MealSlotTimes = { ...DEFAULT_MEAL_SLOT_TIMES, ...defaultMealSlotTimes };
+    const slotMinutes: Record<string, number> = {};
+    for (const [slot, t] of Object.entries(slotTimes)) {
+      const [h, m] = t.split(':').map(Number);
+      slotMinutes[slot] = h * 60 + m;
+    }
+
+    const entryPoints: { time: number; gl: number; category: GLCategory; mealName: string }[] = [];
+
+    for (const entry of todayEntries) {
+      let entryGL: number | null = null;
+
+      if (entry.sourceType === 'recipe' && entry.sourceId) {
+        const recipe = recipes.find((r) => r.id === entry.sourceId);
+        if (recipe) {
+          const result = computeRecipeGL(recipe, entry.servings, recipes);
+          entryGL = result.gl;
+        }
+      }
+
+      if (entryGL === null) {
+        const gi = findGI(entry.name);
+        if (gi !== null) {
+          const netCarbs = (entry.totalCarbs || 0) - (entry.dietaryFiber || 0);
+          if (netCarbs > 0) {
+            entryGL = (gi * netCarbs) / 100;
+          }
+        }
+      }
+
+      if (entryGL === null || entryGL <= 0) continue;
+
+      let minutes: number;
+      if (entry.time) {
+        const [h, m] = entry.time.split(':').map(Number);
+        minutes = h * 60 + m;
+      } else {
+        minutes = slotMinutes[entry.mealSlot] ?? 720;
+      }
+
+      entryPoints.push({
+        time: minutes,
+        gl: Math.round(entryGL * 10) / 10,
+        category: glCategory(entryGL),
+        mealName: entry.name,
+      });
+    }
+
+    return entryPoints.sort((a, b) => a.time - b.time);
+  }, [todayEntries, defaultMealSlotTimes, recipes]);
 
   const handleDeleteEntry = useCallback(async (id: string) => {
     await deleteFoodLogEntry(id);
@@ -92,6 +192,28 @@ export default function NutritionDashboard() {
     setDialogOpen(true);
   }, []);
 
+  const handleExportPdf = useCallback(async () => {
+    if (!exportRef.current) return;
+    const periodLabels: Record<Period, string> = { today: 'Today', week: 'This Week', month: 'This Month', year: 'This Year' };
+    const { start, end } = getPeriodDates(period);
+    const dateRange = period === 'today'
+      ? start.toLocaleDateString()
+      : `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+    const blob = await exportNutritionDashboard(exportRef.current, {
+      profileName: activeProfile?.name,
+      periodLabel: periodLabels[period],
+      dateRange,
+      dietaryTags: activeDietaryProfile?.dietaryTags,
+      allergens: activeDietaryProfile?.allergens,
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nutrition-${period}-${new Date().toISOString().slice(0, 10)}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [period]);
+
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
       <div className="flex items-center justify-between mb-6">
@@ -100,11 +222,17 @@ export default function NutritionDashboard() {
           <Button variant="outline" size="sm" asChild>
             <Link href="/nutrition/log"><History className="h-4 w-4 mr-1" />Food Log</Link>
           </Button>
+          <Button size="sm" onClick={() => { setEditEntry(null); setDialogOpen(true); }}>
+            <Plus className="h-4 w-4 mr-1" />Add Food
+          </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/nutrition/profiles"><Users className="h-4 w-4 mr-1" />People</Link>
           </Button>
-          <Button size="sm" onClick={() => { setEditEntry(null); setDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1" />Add Food
+          <Button variant="outline" size="sm" onClick={() => setDietsDialogOpen(true)}>
+            <Heart className="h-4 w-4 mr-1" />Diets
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPdf}>
+            <FileDown className="h-4 w-4 mr-1" />Export PDF
           </Button>
         </div>
       </div>
@@ -114,50 +242,78 @@ export default function NutritionDashboard() {
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      <div className="mb-6">
-        <BmiCalorieStats
-          profile={activeProfile}
-          latestWeight={latestWeight}
-          caloriesConsumedToday={caloriesToday}
-        />
-      </div>
+      <div ref={exportRef}>
+        <ThresholdAlerts entries={todayEntries} dietaryProfile={activeDietaryProfile} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm">Calorie Summary</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <CalorieSummaryChart entries={foodLog} period={period} goalCalories={goalCalories} />
-          </CardContent>
-        </Card>
+        {activeDietaryProfile && (
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {activeDietaryProfile.allergens.length > 0 && (
+              <span className="text-xs text-stone-500">Allergens: {activeDietaryProfile.allergens.join(', ')}</span>
+            )}
+            {activeDietaryProfile.dietaryTags.length > 0 && (
+              <span className="text-xs text-stone-500">
+                Diets: {activeDietaryProfile.dietaryTags.join(', ')}
+              </span>
+            )}
+          </div>
+        )}
 
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm">Macro Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <MacroBreakdownChart entries={foodLog} />
-          </CardContent>
-        </Card>
+        <div className="mb-6">
+          <BmiCalorieStats
+            profile={activeProfile}
+            latestWeight={latestWeight}
+            caloriesConsumedToday={caloriesToday}
+          />
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm">Nutrient Trends</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <NutrientTrendChart entries={foodLog} period={period} />
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm">Calorie Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <CalorieSummaryChart
+                entries={foodLog}
+                period={period}
+                bmr={bmrResult?.bmr ?? null}
+                rmr={bmrResult?.rmr ?? null}
+                tdee={bmrResult?.tdee ?? null}
+                calorieTarget={effectiveCalorieTarget}
+              />
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm">Weight Trend</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <WeightTrendChart entries={weights} goalWeightKg={activeProfile?.goalWeightKg} />
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm">Macro Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <MacroBreakdownChart entries={foodLog} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm">Nutrient Trends</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <NutrientTrendChart entries={foodLog} period={period} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm">Weight Trend</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <WeightTrendChart entries={weights} goalWeightKg={activeProfile?.goalWeightKg} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mb-6">
+          <EnergySpikeChart meals={mealEnergyData} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -187,6 +343,17 @@ export default function NutritionDashboard() {
         defaultDate={formatDateForDB(new Date())}
         editEntry={editEntry}
       />
+
+      <Dialog open={dietsDialogOpen} onOpenChange={setDietsDialogOpen}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Heart className="h-5 w-5 text-brand-600" />Special Diets &amp; Allergens
+            </DialogTitle>
+          </DialogHeader>
+          <DietaryProfileList />
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

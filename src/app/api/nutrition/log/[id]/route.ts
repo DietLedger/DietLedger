@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 
 const foodLogUpdateSchema = z.object({
   date: z.string().min(1).optional(),
-  mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack']).optional(),
+  mealSlot: z.enum(['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack']).optional(),
   name: z.string().min(1).optional(),
   servings: z.number().positive().optional(),
   calories: z.number().optional(),

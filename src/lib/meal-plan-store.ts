@@ -13,11 +13,12 @@ import {
   createMealGroup as dbCreateMealGroup,
   updateMealGroup as dbUpdateMealGroup,
   deleteMealGroup as dbDeleteMealGroup,
+  updateMealPlan as dbUpdateMealPlan,
   type MealPlanRecord,
   type DayPlanEntryRecord,
   type MealGroupRecord,
 } from '@/lib/storage';
-import type { DaySlot } from '@/lib/types';
+import type { DaySlot, MealSlotTimes } from '@/lib/types';
 import { notifyLocalChange } from '@/lib/sync-store';
 
 interface MealPlanState {
@@ -33,6 +34,29 @@ interface MealPlanState {
   ensureMealPlan: (weekStart: string) => Promise<MealPlanRecord>;
   deleteMealPlan: (id: string) => Promise<void>;
   addRecipeToSlot: (date: string, slot: DaySlot, recipeId: string) => Promise<void>;
+  addFoodToSlot: (
+    date: string,
+    slot: DaySlot,
+    food: {
+      name: string;
+      sourceType: 'food' | 'customFood' | 'manual';
+      calories?: number;
+      totalFat?: number;
+      saturatedFat?: number;
+      transFat?: number;
+      cholesterol?: number;
+      sodium?: number;
+      totalCarbs?: number;
+      dietaryFiber?: number;
+      totalSugars?: number;
+      addedSugars?: number;
+      protein?: number;
+      vitaminD?: number;
+      calcium?: number;
+      iron?: number;
+      potassium?: number;
+    }
+  ) => Promise<void>;
   removeEntry: (entryId: string) => Promise<void>;
   moveEntry: (entryId: string, toSlot: DaySlot, toPosition: number) => Promise<void>;
   updateServings: (entryId: string, servings: number) => Promise<void>;
@@ -42,6 +66,7 @@ interface MealPlanState {
   deleteMealGroupAndUngroup: (groupId: string) => Promise<void>;
   reorderEntries: (slot: DaySlot, date: string, entryIds: string[]) => Promise<void>;
   toggleLeftover: (entryId: string) => Promise<void>;
+  updateSlotTimes: (slotTimes: MealSlotTimes) => Promise<void>;
 }
 
 export const useMealPlanStore = create<MealPlanState>((set, get) => ({
@@ -116,6 +141,37 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     );
     const position = existingInSlot.length;
     const entry = await dbCreateDayPlanEntry(plan.id, date, slot, recipeId, position);
+    set((state) => ({ dayEntries: [...state.dayEntries, entry] }));
+    notifyLocalChange();
+  },
+
+  addFoodToSlot: async (date, slot, food) => {
+    const plan = get().activeMealPlan;
+    if (!plan) return;
+    const existingInSlot = get().dayEntries.filter(
+      (e) => e.date === date && e.slot === slot
+    );
+    const position = existingInSlot.length;
+    const entry = await dbCreateDayPlanEntry(plan.id, date, slot, null, position, {
+      sourceType: food.sourceType,
+      foodName: food.name,
+      servings: 1,
+      calories: food.calories,
+      totalFat: food.totalFat,
+      saturatedFat: food.saturatedFat,
+      transFat: food.transFat,
+      cholesterol: food.cholesterol,
+      sodium: food.sodium,
+      totalCarbs: food.totalCarbs,
+      dietaryFiber: food.dietaryFiber,
+      totalSugars: food.totalSugars,
+      addedSugars: food.addedSugars,
+      protein: food.protein,
+      vitaminD: food.vitaminD,
+      calcium: food.calcium,
+      iron: food.iron,
+      potassium: food.potassium,
+    });
     set((state) => ({ dayEntries: [...state.dayEntries, entry] }));
     notifyLocalChange();
   },
@@ -228,6 +284,16 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       dayEntries: state.dayEntries.map((e) =>
         e.id === entryId ? { ...e, isLeftover: newValue } : e
       ),
+    }));
+    notifyLocalChange();
+  },
+
+  updateSlotTimes: async (slotTimes: MealSlotTimes) => {
+    const plan = get().activeMealPlan;
+    if (!plan) return;
+    await dbUpdateMealPlan(plan.id, { slotTimes });
+    set((state) => ({
+      activeMealPlan: state.activeMealPlan ? { ...state.activeMealPlan, slotTimes } : null,
     }));
     notifyLocalChange();
   },

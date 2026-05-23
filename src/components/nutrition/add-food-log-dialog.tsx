@@ -29,7 +29,8 @@ import {
   CustomFoodRecord,
 } from '@/lib/storage';
 import { getAllRecipes, getAllCustomFoods } from '@/lib/storage';
-import { Search } from 'lucide-react';
+import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
+import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
 const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [
   { value: 'morning', label: 'Morning' },
@@ -37,6 +38,7 @@ const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [
   { value: 'noon', label: 'Lunch' },
   { value: 'afternoon', label: 'Afternoon' },
   { value: 'evening', label: 'Dinner' },
+  { value: 'night', label: 'Night' },
   { value: 'snack', label: 'Snack' },
 ];
 
@@ -75,6 +77,26 @@ function emptyNutrients(): Record<NutrientKey, string> {
   return result as Record<NutrientKey, string>;
 }
 
+function nutrientsFromFDASearch(food: FDASearchResult): Record<NutrientKey, string> {
+  return {
+    calories: food.nutrients.calories?.toString() ?? '0',
+    totalFat: food.nutrients.totalFat?.toString() ?? '0',
+    saturatedFat: food.nutrients.saturatedFat?.toString() ?? '0',
+    transFat: food.nutrients.transFat?.toString() ?? '0',
+    cholesterol: food.nutrients.cholesterol?.toString() ?? '0',
+    sodium: food.nutrients.sodium?.toString() ?? '0',
+    totalCarbs: food.nutrients.totalCarbs?.toString() ?? '0',
+    dietaryFiber: food.nutrients.dietaryFiber?.toString() ?? '0',
+    totalSugars: food.nutrients.totalSugars?.toString() ?? '0',
+    addedSugars: food.nutrients.addedSugars?.toString() ?? '0',
+    protein: food.nutrients.protein?.toString() ?? '0',
+    vitaminD: food.nutrients.vitaminD?.toString() ?? '0',
+    calcium: food.nutrients.calcium?.toString() ?? '0',
+    iron: food.nutrients.iron?.toString() ?? '0',
+    potassium: food.nutrients.potassium?.toString() ?? '0',
+  };
+}
+
 export function AddFoodLogDialog({
   open,
   onOpenChange,
@@ -87,6 +109,10 @@ export function AddFoodLogDialog({
   const [tab, setTab] = useState('recipes');
   const [mealSlot, setMealSlot] = useState<MealSlot>(defaultMealSlot ?? 'noon');
   const [date, setDate] = useState(defaultDate ?? new Date().toISOString().split('T')[0]);
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  });
   const [servings, setServings] = useState('1');
   const [name, setName] = useState('');
   const [nutrients, setNutrients] = useState(emptyNutrients());
@@ -96,12 +122,16 @@ export function AddFoodLogDialog({
   const [customFoods, setCustomFoods] = useState<CustomFoodRecord[]>([]);
   const [selectedItem, setSelectedItem] = useState<{ id: string; name: string; type: FoodSourceType; nutrition: Record<string, number> } | null>(null);
 
+  const [fdaResults, setFdaResults] = useState<FDASearchResult[]>([]);
+  const [fdaSearching, setFdaSearching] = useState(false);
+
   useEffect(() => {
     if (open) {
       if (editEntry) {
         setName(editEntry.name);
         setMealSlot(editEntry.mealSlot);
         setDate(editEntry.date);
+        setTime(editEntry.time ?? (() => { const n = new Date(); return `${n.getHours().toString().padStart(2, '0')}:${n.getMinutes().toString().padStart(2, '0')}`; })());
         setServings(editEntry.servings.toString());
         const n: Record<string, string> = {};
         for (const f of NUTRIENT_FIELDS) n[f.key] = (editEntry as Record<string, unknown>)[f.key]?.toString() ?? '0';
@@ -110,18 +140,44 @@ export function AddFoodLogDialog({
         else if (editEntry.sourceType === 'customFood') setTab('custom');
         else setTab('manual');
       } else {
-        setName('');
-        setMealSlot(defaultMealSlot ?? 'noon');
-        setDate(defaultDate ?? new Date().toISOString().split('T')[0]);
-        setServings('1');
-        setNutrients(emptyNutrients());
-        setTab('recipes');
-        setSelectedItem(null);
-        setSearchQuery('');
+        resetForm();
       }
       loadItems();
     }
   }, [open, editEntry, defaultMealSlot, defaultDate]);
+
+  useEffect(() => {
+    if (!searchQuery || tab !== 'food') {
+      setFdaResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setFdaSearching(true);
+      try {
+        const result = await searchFDAFoods(searchQuery);
+        setFdaResults(result.foods.slice(0, 50));
+      } catch {
+        setFdaResults([]);
+      } finally {
+        setFdaSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, tab]);
+
+  const resetForm = useCallback(() => {
+    setName('');
+    setMealSlot(defaultMealSlot ?? 'noon');
+    setDate(defaultDate ?? new Date().toISOString().split('T')[0]);
+    const now = new Date();
+    setTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+    setServings('1');
+    setNutrients(emptyNutrients());
+    setTab('recipes');
+    setSelectedItem(null);
+    setSearchQuery('');
+    setFdaResults([]);
+  }, [defaultMealSlot, defaultDate]);
 
   const loadItems = useCallback(async () => {
     const [r, c] = await Promise.all([getAllRecipes(), getAllCustomFoods()]);
@@ -174,8 +230,23 @@ export function AddFoodLogDialog({
     setNutrients(n as Record<NutrientKey, string>);
   }, []);
 
+  const selectFDAFood = useCallback((food: FDASearchResult) => {
+    const foodName = food.description + (food.brandOwner ? ` (${food.brandOwner})` : '');
+    const nutrition: Record<string, number> = {};
+    for (const f of NUTRIENT_FIELDS) nutrition[f.key] = food.nutrients[f.key as keyof typeof food.nutrients] ?? 0;
+    setSelectedItem({ id: `fdc-${food.fdcId}`, name: foodName, type: 'customFood', nutrition });
+    setName(foodName);
+    setNutrients(nutrientsFromFDASearch(food));
+  }, []);
+
   const handleNutrientChange = useCallback((key: NutrientKey, value: string) => {
     setNutrients((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleTabChange = useCallback((v: string) => {
+    setTab(v);
+    setSearchQuery('');
+    setFdaResults([]);
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -191,6 +262,7 @@ export function AddFoodLogDialog({
         name,
         mealSlot,
         date,
+        time,
         servings: servingsNum,
         ...nutritionData,
       });
@@ -200,15 +272,16 @@ export function AddFoodLogDialog({
         name,
         mealSlot,
         date,
+        time,
         servings: servingsNum,
-        sourceType: tab === 'recipes' ? 'recipe' : tab === 'custom' ? 'customFood' : 'manual',
+        sourceType: tab === 'recipes' ? 'recipe' : tab === 'food' ? 'customFood' : tab === 'custom' ? 'customFood' : 'manual',
         sourceId: selectedItem?.id ?? null,
         lastSyncedAt: null,
         ...nutritionData,
       });
     }
     onOpenChange(false);
-  }, [name, mealSlot, date, servings, nutrients, profileId, tab, selectedItem, editEntry, addFoodLogEntry, updateFoodLogEntry, onOpenChange]);
+  }, [name, mealSlot, date, time, servings, nutrients, profileId, tab, selectedItem, editEntry, addFoodLogEntry, updateFoodLogEntry, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -217,7 +290,7 @@ export function AddFoodLogDialog({
           <DialogTitle>{editEntry ? 'Edit Food Entry' : 'Add Food'}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-3 gap-3 mb-3">
           <div>
             <Label className="text-xs">Meal</Label>
             <Select value={mealSlot} onValueChange={(v) => setMealSlot(v as MealSlot)}>
@@ -233,14 +306,19 @@ export function AddFoodLogDialog({
             <Label className="text-xs">Date</Label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8 text-sm" />
           </div>
+          <div>
+            <Label className="text-xs">Time</Label>
+            <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 text-sm" />
+          </div>
         </div>
 
         {!editEntry && (
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="w-full">
-              <TabsTrigger value="recipes" className="flex-1 text-xs">My Recipes</TabsTrigger>
-              <TabsTrigger value="custom" className="flex-1 text-xs">Custom Foods</TabsTrigger>
-              <TabsTrigger value="manual" className="flex-1 text-xs">Manual</TabsTrigger>
+          <Tabs value={tab} onValueChange={handleTabChange}>
+            <TabsList className="w-full grid grid-cols-4">
+              <TabsTrigger value="recipes" className="flex-1 text-xs gap-1"><Salad className="w-3 h-3" />Recipes</TabsTrigger>
+              <TabsTrigger value="food" className="flex-1 text-xs gap-1"><Store className="w-3 h-3" />Food DB</TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1 text-xs gap-1"><Apple className="w-3 h-3" />Custom</TabsTrigger>
+              <TabsTrigger value="manual" className="flex-1 text-xs gap-1"><PenLine className="w-3 h-3" />Manual</TabsTrigger>
             </TabsList>
 
             <TabsContent value="recipes" className="mt-3">
@@ -270,6 +348,58 @@ export function AddFoodLogDialog({
                     ))}
                   </div>
                 )}
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="food" className="mt-3">
+              <div className="relative mb-2">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search foods, brands, UPC (e.g. &quot;Pizza Hut pepperoni&quot;)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 h-8 text-sm"
+                />
+              </div>
+              <ScrollArea className="h-[200px]">
+                {fdaSearching && (
+                  <div className="flex items-center justify-center py-6 gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Searching...
+                  </div>
+                )}
+                {!fdaSearching && fdaResults.length === 0 && !searchQuery && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Search for restaurant items, branded foods, UPC codes, or ingredients</p>
+                )}
+                {!fdaSearching && fdaResults.length === 0 && searchQuery && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No foods found</p>
+                )}
+                <div className="space-y-1">
+                  {fdaResults.map((food) => (
+                    <button
+                      key={food.fdcId}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors ${selectedItem?.id === `fdc-${food.fdcId}` ? 'bg-accent font-medium' : ''}`}
+                      onClick={() => selectFDAFood(food)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-stone-800">{food.description}</span>
+                          {food.brandOwner && (
+                            <span className="text-xs text-stone-400 ml-1">– {food.brandOwner}</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-stone-400 shrink-0">{Math.round(food.nutrients.calories)} kcal</span>
+                      </div>
+                      <div className="flex gap-2 mt-0.5">
+                        {food.dataType && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500">{food.dataType}</span>
+                        )}
+                        {food.servingSize > 0 && (
+                          <span className="text-[10px] text-stone-400">{food.servingSize}{food.servingSizeUnit}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </ScrollArea>
             </TabsContent>
 

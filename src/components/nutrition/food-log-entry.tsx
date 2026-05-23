@@ -11,6 +11,7 @@ const MEAL_LABELS: Record<MealSlot, string> = {
   noon: 'Lunch',
   afternoon: 'Afternoon',
   evening: 'Dinner',
+  night: 'Night',
   snack: 'Snack',
 };
 
@@ -20,6 +21,7 @@ const MEAL_COLORS: Record<MealSlot, string> = {
   noon: 'bg-green-100 text-green-800',
   afternoon: 'bg-blue-100 text-blue-800',
   evening: 'bg-purple-100 text-purple-800',
+  night: 'bg-indigo-100 text-indigo-800',
   snack: 'bg-pink-100 text-pink-800',
 };
 

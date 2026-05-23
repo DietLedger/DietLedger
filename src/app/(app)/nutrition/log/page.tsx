@@ -12,7 +12,7 @@ import { Plus } from 'lucide-react';
 import { MealSlot, FoodLogEntryRecord } from '@/lib/storage';
 import Link from 'next/link';
 
-const MEAL_SLOTS: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'snack'];
+const MEAL_SLOTS: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];
 
 export default function FoodLogPage() {
   const {
@@ -46,6 +46,7 @@ export default function FoodLogPage() {
       noon: [],
       afternoon: [],
       evening: [],
+      night: [],
       snack: [],
     };
     for (const entry of foodLog) {

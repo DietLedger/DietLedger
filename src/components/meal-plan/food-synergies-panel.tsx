@@ -22,9 +22,10 @@ const SLOT_LABELS: Record<DaySlot, string> = {
   noon: 'Noon',
   afternoon: 'Afternoon',
   evening: 'Evening',
+  night: 'Night',
 };
 
-const SLOT_ORDER: DaySlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening'];
+const SLOT_ORDER: DaySlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night'];
 
 interface FoodSynergiesPanelProps {
   editingDay: string | null;
@@ -52,7 +53,7 @@ export default function FoodSynergiesPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const mealPlanRecipeIds = useMemo(
-    () => [...new Set(dayEntries.map((e) => e.recipeId))],
+    () => [...new Set(dayEntries.map((e) => e.recipeId).filter(Boolean) as string[])],
     [dayEntries]
   );
 

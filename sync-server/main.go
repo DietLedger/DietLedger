@@ -28,6 +28,10 @@ func main() {
 	}
 	log.Printf("Database initialized at %s", dbPath)
 
+	if err := store.SeedCategories(); err != nil {
+		log.Printf("Warning: failed to seed categories: %v", err)
+	}
+
 	server := NewServer(store, corsOrigin, maxBodyMB)
 
 	srv := &http.Server{
