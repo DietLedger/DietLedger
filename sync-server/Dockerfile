@@ -1,12 +1,13 @@
 FROM golang:1.22-alpine AS builder
 
+ARG BUILD_VERSION=dev
 WORKDIR /app
 
 COPY go.mod go.sum* ./
 RUN go mod download || true
 
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o dietledger-sync .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${BUILD_VERSION}" -o dietledger-sync .
 
 FROM alpine:3.20
 

@@ -29,6 +29,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/health", s.health)
+	mux.HandleFunc("/api/about", s.about)
 	mux.HandleFunc("/api/sync/register", s.register)
 
 	mux.HandleFunc("/api/sync/push", s.requireAuth(s.push))

@@ -6,12 +6,17 @@ if (process.platform === 'win32') {
   } catch {}
 }
 
+const pkg = require('./package.json');
+
 const nextConfig: NextConfig = {
   // NOTE: Use `output: "export"` only when building for Tauri/Capacitor static export
   // During development, keep it commented out so the dev server works normally
   // output: "export",
   images: {
     unoptimized: true,
+  },
+  env: {
+    NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION || pkg.version,
   },
   typescript: {
     ignoreBuildErrors: true,

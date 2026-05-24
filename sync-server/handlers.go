@@ -18,7 +18,15 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":      true,
 		"service": "dietledger-sync",
-		"version": "0.1.0",
+		"version": version,
+	})
+}
+
+func (s *Server) about(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":        "DietLedger Sync Server",
+		"version":     version,
+		"description": "Sync and sharing backend for DietLedger",
 	})
 }
 

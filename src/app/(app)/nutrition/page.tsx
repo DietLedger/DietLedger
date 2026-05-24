@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useNutritionStore } from '@/lib/nutrition-store';
 import { getLatestWeight } from '@/lib/storage';
@@ -32,7 +32,15 @@ import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { exportNutritionDashboard } from '@/lib/pdf-export';
 
-export default function NutritionDashboard() {
+export default function NutritionPage() {
+  return (
+    <Suspense>
+      <NutritionDashboard />
+    </Suspense>
+  );
+}
+
+function NutritionDashboard() {
   const {
     profiles,
     activeProfileId,

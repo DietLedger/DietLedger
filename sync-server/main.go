@@ -11,11 +11,15 @@ import (
 	"time"
 )
 
+var version = "dev"
+
 func main() {
 	port := envOrDefault("PORT", "8080")
 	dbPath := envOrDefault("DB_PATH", "./sync.db")
 	maxBodyMB, _ := strconv.ParseInt(envOrDefault("MAX_BODY_MB", "10"), 10, 64)
 	corsOrigin := envOrDefault("CORS_ORIGIN", "*")
+
+	log.Printf("[DietLedger Sync] Version: %s", version)
 
 	store, err := NewSQLiteStore(dbPath)
 	if err != nil {

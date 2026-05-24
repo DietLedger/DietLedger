@@ -3,10 +3,22 @@ import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const [totalCount, byType, recentJobs] = await Promise.all([
-      db.foodItem.count(),
-      db.foodItem.groupBy({ by: ['dataType'], _count: { dataType: true } }),
-      db.seedJob.findMany({
+    const [totalCount, byType, bySource] = await Promise.all([
+      db.foodItem.count().catch(() => 0),
+      db.foodItem.groupBy({ by: ['dataType'], _count: { dataType: true } }).catch(() => []),
+      db.foodItem.groupBy({ by: ['source'], _count: { source: true } }).catch(() => []),
+    ]);
+
+    let recentJobs: Array<{
+      id: number;
+      dataType: string;
+      releaseDate: string;
+      recordCount: number;
+      status: string;
+      completedAt: Date | null;
+    }> = [];
+    try {
+      recentJobs = await db.seedJob.findMany({
         where: { status: 'completed' },
         orderBy: { completedAt: 'desc' },
         take: 10,
@@ -18,10 +30,8 @@ export async function GET() {
           status: true,
           completedAt: true,
         },
-      }),
-    ]);
-
-    const bySource = await db.foodItem.groupBy({ by: ['source'], _count: { source: true } });
+      });
+    } catch {}
 
     return NextResponse.json({
       totalFoods: totalCount,
@@ -93,9 +103,9 @@ export async function POST() {
 
 export async function DELETE() {
   try {
-    await db.$executeRawUnsafe('DELETE FROM food_item_fts');
-    await db.foodItem.deleteMany();
-    await db.seedJob.deleteMany();
+    await db.$executeRawUnsafe('DELETE FROM food_item_fts').catch(() => {});
+    await db.foodItem.deleteMany().catch(() => {});
+    await db.seedJob.deleteMany().catch(() => {});
     return NextResponse.json({ message: 'Database cleared' });
   } catch (error) {
     return NextResponse.json(

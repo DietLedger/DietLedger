@@ -3,9 +3,13 @@ import path from 'path'
 import { homedir } from 'os'
 import { mkdirSync } from 'fs'
 
-const dbDir = path.join(homedir(), '.recipetool')
-mkdirSync(dbDir, { recursive: true })
-const dbPath = path.join(dbDir, 'dev.db')
+function getDbUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL
+  if (process.env.DOCKER) return 'file:/app/db/custom.db'
+  const dbDir = path.join(homedir(), '.recipetool')
+  mkdirSync(dbDir, { recursive: true })
+  return `file:${path.join(dbDir, 'dev.db')}`
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -14,7 +18,7 @@ const globalForPrisma = globalThis as unknown as {
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
-    datasourceUrl: `file:${dbPath}`,
+    datasourceUrl: getDbUrl(),
     log: ['query'],
   })
 

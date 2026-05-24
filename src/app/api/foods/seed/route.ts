@@ -4,7 +4,12 @@ import { USDA_DATASETS, type DatasetKey } from '@/lib/usda-datasets';
 
 export async function GET() {
   try {
-    const jobs = await getAllSeedJobs();
+    let jobs: Awaited<ReturnType<typeof getAllSeedJobs>> = [];
+    try {
+      jobs = await getAllSeedJobs();
+    } catch {
+      jobs = [];
+    }
     const datasetStatus = Object.entries(USDA_DATASETS).map(([key, ds]) => {
       const latestJob = jobs.find((j) => j.dataType === key && j.status === 'completed');
       return {

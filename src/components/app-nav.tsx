@@ -252,10 +252,11 @@ export default function AppNav() {
                       </div>
                     </div>
                     <Separator />
-                    <div className="text-xs text-stone-400">
-                       <p className="font-medium text-stone-500 mb-1">About DietLedger</p>
-                      <p>A fully standalone recipe tool that generates standard nutrition labels.</p>
-                    </div>
+                     <div className="text-xs text-stone-400">
+                        <p className="font-medium text-stone-500 mb-1">About DietLedger</p>
+                        <p>A fully standalone recipe tool that generates standard nutrition labels.</p>
+                         <p className="mt-1">Build: v{process.env.NEXT_PUBLIC_APP_VERSION || 'dev'}</p>
+                      </div>
                   </div>
                 </TabsContent>
                 <TabsContent value="food-database" className="mt-4">

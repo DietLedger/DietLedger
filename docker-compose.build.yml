@@ -1,0 +1,14 @@
+services:
+  dietledger:
+    build:
+      context: .
+    image: recipetool-dietledger
+    container_name: dietledger
+
+  sync-server:
+    build:
+      context: ./sync-server
+      args:
+        BUILD_VERSION: ${APP_VERSION:-dev}
+    image: recipetool-sync-server
+    container_name: dietledger-sync

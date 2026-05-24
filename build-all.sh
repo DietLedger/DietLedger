@@ -22,6 +22,10 @@ echo "========================================"
 echo " NutriLabel - Build All Platforms"
 echo "========================================"
 echo ""
+
+info "Syncing version from package.json..."
+node scripts/version-sync.js
+
 echo "Output directory: $BUILDS_DIR"
 echo ""
 

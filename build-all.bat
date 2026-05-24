@@ -17,6 +17,14 @@ echo ========================================
 echo  NutriLabel - Build All Platforms
 echo ========================================
 echo.
+
+call node scripts\version-sync.js
+if %errorlevel% neq 0 (
+    echo ERROR: version sync failed
+    pause
+    exit /b 1
+)
+
 echo Output directory: %BUILDS_DIR%
 echo.
 

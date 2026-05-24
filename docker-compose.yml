@@ -1,6 +1,6 @@
 services:
   dietledger:
-    build: .
+    image: recipetool-dietledger
     container_name: dietledger
     ports:
       - "${PORT:-3000}:3000"
@@ -8,7 +8,7 @@ services:
       - NODE_ENV=production
       - DOCKER=1
       - PORT=3000
-      - DATABASE_URL=${DATABASE_URL:-sqlite:/app/db/custom.db}
+      - DATABASE_URL=${DATABASE_URL:-file:/app/db/custom.db}
       - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
     volumes:
       - dietledger-data:/app/db
@@ -21,7 +21,7 @@ services:
       start_period: 30s
 
   sync-server:
-    build: ./sync-server
+    image: recipetool-sync-server
     container_name: dietledger-sync
     ports:
       - "${SYNC_PORT:-8080}:8080"

@@ -29,6 +29,20 @@ process.env.NODE_ENV = "production";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOSTNAME = process.env.HOSTNAME || (process.env.DOCKER ? "0.0.0.0" : "127.0.0.1");
 
+const APP_VERSION = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, "BUILD_VERSION"), "utf-8").trim();
+  } catch {}
+  try {
+    return require(path.join(__dirname, "package.json")).version;
+  } catch {}
+  return process.env.NEXT_PUBLIC_APP_VERSION || "unknown";
+})();
+
+console.log(`[DietLedger] Version: ${APP_VERSION}`);
+console.log(`[DietLedger] Node: ${process.version}`);
+console.log(`[DietLedger] Environment: ${process.env.DOCKER ? "docker" : "native"}`);
+
 if (!process.env.DATABASE_URL) {
   const dbPath = path.join(__dirname, "db", "custom.db");
   process.env.DATABASE_URL = `sqlite:${dbPath}`;
