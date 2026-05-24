@@ -54,3 +54,17 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Docker build artifacts
+docker-build/
+*.tar
+
+# Database files
+*.db
+db/custom.db
+
+# Sync server binary
+sync-server/dietledger-sync
+sync-server/dietledger-sync.exe
+sync-server/dist/
+sync-server/sync.db
