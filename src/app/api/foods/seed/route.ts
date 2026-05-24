@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { startSeedJob, getAllSeedJobs } from '@/lib/usda-import';
 import { USDA_DATASETS, type DatasetKey } from '@/lib/usda-datasets';
+import { ensureSchema } from '@/lib/db';
 
 export async function GET() {
   try {
@@ -33,6 +34,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSchema();
     const body = await request.json();
     const datasetKey = body.dataset as DatasetKey;
 

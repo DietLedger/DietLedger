@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { startUploadSeedJob } from '@/lib/usda-import';
+import { ensureSchema } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSchema();
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const dataType = (formData.get('dataType') as string) || 'unknown';
