@@ -71,16 +71,18 @@ export async function ensureSchema() {
     schemaEnsured = true
   } catch {
     console.log('[ensureSchema] Tables missing, creating...')
-    for (const sql of CREATE_TABLES) {
-      try {
-        await db.$executeRawUnsafe(sql)
-      } catch (e) {
-        console.error('[ensureSchema] SQL failed:', sql.substring(0, 80), e)
+    try {
+      for (const sql of CREATE_TABLES) {
+        try {
+          await db.$executeRawUnsafe(sql)
+        } catch (e) {
+          console.error('[ensureSchema] SQL failed:', sql.substring(0, 80), e)
+        }
       }
+      console.log('[ensureSchema] Done')
+      schemaEnsured = true
+    } catch (e) {
+      console.error('[ensureSchema] Fatal:', e)
     }
-    console.log('[ensureSchema] Done')
-    schemaEnsured = true
-  } catch (e) {
-    console.error('[ensureSchema] Fatal:', e)
   }
 }
