@@ -70,9 +70,17 @@ export async function ensureSchema() {
     await db.$queryRaw`SELECT 1 FROM Recipe LIMIT 1`
     schemaEnsured = true
   } catch {
+    console.log('[ensureSchema] Tables missing, creating...')
     for (const sql of CREATE_TABLES) {
-      await db.$executeRawUnsafe(sql)
+      try {
+        await db.$executeRawUnsafe(sql)
+      } catch (e) {
+        console.error('[ensureSchema] SQL failed:', sql.substring(0, 80), e)
+      }
     }
+    console.log('[ensureSchema] Done')
     schemaEnsured = true
+  } catch (e) {
+    console.error('[ensureSchema] Fatal:', e)
   }
 }

@@ -48,8 +48,11 @@ export async function POST(request: NextRequest) {
     const jobId = await startSeedJob(datasetKey);
     return NextResponse.json({ jobId, message: `Seed job started for ${datasetKey}` });
   } catch (error) {
+    console.error('[seed POST]', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const stack = error instanceof Error ? error.stack : undefined;
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { error: message, stack },
       { status: 500 }
     );
   }

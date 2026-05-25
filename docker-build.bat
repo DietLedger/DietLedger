@@ -24,7 +24,7 @@ echo.
 
 echo [2/4] Building Docker images...
 set "APP_VERSION=%VERSION%"
-call docker compose -f "%BASE_DIR%docker-compose.build.yml" build --no-cache
+call docker compose -f "%BASE_DIR%docker-compose.build.yml" build %*
 if %errorlevel% neq 0 (
     echo ERROR: Docker build failed
     pause
