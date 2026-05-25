@@ -25,7 +25,16 @@ if (bump === 'bump') {
   version = match[1] + (parseInt(match[2], 10) + 1);
   pkg.version = version;
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-  console.log(`[version-sync] Bumped version: ${pkg.version} -> ${version}`);
+  console.log(`[version-sync] Bumped version to ${version}`);
+
+  const lockPath = path.join(root, 'package-lock.json');
+  if (fs.existsSync(lockPath)) {
+    const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+    if (lock.version) lock.version = version;
+    if (lock.packages && lock.packages['']) lock.packages[''].version = version;
+    fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+    console.log(`[version-sync] Updated package-lock.json`);
+  }
 }
 
 console.log(`[version-sync] Building version: ${version}`);
