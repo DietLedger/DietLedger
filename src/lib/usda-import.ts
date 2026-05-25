@@ -134,14 +134,18 @@ async function loadCheckpoint(jobId: number): Promise<ImportCheckpoint | null> {
 }
 
 async function findResumableCheckpoint(dataType: string): Promise<ImportCheckpoint | null> {
-  const failed = await db.seedJob.findFirst({
-    where: { dataType, status: 'failed', checkpoint: { not: null } },
-    orderBy: { createdAt: 'desc' },
-    select: { checkpoint: true },
-  });
-  if (!failed?.checkpoint) return null;
   try {
-    return JSON.parse(failed.checkpoint);
+    const failed = await db.seedJob.findFirst({
+      where: { dataType, status: 'failed', checkpoint: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { checkpoint: true },
+    });
+    if (!failed?.checkpoint) return null;
+    try {
+      return JSON.parse(failed.checkpoint);
+    } catch {
+      return null;
+    }
   } catch {
     return null;
   }
