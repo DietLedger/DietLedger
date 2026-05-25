@@ -3,10 +3,9 @@ FROM node:20-alpine AS base
 FROM base AS deps
 RUN apk add --no-cache libc6-compat sqlite
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-RUN --mount=type=cache,target=/root/.npm \
-    npm install --omit=dev && \
+RUN npm install --omit=dev && \
     npx prisma generate && \
     rm -f prisma/dev.db
 ENV DATABASE_URL=file:/app/prisma/seed.db
