@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Plus, LayoutTemplate } from 'lucide-react';
 import type { TemplateRecord } from '@/lib/types';
+import { generateUUID } from '@/lib/utils';
 
 const TEMPLATE_TYPES: { value: TemplateRecord['type']; label: string; description: string }[] = [
   { value: 'recipe', label: 'Recipe', description: 'Standalone recipe page with ingredients, instructions, and nutrition' },
@@ -31,7 +32,7 @@ function defaultLayoutForType(type: TemplateRecord['type']): TemplateRecord['lay
     column: 1 | 2,
     style?: TemplateRecord['layout']['sections'][0]['style'],
   ) => ({
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     type: t as TemplateRecord['layout']['sections'][0]['type'],
     visible: true,
     order,

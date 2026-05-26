@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { SyncServerConfig, SyncChangeLogEntry, DietaryProfileRecord, AllergenRuleRecord, SharedRecipeRecord, BrandKit } from './types';
+import { generateUUID } from './utils';
 
 interface IngredientGroup {
   id: string;
@@ -635,7 +636,7 @@ export async function createRecipe(name: string): Promise<RecipeRecord> {
   const db = await getDB();
   const now = new Date().toISOString();
   const recipe: RecipeRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: name.trim(),
     servings: 1,
     servingName: 'serving',
@@ -689,7 +690,7 @@ export async function addIngredient(
   if (!recipe) throw new Error('Recipe not found');
 
   const newIngredient: IngredientRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     recipeId,
     ...ingredient,
   };
@@ -777,7 +778,7 @@ export async function createBook(title: string, description?: string, coverColor
   const db = await getDB();
   const now = new Date().toISOString();
   const book: BookRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     title: title.trim(),
     description: (description || '').trim(),
     coverColor: coverColor || '#059669',
@@ -849,7 +850,7 @@ export async function createChapter(bookId: string, title: string): Promise<Chap
   const existing = await db.getAllFromIndex('chapters', 'by-bookId', bookId);
   const now = new Date().toISOString();
   const chapter: ChapterRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     bookId,
     title: title.trim(),
     position: existing.length,
@@ -927,7 +928,7 @@ export async function addRecipeToChapter(chapterId: string, recipeId: string): P
   const db = await getDB();
   const existing = await db.getAllFromIndex('chapterRecipes', 'by-chapterId', chapterId);
   const record: ChapterRecipeRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     chapterId,
     recipeId,
     position: existing.length,
@@ -985,7 +986,7 @@ export async function createChapterPage(chapterId: string, title: string, conten
   );
   const now = new Date().toISOString();
   const page: ChapterPageRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     chapterId,
     title: title.trim(),
     content,
@@ -1052,7 +1053,7 @@ export async function createBookPage(bookId: string, title: string, content: str
   );
   const now = new Date().toISOString();
   const page: BookPageRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     bookId,
     title: title.trim(),
     content,
@@ -1167,7 +1168,7 @@ export async function moveRecipeBetweenChapters(
   if (!existing) throw new Error('Chapter recipe not found');
 
   const newRecord: ChapterRecipeRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     chapterId: toChapterId,
     recipeId: existing.recipeId,
     position,
@@ -1194,7 +1195,7 @@ export async function convertChapterPageToBookPage(
 
   const now = new Date().toISOString();
   const bookPage: BookPageRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     bookId,
     title: chapterPage.title,
     content: chapterPage.content,
@@ -1224,7 +1225,7 @@ export async function convertBookPageToChapterPage(
 
   const now = new Date().toISOString();
   const chapterPage: ChapterPageRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     chapterId,
     title: bookPage.title,
     content: bookPage.content,
@@ -1268,7 +1269,7 @@ export async function createCategory(name: string, parentId?: string | null): Pr
   const db = await getDB();
   const now = new Date().toISOString();
   const category: CategoryRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: name.trim(),
     parentId: parentId || null,
     createdAt: now,
@@ -1335,7 +1336,7 @@ export async function addCategoryToRecipe(recipeId: string, categoryId: string):
     throw new Error('Recipe already has this category');
   }
   const record: RecipeCategoryRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     recipeId,
     categoryId,
   };
@@ -1383,7 +1384,7 @@ function makeSection(
   overrides?: Partial<TemplateSectionRecord['style']>,
 ): TemplateSectionRecord {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     type,
     visible: true,
     order,
@@ -1405,7 +1406,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   const now = new Date().toISOString();
 
   const classicCard: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Classic Card',
     type: 'recipe',
     isDefault: true,
@@ -1429,7 +1430,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   };
 
   const fullPage: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Full Page',
     type: 'recipe',
     isDefault: true,
@@ -1454,7 +1455,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   };
 
   const minimal: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Minimal',
     type: 'recipe',
     isDefault: true,
@@ -1475,7 +1476,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   };
 
   const splitView: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Split View',
     type: 'recipe',
     isDefault: true,
@@ -1499,7 +1500,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   };
 
   const chapterLayout: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Chapter Layout',
     type: 'book-page',
     isDefault: true,
@@ -1520,7 +1521,7 @@ function buildSeedTemplates(): TemplateRecord[] {
   };
 
   const booklet: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: 'Booklet',
     type: 'book-recipe',
     isDefault: true,
@@ -1612,7 +1613,7 @@ export async function createTemplate(data: Omit<TemplateRecord, 'id' | 'createdA
   const db = await getDB();
   const now = new Date().toISOString();
   const record: TemplateRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -1672,7 +1673,7 @@ export async function createMealPlan(name: string, weekStart: string): Promise<M
   const db = await getDB();
   const now = new Date().toISOString();
   const plan: MealPlanRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: name.trim() || `Week of ${weekStart}`,
     weekStart,
     createdAt: now,
@@ -1761,7 +1762,7 @@ export async function createDayPlanEntry(
 ): Promise<DayPlanEntryRecord> {
   const db = await getDB();
   const entry: DayPlanEntryRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     mealPlanId,
     date,
     slot,
@@ -1839,7 +1840,7 @@ export async function createMealGroup(
 ): Promise<MealGroupRecord> {
   const db = await getDB();
   const group: MealGroupRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     mealPlanId,
     date,
     slot,
@@ -1888,7 +1889,7 @@ export async function putGroceryChecklist(record: GroceryChecklistRecord): Promi
 
 export async function createGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord> {
   const record: GroceryChecklistRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     weekStart,
     checkedItems: [],
     updatedAt: new Date().toISOString(),
@@ -1927,7 +1928,7 @@ export async function setSeasonalFoods(country: string, region: string, month: n
   const db = await getDB();
   const existing = await db.getAllFromIndex('seasonalFoods', 'by-country-region-month', [country, region, month]);
   const record: SeasonalFoodsRecord = {
-    id: existing.length > 0 ? existing[0].id : crypto.randomUUID(),
+    id: existing.length > 0 ? existing[0].id : generateUUID(),
     country,
     region,
     month,
@@ -1950,7 +1951,7 @@ export async function addPantryStaple(name: string): Promise<void> {
   const existing = await db.getAll('pantryStaples');
   if (existing.some(s => s.name.toLowerCase() === trimmed)) return;
   const record: PantryStapleRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: name.trim(),
   };
   await db.put('pantryStaples', record);
@@ -2000,7 +2001,7 @@ export async function seedSeasonalFoodsIfNeeded(country: string, region: string)
   for (let month = 1; month <= 12; month++) {
     const foods = regionData[month] || [];
     const record: SeasonalFoodsRecord = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       country,
       region,
       month,
@@ -2020,7 +2021,7 @@ export async function seedPantryStaplesIfNeeded(): Promise<void> {
   const tx = db.transaction('pantryStaples', 'readwrite');
   for (const name of DEFAULT_PANTRY_STAPLES) {
     const record: PantryStapleRecord = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name,
     };
     await tx.store.put(record);
@@ -2039,7 +2040,7 @@ export async function getAllCustomFoods(): Promise<CustomFoodRecord[]> {
 export async function addCustomFood(food: Omit<CustomFoodRecord, 'id' | 'createdAt'>): Promise<CustomFoodRecord> {
   const db = await getDB();
   const record: CustomFoodRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...food,
     createdAt: new Date().toISOString(),
   };
@@ -2083,7 +2084,7 @@ export async function createNutritionProfile(data: Omit<NutritionProfileRecord, 
   const db = await getDB();
   const now = new Date().toISOString();
   const record: NutritionProfileRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2131,7 +2132,7 @@ export async function createFoodLogEntry(data: Omit<FoodLogEntryRecord, 'id' | '
   const db = await getDB();
   const now = new Date().toISOString();
   const record: FoodLogEntryRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2192,7 +2193,7 @@ export async function createWeightEntry(data: Omit<WeightEntryRecord, 'id' | 'cr
   }
   const now = new Date().toISOString();
   const record: WeightEntryRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2249,7 +2250,7 @@ export async function createDietaryProfile(data: Omit<DietaryProfileRecord, 'id'
   const db = await getDB();
   const now = new Date().toISOString();
   const record: DietaryProfileRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2290,7 +2291,7 @@ export async function createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | '
   const db = await getDB();
   const now = new Date().toISOString();
   const record: AllergenRuleRecord = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2364,7 +2365,7 @@ export async function createBrandKit(data: Omit<BrandKit, 'id' | 'createdAt' | '
   const db = await getDB();
   const now = new Date().toISOString();
   const record: BrandKit = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     ...data,
     createdAt: now,
     updatedAt: now,
@@ -2423,7 +2424,7 @@ export async function logChange(storeName: string, recordId: string, action: 'up
   try {
     const db = await getDB();
     const entry: SyncChangeLogEntry = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       storeName,
       recordId,
       action,

@@ -1,4 +1,5 @@
 import type { TemplateSection, TemplateTheme } from '@/lib/types';
+import { generateUUID } from '@/lib/utils';
 
 export interface TemplatePack {
   id: string;
@@ -27,7 +28,7 @@ function section(
   style?: TemplateSection['style'],
 ): TemplateSection {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     type,
     visible: true,
     order,

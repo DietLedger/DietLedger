@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { useBookStore, type CategoryNode } from '@/lib/book-store';
 import { getCategoryDescendants, getRecipesByCategory, addCustomFood } from '@/lib/storage';
+import { generateUUID } from '@/lib/utils';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 import { Button } from '@/components/ui/button';
@@ -474,7 +475,7 @@ function RecipePage() {
       const idx = steps.findIndex((s) => s.id === editingStepId);
       if (idx !== -1) steps[idx] = { ...steps[idx], text: stepText.trim() };
     } else {
-      steps.push({ id: crypto.randomUUID(), text: stepText.trim(), groupId: null });
+      steps.push({ id: generateUUID(), text: stepText.trim(), groupId: null });
     }
     await updateRecipe({ instructionSteps: steps });
     setStepText('');

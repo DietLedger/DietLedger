@@ -16,6 +16,7 @@ import {
 import { Plus, Server, Wifi, WifiOff, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '@/lib/sync-store';
 import type { SyncServerConfig, SyncStatus } from '@/lib/types';
+import { generateUUID } from '@/lib/utils';
 
 function StatusBadge({ status, error }: { status: SyncStatus | null; error?: string | null }) {
   if (status === 'syncing') {
@@ -234,7 +235,7 @@ function ServerForm({
       setMode('existing');
 
       const config: SyncServerConfig = {
-        id: server?.id || crypto.randomUUID(),
+        id: server?.id || generateUUID(),
         label: label || base,
         serverUrl: base,
         apiKey: data.apiKey,
@@ -268,12 +269,12 @@ function ServerForm({
     try {
       const base = serverUrl.replace(/\/$/, '');
       const config: SyncServerConfig = {
-        id: server?.id || crypto.randomUUID(),
+        id: server?.id || generateUUID(),
         label: label || base,
         serverUrl: base,
         apiKey,
         userId: server?.userId || '',
-        deviceId: server?.deviceId || crypto.randomUUID(),
+        deviceId: server?.deviceId || generateUUID(),
         enabled: true,
         autoSync: true,
         syncIntervalMinutes: 5,

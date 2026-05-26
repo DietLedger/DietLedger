@@ -17,6 +17,7 @@ import {
 } from "@/lib/storage";
 import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
 import { notifyLocalChange } from '@/lib/sync-store';
+import { generateUUID } from '@/lib/utils';
 
 interface InstructionStep {
   id: string;
@@ -738,7 +739,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   createIngredientGroup: async (ingredientIds: string[], title: string) => {
     const { activeRecipe } = get();
     if (!activeRecipe || ingredientIds.length < 2) return;
-    const groupId = crypto.randomUUID();
+    const groupId = generateUUID();
     const newGroup: IngredientGroup = { id: groupId, title };
     const groups = [...activeRecipe.ingredientGroups, newGroup];
 
@@ -868,7 +869,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   createInstructionGroup: async (stepIds: string[], title: string) => {
     const { activeRecipe } = get();
     if (!activeRecipe || stepIds.length < 2) return;
-    const groupId = crypto.randomUUID();
+    const groupId = generateUUID();
     const newGroup: InstructionGroup = { id: groupId, title };
     const groups = [...activeRecipe.instructionGroups, newGroup];
 
