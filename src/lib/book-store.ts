@@ -1,50 +1,15 @@
 import { create } from 'zustand';
-import {
-  getAllBooks as dbGetAllBooks,
-  getBook as dbGetBook,
-  createBook as dbCreateBook,
-  updateBook as dbUpdateBook,
-  deleteBook as dbDeleteBook,
-  getChaptersByBook as dbGetChapters,
-  createChapter as dbCreateChapter,
-  updateChapter as dbUpdateChapter,
-  deleteChapter as dbDeleteChapter,
-  reorderChapters as dbReorderChapters,
-  getChapterRecipes as dbGetChapterRecipes,
-  addRecipeToChapter as dbAddRecipeToChapter,
-  removeRecipeFromChapter as dbRemoveRecipeFromChapter,
-  reorderChapterRecipes as dbReorderChapterRecipes,
-  getChapterPages as dbGetChapterPages,
-  createChapterPage as dbCreateChapterPage,
-  updateChapterPage as dbUpdateChapterPage,
-  deleteChapterPage as dbDeleteChapterPage,
-  getBookPages as dbGetBookPages,
-  createBookPage as dbCreateBookPage,
-  updateBookPage as dbUpdateBookPage,
-  deleteBookPage as dbDeleteBookPage,
-  reorderBookLevelItems as dbReorderBookLevelItems,
-  reorderChapterItems as dbReorderChapterItems,
-  moveRecipeBetweenChapters as dbMoveRecipeBetweenChapters,
-  convertChapterPageToBookPage as dbConvertChapterPageToBookPage,
-  convertBookPageToChapterPage as dbConvertBookPageToChapterPage,
-  getAllCategories as dbGetAllCategories,
-  createCategory as dbCreateCategory,
-  updateCategory as dbUpdateCategory,
-  deleteCategory as dbDeleteCategory,
-  getRecipeCategories as dbGetRecipeCategories,
-  addCategoryToRecipe as dbAddCategoryToRecipe,
-  removeCategoryFromRecipe as dbRemoveCategoryFromRecipe,
-  getRecipesByCategory as dbGetRecipesByCategory,
-  type BookRecord,
-  type ChapterRecord,
-  type ChapterRecipeRecord,
-  type ChapterPageRecord,
-  type BookPageRecord,
-  type CategoryRecord,
-  type RecipeCategoryRecord,
-} from '@/lib/storage';
-import type { RecipeRecord } from '@/lib/storage';
-import { notifyLocalChange } from '@/lib/sync-store';
+import { getApiClient } from '@/lib/api-client';
+import type {
+  BookRecord,
+  ChapterRecord,
+  ChapterRecipeRecord,
+  ChapterPageRecord,
+  BookPageRecord,
+  CategoryRecord,
+  RecipeCategoryRecord,
+} from '@/lib/api-client';
+import type { RecipeRecord } from '@/lib/api-client';
 
 interface BookWithChapters extends BookRecord {
   chapters: (ChapterRecord & {
@@ -136,7 +101,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   fetchBooks: async () => {
     set({ isLoading: true, error: null });
     try {
-      const books = await dbGetAllBooks();
+      const books = await getApiClient().getBooks();
       set({ books, isLoading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -146,17 +111,17 @@ export const useBookStore = create<BookState>((set, get) => ({
   selectBook: async (id: string) => {
     set({ isLoading: true, error: null });
     try {
-      const book = await dbGetBook(id);
+      const book = await getApiClient().getBook(id);
       if (!book) throw new Error('Book not found');
-      const chapters = await dbGetChapters(id);
+      const chapters = await getApiClient().getChaptersByBook(id);
       const chaptersWithRecipes = await Promise.all(
         chapters.map(async (ch) => ({
           ...ch,
-          chapterRecipes: await dbGetChapterRecipes(ch.id),
-          chapterPages: await dbGetChapterPages(ch.id),
+          chapterRecipes: await getApiClient().getChapterRecipes(ch.id),
+          chapterPages: await getApiClient().getChapterPages(ch.id),
         }))
       );
-      const bookPages = await dbGetBookPages(id);
+      const bookPages = await getApiClient().getBookPages(id);
       set({ activeBook: { ...book, chapters: chaptersWithRecipes, bookPages }, isLoading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -166,12 +131,11 @@ export const useBookStore = create<BookState>((set, get) => ({
   createBook: async (title: string, description?: string, coverColor?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const book = await dbCreateBook(title, description, coverColor);
+      const book = await getApiClient().createBook(title, description, coverColor);
       set((state) => ({
         books: [book, ...state.books],
         isLoading: false,
       }));
-      notifyLocalChange();
       return book;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -182,7 +146,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   updateBook: async (id, data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await dbUpdateBook(id, data);
+      const updated = await getApiClient().updateBook(id, data as any);
       set((state) => ({
         books: state.books.map((b) => (b.id === id ? updated : b)),
         activeBook: state.activeBook?.id === id
@@ -190,7 +154,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           : state.activeBook,
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -199,13 +162,12 @@ export const useBookStore = create<BookState>((set, get) => ({
   deleteBook: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteBook(id);
+      await getApiClient().deleteBook(id);
       set((state) => ({
         books: state.books.filter((b) => b.id !== id),
         activeBook: state.activeBook?.id === id ? null : state.activeBook,
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -214,9 +176,9 @@ export const useBookStore = create<BookState>((set, get) => ({
   addChapter: async (bookId, title) => {
     set({ isLoading: true, error: null });
     try {
-      const chapter = await dbCreateChapter(bookId, title);
-      const chapterRecipes = await dbGetChapterRecipes(chapter.id);
-      const chapterPages = await dbGetChapterPages(chapter.id);
+      const chapter = await getApiClient().createChapter(bookId, title);
+      const chapterRecipes = await getApiClient().getChapterRecipes(chapter.id);
+      const chapterPages = await getApiClient().getChapterPages(chapter.id);
       set((state) => {
         if (!state.activeBook || state.activeBook.id !== bookId) return { isLoading: false };
         return {
@@ -227,7 +189,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
       return chapter;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -238,7 +199,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   updateChapter: async (id, data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await dbUpdateChapter(id, data);
+      const updated = await getApiClient().updateChapter(id, data as any);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -251,7 +212,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -260,7 +220,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   deleteChapter: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteChapter(id);
+      await getApiClient().deleteChapter(id);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -271,7 +231,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -280,7 +239,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   reorderChapters: async (bookId, chapterIds) => {
     set({ isLoading: true, error: null });
     try {
-      await dbReorderChapters(bookId, chapterIds);
+      await getApiClient().reorderChapters(bookId, chapterIds);
       set((state) => {
         if (!state.activeBook || state.activeBook.id !== bookId) return { isLoading: false };
         const chapterMap = new Map(state.activeBook.chapters.map((ch) => [ch.id, ch]));
@@ -292,7 +251,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           .filter(Boolean) as BookWithChapters['chapters'];
         return { activeBook: { ...state.activeBook, chapters: reordered }, isLoading: false };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -301,7 +259,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   addRecipeToChapter: async (chapterId, recipeId) => {
     set({ isLoading: true, error: null });
     try {
-      const record = await dbAddRecipeToChapter(chapterId, recipeId);
+      const record = await getApiClient().addRecipeToChapter(chapterId, recipeId);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -316,7 +274,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -325,7 +282,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   removeRecipeFromChapter: async (chapterId, recipeId) => {
     set({ isLoading: true, error: null });
     try {
-      await dbRemoveRecipeFromChapter(chapterId, recipeId);
+      await getApiClient().removeRecipeFromChapter(chapterId, recipeId);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -340,7 +297,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -349,7 +305,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   reorderChapterRecipes: async (chapterId, recipeIds) => {
     set({ isLoading: true, error: null });
     try {
-      await dbReorderChapterRecipes(chapterId, recipeIds);
+      await (getApiClient() as any).reorderChapterRecipes(chapterId, recipeIds);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -370,7 +326,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -379,7 +334,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   createChapterPage: async (chapterId, title, content) => {
     set({ isLoading: true, error: null });
     try {
-      const page = await dbCreateChapterPage(chapterId, title, content);
+      const page = await getApiClient().createChapterPage(chapterId, title, content);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -394,7 +349,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
       return page;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -405,7 +359,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   updateChapterPage: async (id, data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await dbUpdateChapterPage(id, data);
+      const updated = await getApiClient().updateChapterPage(id, data as any);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -419,7 +373,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -428,7 +381,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   deleteChapterPage: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteChapterPage(id);
+      await getApiClient().deleteChapterPage(id);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -442,7 +395,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -451,7 +403,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   createBookPage: async (bookId, title, content) => {
     set({ isLoading: true, error: null });
     try {
-      const page = await dbCreateBookPage(bookId, title, content);
+      const page = await getApiClient().createBookPage(bookId, title, content);
       set((state) => {
         if (!state.activeBook || state.activeBook.id !== bookId) return { isLoading: false };
         return {
@@ -462,7 +414,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
       return page;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -473,7 +424,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   updateBookPage: async (id, data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await dbUpdateBookPage(id, data);
+      const updated = await getApiClient().updateBookPage(id, data as any);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -484,7 +435,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -493,7 +443,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   deleteBookPage: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteBookPage(id);
+      await getApiClient().deleteBookPage(id);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -504,7 +454,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -513,7 +462,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   reorderBookLevelItems: async (bookId, items) => {
     set({ isLoading: true, error: null });
     try {
-      await dbReorderBookLevelItems(bookId, items);
+      await (getApiClient() as any).reorderBookLevelItems(bookId, items);
       set((state) => {
         if (!state.activeBook || state.activeBook.id !== bookId) return { isLoading: false };
         const chapterMap = new Map(state.activeBook.chapters.map((ch) => [ch.id, ch]));
@@ -535,7 +484,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -544,7 +492,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   reorderChapterItems: async (chapterId, items) => {
     set({ isLoading: true, error: null });
     try {
-      await dbReorderChapterItems(chapterId, items);
+      await (getApiClient() as any).reorderChapterItems(chapterId, items);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -572,7 +520,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -581,7 +528,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   moveRecipeToChapter: async (chapterRecipeId, toChapterId, position) => {
     set({ isLoading: true, error: null });
     try {
-      const newRecord = await dbMoveRecipeBetweenChapters(chapterRecipeId, toChapterId, position);
+      const newRecord = await (getApiClient() as any).moveRecipeBetweenChapters(chapterRecipeId, toChapterId, position);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -598,7 +545,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -607,7 +553,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   movePageToBookLevel: async (chapterPageId, bookId, position) => {
     set({ isLoading: true, error: null });
     try {
-      const bookPage = await dbConvertChapterPageToBookPage(chapterPageId, bookId, position);
+      const bookPage = await (getApiClient() as any).convertChapterPageToBookPage(chapterPageId, bookId, position);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -622,7 +568,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -631,7 +576,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   movePageToChapter: async (bookPageId, chapterId, position) => {
     set({ isLoading: true, error: null });
     try {
-      const chapterPage = await dbConvertBookPageToChapterPage(bookPageId, chapterId, position);
+      const chapterPage = await (getApiClient() as any).convertBookPageToChapterPage(bookPageId, chapterId, position);
       set((state) => {
         if (!state.activeBook) return { isLoading: false };
         return {
@@ -647,7 +592,6 @@ export const useBookStore = create<BookState>((set, get) => ({
           isLoading: false,
         };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -656,7 +600,7 @@ export const useBookStore = create<BookState>((set, get) => ({
   fetchCategories: async () => {
     set({ isLoading: true, error: null });
     try {
-      const categories = await dbGetAllCategories();
+      const categories = await getApiClient().getCategories();
       const categoryTree = buildCategoryTree(categories);
       set({ categories, categoryTree, isLoading: false });
     } catch (err) {
@@ -667,12 +611,11 @@ export const useBookStore = create<BookState>((set, get) => ({
   createCategory: async (name, parentId) => {
     set({ isLoading: true, error: null });
     try {
-      const category = await dbCreateCategory(name, parentId);
+      const category = await getApiClient().createCategory(name, parentId);
       set((state) => {
         const categories = [...state.categories, category];
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
-      notifyLocalChange();
       return category;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -683,12 +626,11 @@ export const useBookStore = create<BookState>((set, get) => ({
   updateCategory: async (id, data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await dbUpdateCategory(id, data);
+      const updated = await getApiClient().updateCategory(id, data as any);
       set((state) => {
         const categories = state.categories.map((c) => (c.id === id ? updated : c));
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -697,12 +639,11 @@ export const useBookStore = create<BookState>((set, get) => ({
   deleteCategory: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteCategory(id);
+      await getApiClient().deleteCategory(id);
       set((state) => {
         const categories = state.categories.filter((c) => c.id !== id);
         return { categories, categoryTree: buildCategoryTree(categories), isLoading: false };
       });
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
     }
@@ -710,7 +651,7 @@ export const useBookStore = create<BookState>((set, get) => ({
 
   fetchRecipeCategories: async (recipeId) => {
     try {
-      const records = await dbGetRecipeCategories(recipeId);
+      const records = await getApiClient().getRecipeCategories(recipeId);
       set((state) => {
         const next = new Map(state.recipeCategories);
         next.set(recipeId, records);
@@ -723,14 +664,13 @@ export const useBookStore = create<BookState>((set, get) => ({
 
   assignCategory: async (recipeId, categoryId) => {
     try {
-      await dbAddCategoryToRecipe(recipeId, categoryId);
-      const records = await dbGetRecipeCategories(recipeId);
+      await getApiClient().addCategoryToRecipe(recipeId, categoryId);
+      const records = await getApiClient().getRecipeCategories(recipeId);
       set((state) => {
         const next = new Map(state.recipeCategories);
         next.set(recipeId, records);
         return { recipeCategories: next };
       });
-      notifyLocalChange();
     } catch (err) {
       console.error('Failed to assign category:', err);
     }
@@ -738,14 +678,13 @@ export const useBookStore = create<BookState>((set, get) => ({
 
   unassignCategory: async (recipeId, categoryId) => {
     try {
-      await dbRemoveCategoryFromRecipe(recipeId, categoryId);
-      const records = await dbGetRecipeCategories(recipeId);
+      await getApiClient().removeCategoryFromRecipe(recipeId, categoryId);
+      const records = await getApiClient().getRecipeCategories(recipeId);
       set((state) => {
         const next = new Map(state.recipeCategories);
         next.set(recipeId, records);
         return { recipeCategories: next };
       });
-      notifyLocalChange();
     } catch (err) {
       console.error('Failed to unassign category:', err);
     }

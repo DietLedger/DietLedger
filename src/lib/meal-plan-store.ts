@@ -1,25 +1,11 @@
 import { create } from 'zustand';
-import {
-  getAllMealPlans,
-  getMealPlanByWeekStart,
-  createMealPlan as dbCreateMealPlan,
-  deleteMealPlan as dbDeleteMealPlan,
-  getDayEntriesByMealPlanId,
-  createDayPlanEntry as dbCreateDayPlanEntry,
-  updateDayPlanEntry as dbUpdateDayPlanEntry,
-  deleteDayPlanEntry as dbDeleteDayPlanEntry,
-  putDayPlanEntry as dbPutDayPlanEntry,
-  getMealGroupsByMealPlanId,
-  createMealGroup as dbCreateMealGroup,
-  updateMealGroup as dbUpdateMealGroup,
-  deleteMealGroup as dbDeleteMealGroup,
-  updateMealPlan as dbUpdateMealPlan,
-  type MealPlanRecord,
-  type DayPlanEntryRecord,
-  type MealGroupRecord,
-} from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+import type {
+  MealPlanRecord,
+  DayPlanEntryRecord,
+  MealGroupRecord,
+} from '@/lib/api-client';
 import type { DaySlot, MealSlotTimes } from '@/lib/types';
-import { notifyLocalChange } from '@/lib/sync-store';
 
 interface MealPlanState {
   mealPlans: MealPlanRecord[];
@@ -80,7 +66,8 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
   fetchMealPlans: async () => {
     set({ isLoading: true, error: null });
     try {
-      const mealPlans = await getAllMealPlans();
+      const api = getApiClient();
+      const mealPlans = await api.getMealPlans();
       set({ mealPlans, isLoading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', isLoading: false });
@@ -90,11 +77,12 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
   fetchWeekPlan: async (weekStart: string) => {
     set({ isLoading: true, error: null });
     try {
-      const plan = await getMealPlanByWeekStart(weekStart);
+      const api = getApiClient();
+      const plan = await api.getMealPlanByWeekStart(weekStart);
       if (plan) {
         const [entries, groups] = await Promise.all([
-          getDayEntriesByMealPlanId(plan.id),
-          getMealGroupsByMealPlanId(plan.id),
+          api.getDayEntriesByMealPlanId(plan.id),
+          api.getMealGroupsByMealPlanId(plan.id),
         ]);
         set({ activeMealPlan: plan, dayEntries: entries, mealGroups: groups, isLoading: false });
       } else {
@@ -106,16 +94,16 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
   },
 
   ensureMealPlan: async (weekStart: string) => {
-    let plan = await getMealPlanByWeekStart(weekStart);
+    const api = getApiClient();
+    let plan = await api.getMealPlanByWeekStart(weekStart);
     if (!plan) {
-      plan = await dbCreateMealPlan(`Week of ${weekStart}`, weekStart);
+      plan = await api.createMealPlan(`Week of ${weekStart}`, weekStart);
       set((state) => ({ mealPlans: [plan!, ...state.mealPlans] }));
-      notifyLocalChange();
     }
     if (!get().activeMealPlan || get().activeMealPlan!.id !== plan.id) {
       const [entries, groups] = await Promise.all([
-        getDayEntriesByMealPlanId(plan.id),
-        getMealGroupsByMealPlanId(plan.id),
+        api.getDayEntriesByMealPlanId(plan.id),
+        api.getMealGroupsByMealPlanId(plan.id),
       ]);
       set({ activeMealPlan: plan, dayEntries: entries, mealGroups: groups });
     }
@@ -123,14 +111,14 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
   },
 
   deleteMealPlan: async (id: string) => {
-    await dbDeleteMealPlan(id);
+    const api = getApiClient();
+    await api.deleteMealPlan(id);
     set((state) => ({
       mealPlans: state.mealPlans.filter((p) => p.id !== id),
       activeMealPlan: state.activeMealPlan?.id === id ? null : state.activeMealPlan,
       dayEntries: state.activeMealPlan?.id === id ? [] : state.dayEntries,
       mealGroups: state.activeMealPlan?.id === id ? [] : state.mealGroups,
     }));
-    notifyLocalChange();
   },
 
   addRecipeToSlot: async (date: string, slot: DaySlot, recipeId: string) => {
@@ -140,9 +128,9 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       (e) => e.date === date && e.slot === slot
     );
     const position = existingInSlot.length;
-    const entry = await dbCreateDayPlanEntry(plan.id, date, slot, recipeId, position);
-    set((state) => ({ dayEntries: [...state.dayEntries, entry] }));
-    notifyLocalChange();
+    const api = getApiClient();
+    const entry = await api.createDayPlanEntry(plan.id, date, slot, recipeId, position);
+    set((state) => ({ dayEntries: [...state.dayEntries, entry as any] }));
   },
 
   addFoodToSlot: async (date, slot, food) => {
@@ -152,7 +140,8 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       (e) => e.date === date && e.slot === slot
     );
     const position = existingInSlot.length;
-    const entry = await dbCreateDayPlanEntry(plan.id, date, slot, null, position, {
+    const api = getApiClient();
+    const entry = await api.createDayPlanEntry(plan.id, date, slot, null, position, {
       sourceType: food.sourceType,
       foodName: food.name,
       servings: 1,
@@ -171,38 +160,37 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       calcium: food.calcium,
       iron: food.iron,
       potassium: food.potassium,
-    });
-    set((state) => ({ dayEntries: [...state.dayEntries, entry] }));
-    notifyLocalChange();
+    } as any);
+    set((state) => ({ dayEntries: [...state.dayEntries, entry as any] }));
   },
 
   removeEntry: async (entryId: string) => {
-    await dbDeleteDayPlanEntry(entryId);
+    const api = getApiClient();
+    await api.deleteDayPlanEntry(entryId);
     set((state) => ({
       dayEntries: state.dayEntries.filter((e) => e.id !== entryId),
     }));
-    notifyLocalChange();
   },
 
   moveEntry: async (entryId: string, toSlot: DaySlot, toPosition: number) => {
     const entry = get().dayEntries.find((e) => e.id === entryId);
     if (!entry) return;
     const updated = { ...entry, slot: toSlot, position: toPosition };
-    await dbUpdateDayPlanEntry(entryId, { slot: toSlot, position: toPosition });
+    const api = getApiClient();
+    await api.updateDayPlanEntry(entryId, { slot: toSlot, position: toPosition } as any);
     set((state) => ({
       dayEntries: state.dayEntries.map((e) => (e.id === entryId ? updated : e)),
     }));
-    notifyLocalChange();
   },
 
   updateServings: async (entryId: string, servings: number) => {
-    await dbUpdateDayPlanEntry(entryId, { servings });
+    const api = getApiClient();
+    await api.updateDayPlanEntry(entryId, { servings } as any);
     set((state) => ({
       dayEntries: state.dayEntries.map((e) =>
         e.id === entryId ? { ...e, servings } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   createMealGroup: async (date: string, slot: DaySlot, name: string, entryIds: string[]) => {
@@ -211,48 +199,48 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
     const existingGroups = get().mealGroups.filter(
       (g) => g.date === date && g.slot === slot
     );
-    const group = await dbCreateMealGroup(plan.id, date, slot, name, existingGroups.length);
-    await Promise.all(entryIds.map((id) => dbUpdateDayPlanEntry(id, { groupId: group.id })));
+    const api = getApiClient();
+    const group = await api.createMealGroup(plan.id, date, slot, name, existingGroups.length);
+    await Promise.all(entryIds.map((id) => api.updateDayPlanEntry(id, { groupId: group.id } as any)));
     set((state) => ({
-      mealGroups: [...state.mealGroups, group],
+      mealGroups: [...state.mealGroups, group as any],
       dayEntries: state.dayEntries.map((e) =>
         entryIds.includes(e.id) ? { ...e, groupId: group.id } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   addToGroup: async (entryId: string, groupId: string) => {
-    await dbUpdateDayPlanEntry(entryId, { groupId });
+    const api = getApiClient();
+    await api.updateDayPlanEntry(entryId, { groupId } as any);
     set((state) => ({
       dayEntries: state.dayEntries.map((e) =>
         e.id === entryId ? { ...e, groupId } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   removeFromGroup: async (entryId: string) => {
-    await dbUpdateDayPlanEntry(entryId, { groupId: null });
+    const api = getApiClient();
+    await api.updateDayPlanEntry(entryId, { groupId: null } as any);
     set((state) => ({
       dayEntries: state.dayEntries.map((e) =>
         e.id === entryId ? { ...e, groupId: null } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   deleteMealGroupAndUngroup: async (groupId: string) => {
     const entries = get().dayEntries.filter((e) => e.groupId === groupId);
-    await Promise.all(entries.map((e) => dbUpdateDayPlanEntry(e.id, { groupId: null })));
-    await dbDeleteMealGroup(groupId);
+    const api = getApiClient();
+    await Promise.all(entries.map((e) => api.updateDayPlanEntry(e.id, { groupId: null } as any)));
+    await api.deleteMealGroup(groupId);
     set((state) => ({
       mealGroups: state.mealGroups.filter((g) => g.id !== groupId),
       dayEntries: state.dayEntries.map((e) =>
         e.groupId === groupId ? { ...e, groupId: null } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   reorderEntries: async (slot: DaySlot, date: string, entryIds: string[]) => {
@@ -265,36 +253,36 @@ export const useMealPlanStore = create<MealPlanState>((set, get) => ({
       return { ...entry, position: i };
     }).filter(Boolean) as DayPlanEntryRecord[];
 
-    await Promise.all(updates.map((e) => dbPutDayPlanEntry(e)));
+    const api = getApiClient();
+    await Promise.all(updates.map((e) => api.updateDayPlanEntry(e.id, e as any)));
     set((state) => {
       const otherEntries = state.dayEntries.filter(
         (e) => !(e.date === date && e.slot === slot)
       );
       return { dayEntries: [...otherEntries, ...updates] };
     });
-    notifyLocalChange();
   },
 
   toggleLeftover: async (entryId: string) => {
     const entry = get().dayEntries.find((e) => e.id === entryId);
     if (!entry) return;
     const newValue = !entry.isLeftover;
-    await dbUpdateDayPlanEntry(entryId, { isLeftover: newValue });
+    const api = getApiClient();
+    await api.updateDayPlanEntry(entryId, { isLeftover: newValue } as any);
     set((state) => ({
       dayEntries: state.dayEntries.map((e) =>
         e.id === entryId ? { ...e, isLeftover: newValue } : e
       ),
     }));
-    notifyLocalChange();
   },
 
   updateSlotTimes: async (slotTimes: MealSlotTimes) => {
     const plan = get().activeMealPlan;
     if (!plan) return;
-    await dbUpdateMealPlan(plan.id, { slotTimes });
+    const api = getApiClient();
+    await api.updateMealPlan(plan.id, { slotTimes } as any);
     set((state) => ({
       activeMealPlan: state.activeMealPlan ? { ...state.activeMealPlan, slotTimes } : null,
     }));
-    notifyLocalChange();
   },
 }));

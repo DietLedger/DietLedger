@@ -28,8 +28,8 @@ const nextConfig: NextConfig = {
   },
   turbopack: {},
   webpack: (config, { isServer }) => {
-    config.resolve.symlinks = false;
     if (process.platform === 'win32') {
+      config.resolve.symlinks = false;
       config.snapshot = {
         ...config.snapshot,
         managedPaths: [],

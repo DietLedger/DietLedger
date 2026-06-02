@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS seed_jobs;
+DROP TABLE IF EXISTS custom_foods;
+DROP TABLE IF EXISTS food_items;

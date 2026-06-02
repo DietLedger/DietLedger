@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNutritionStore } from '@/lib/nutrition-store';
 import { ProfileCard } from '@/components/nutrition/profile-card';
-import { getLatestWeight } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { WeightEntryRecord, NutritionProfileRecord, ActivityLevel } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import {
@@ -73,6 +73,8 @@ export default function ProfilesPage() {
   const [formBmrEquation, setFormBmrEquation] = useState<BmrEquation>('auto');
   const [formManualBmrValue, setFormManualBmrValue] = useState<string>('');
   const [formCalorieTarget, setFormCalorieTarget] = useState<string>('');
+  const [formStartingWeightKg, setFormStartingWeightKg] = useState<number | null>(null);
+  const [formStartingWeightDisplay, setFormStartingWeightDisplay] = useState('');
   const [formWeightKg, setFormWeightKg] = useState<number | null>(null);
   const [formWeightDisplay, setFormWeightDisplay] = useState('');
   const [formWeightDate, setFormWeightDate] = useState('');
@@ -88,7 +90,14 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     async function loadWeights() {
-      const entries = await Promise.all(profiles.map(async (p) => [p.id, await getLatestWeight(p.id)] as const));
+      const client = getApiClient();
+      const entries = await Promise.all(profiles.map(async (p) => {
+        const weights = await client.getWeightByProfile(p.id);
+        const latest = weights.length > 0
+          ? weights.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+          : undefined;
+        return [p.id, latest] as const;
+      }));
       const cache: WeightCache = {};
       for (const [id, weight] of entries) {
         cache[id] = weight;
@@ -113,6 +122,8 @@ export default function ProfilesPage() {
     setFormBmrEquation('auto');
     setFormManualBmrValue('');
     setFormCalorieTarget('');
+    setFormStartingWeightKg(null);
+    setFormStartingWeightDisplay('');
     setProfileDialogOpen(true);
   }, []);
 
@@ -204,8 +215,19 @@ export default function ProfilesPage() {
     }
   }, [system]);
 
+  const handleStartingWeightDisplayChange = useCallback((val: string) => {
+    setFormStartingWeightDisplay(val);
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setFormStartingWeightKg(system === 'imperial' ? lbsToKg(num) : num);
+    } else {
+      setFormStartingWeightKg(null);
+    }
+  }, [system]);
+
   const handleSaveProfile = useCallback(async () => {
     if (!formName.trim()) return;
+    if (!editingProfile && formStartingWeightKg === null) return;
     const data = {
       name: formName.trim(),
       sex: formSex,
@@ -221,10 +243,22 @@ export default function ProfilesPage() {
     if (editingProfile) {
       await updateProfile(editingProfile.id, data);
     } else {
-      await createProfile(data);
+      const profile = await createProfile(data);
+      await logWeight({
+        profileId: profile.id,
+        date: new Date().toISOString().split('T')[0],
+        weightKg: formStartingWeightKg!,
+        notes: 'Starting weight',
+      });
+      const client = getApiClient();
+      const weights = await client.getWeightByProfile(profile.id);
+      const latest = weights.length > 0
+        ? weights.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+        : undefined;
+      setWeightCache(prev => ({ ...prev, [profile.id]: latest }));
     }
     setProfileDialogOpen(false);
-  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, formBmrEquation, formManualBmrValue, formCalorieTarget, editingProfile, createProfile, updateProfile]);
+  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, formBmrEquation, formManualBmrValue, formCalorieTarget, formStartingWeightKg, editingProfile, createProfile, updateProfile, logWeight]);
 
   const handleSaveWeight = useCallback(async () => {
     if (!weightProfileId || formWeightKg === null) return;
@@ -241,7 +275,11 @@ export default function ProfilesPage() {
     if (formMeasurementContext) data.measurementContext = formMeasurementContext;
     await logWeight(data as Parameters<typeof logWeight>[0]);
     setWeightDialogOpen(false);
-    const updated = await getLatestWeight(weightProfileId);
+    const client = getApiClient();
+    const weights = await client.getWeightByProfile(weightProfileId);
+    const updated = weights.length > 0
+      ? weights.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+      : undefined;
     setWeightCache(prev => ({ ...prev, [weightProfileId]: updated }));
   }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeight]);
 
@@ -305,6 +343,18 @@ export default function ProfilesPage() {
               <Label>Name</Label>
               <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Enter name" />
             </div>
+            {!editingProfile && (
+              <div>
+                <Label>Starting Weight ({weightUnit(system)})</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={formStartingWeightDisplay}
+                  onChange={(e) => handleStartingWeightDisplayChange(e.target.value)}
+                  placeholder={weightPlaceholder(system)}
+                />
+              </div>
+            )}
             <div>
               <Label>Sex</Label>
               <Select value={formSex} onValueChange={(v) => setFormSex(v as 'male' | 'female')}>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { getAllBooks, getAllBrandKits, getBrandKit } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+import { getAllBrandKits, getBrandKit } from '@/lib/storage';
 import { exportCookbook } from '@/lib/pdf-export';
 import type { CookbookExportOptions, BrandKit } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,7 +33,7 @@ export function CookbookExport() {
   const [exporting, setExporting] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [allBooks, allKits] = await Promise.all([getAllBooks(), getAllBrandKits()]);
+    const [allBooks, allKits] = await Promise.all([getApiClient().getBooks(), getAllBrandKits()]);
     setBooks(allBooks.map(b => ({ id: b.id, title: b.title })));
     setBrandKits(allKits);
   }, []);

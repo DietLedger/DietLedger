@@ -1,37 +1,36 @@
 services:
-  dietledger:
-    image: recipetool-dietledger
-    container_name: dietledger
-    ports:
-      - "${PORT:-3000}:3000"
+  postgres:
+    image: postgres:17-alpine
+    container_name: dietledger-postgres
     environment:
-      - NODE_ENV=production
-      - DOCKER=1
-      - PORT=3000
-      - DATABASE_URL=${DATABASE_URL:-file:/app/db/custom.db}
-      - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
+      POSTGRES_DB: ${POSTGRES_DB:-dietledger}
+      POSTGRES_USER: ${POSTGRES_USER:-dietledger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dietledger}
     volumes:
-      - dietledger-data:/app/db
+      - pg-data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dietledger}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  sync-server:
-    image: recipetool-sync-server
-    container_name: dietledger-sync
+  api:
+    image: recipetool-api
+    container_name: dietledger-api
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "${SYNC_PORT:-8080}:8080"
+      - "${API_PORT:-8080}:8080"
     environment:
       - PORT=8080
-      - DB_PATH=/data/sync.db
-      - CORS_ORIGIN=${CORS_ORIGIN:-*}
-      - MAX_BODY_MB=${MAX_BODY_MB:-10}
-    volumes:
-      - sync-data:/data
+      - DB_DRIVER=postgres
+      - DATABASE_URL=postgres://${POSTGRES_USER:-dietledger}:${POSTGRES_PASSWORD:-dietledger}@postgres:5432/${POSTGRES_DB:-dietledger}?sslmode=disable
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000},http://dietledger-web:3000
+      - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
+      - HMAC_SECRET=${HMAC_SECRET:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
@@ -40,6 +39,29 @@ services:
       retries: 3
       start_period: 10s
 
-volumes:
-  dietledger-data:
-  sync-data:
+  web:
+    image: recipetool-dietledger
+    container_name: dietledger-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DOCKER=1
+      - API_URL=http://dietledger-api:8080
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
+      - NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=${NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY:-false}
+      - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose --tries=1 --spider http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  volumes:
+    pg-data:
