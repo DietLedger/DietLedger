@@ -10,8 +10,12 @@ echo  DietLedger - Docker Build
 echo ========================================
 echo.
 
-echo [1/5] Bumping version and syncing...
-call node "%BASE_DIR%scripts\version-sync.js" bump
+echo [1/5] Syncing version...
+if "%~1"=="--bump" (
+    call node "%BASE_DIR%scripts\version-sync.js" bump
+) else (
+    call node "%BASE_DIR%scripts\version-sync.js"
+)
 if %errorlevel% neq 0 (
     echo ERROR: Version bump failed
     pause

@@ -3,10 +3,29 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="$BASE_DIR/docker-build"
+BUMP=false
+BUILD_ARGS=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --bump) BUMP=true ;;
+        *) BUILD_ARGS+=("$arg") ;;
+    esac
+done
 
 echo "========================================"
 echo " DietLedger - Docker Build (Linux)"
 echo "========================================"
+echo ""
+
+echo "[1/5] Syncing version..."
+if [ "$BUMP" = true ]; then
+    node "$BASE_DIR/scripts/version-sync.js" bump
+else
+    node "$BASE_DIR/scripts/version-sync.js"
+fi
+VERSION=$(node -e "console.log(require('$BASE_DIR/package.json').version))")
+echo "     Version: $VERSION"
 echo ""
 
 echo "[1/5] Bumping version and syncing..."
@@ -18,7 +37,7 @@ echo ""
 echo "[2/5] Building Docker images..."
 export APP_VERSION="$VERSION"
 export DOCKER_BUILDKIT=1
-docker compose -f "$BASE_DIR/docker-compose.build.yml" build --parallel "$@"
+docker compose -f "$BASE_DIR/docker-compose.build.yml" build --parallel "${BUILD_ARGS[@]}"
 echo "     Images built successfully."
 echo ""
 
