@@ -123,7 +123,7 @@ interface FDAFood {
   };
 }
 
-function toPublicRecipe(r: RecipeRecord): Recipe {
+export function toPublicRecipe(r: RecipeRecord): Recipe {
   const instr = parseInstructions(r.instructions);
   return {
     ...r,

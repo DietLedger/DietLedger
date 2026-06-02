@@ -128,6 +128,8 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
+		ings, _ := s.listIngredientsByRecipe(r.ID)
+		r.Ingredients = ings
 		recipes = append(recipes, r)
 	}
 	return recipes, total, nil

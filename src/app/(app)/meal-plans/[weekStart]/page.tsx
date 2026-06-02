@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
-import { useRecipeStore } from '@/lib/recipe-store';
+import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { useAppSettingsStore } from '@/lib/app-settings-store';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { getApiClient } from '@/lib/api-client';
@@ -134,6 +134,7 @@ export default function WeeklyPlanPage() {
   const [seasonalFoods, setSeasonalFoods] = useState<string[]>([]);
   const [selectedSeasonalFood, setSelectedSeasonalFood] = useState<string | null>(null);
   const [currentMonth] = useState(() => new Date().getMonth() + 1);
+  const [fullRecipeCache, setFullRecipeCache] = useState<Map<string, Recipe>>(new Map());
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -194,6 +195,36 @@ export default function WeeklyPlanPage() {
     loadSynergyData();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function enrichRecipes() {
+      const api = getApiClient();
+      const needed = new Set<string>();
+      for (const entry of dayEntries) {
+        if (!entry.recipeId || entry.sourceType !== 'recipe') continue;
+        if (fullRecipeCache.has(entry.recipeId)) continue;
+        const fromStore = recipes.find(r => r.id === entry.recipeId);
+        if (fromStore && fromStore.ingredients.length > 0) continue;
+        needed.add(entry.recipeId);
+      }
+      if (needed.size === 0) return;
+      const newCache = new Map(fullRecipeCache);
+      for (const id of needed) {
+        try {
+          const full = await api.getRecipe(id);
+          if (full && !cancelled) {
+            newCache.set(id, toPublicRecipe(full));
+          }
+        } catch {}
+      }
+      if (!cancelled && newCache.size !== fullRecipeCache.size) {
+        setFullRecipeCache(newCache);
+      }
+    }
+    enrichRecipes();
+    return () => { cancelled = true; };
+  }, [dayEntries, recipes, fullRecipeCache]);
 
   const days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
@@ -408,7 +439,7 @@ export default function WeeklyPlanPage() {
         potassium: Math.round((entry.potassium ?? 0) * mult * 10) / 10,
       };
     }
-    const recipe = recipes.find((r) => r.id === entry.recipeId);
+    const recipe = fullRecipeCache.get(entry.recipeId!) || recipes.find((r) => r.id === entry.recipeId);
     if (!recipe) return null;
     const recipeServings = recipe.servings || 1;
     const perServing = 1 / recipeServings;
@@ -459,8 +490,14 @@ export default function WeeklyPlanPage() {
     return combined;
   }
 
+  const enrichedRecipes = useMemo(() => {
+    const map = new Map(recipes.map(r => [r.id, r]));
+    for (const [id, r] of fullRecipeCache) map.set(id, r);
+    return Array.from(map.values());
+  }, [recipes, fullRecipeCache]);
+
   function getEntryGL(entry: DayPlanEntryRecord): GLResult | null {
-    return computeEntryGL(entry, recipes);
+    return computeEntryGL(entry, enrichedRecipes);
   }
 
   function getSlotGL(entries: DayPlanEntryRecord[]): GLResult | null {

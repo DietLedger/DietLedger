@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
-import { useRecipeStore } from '@/lib/recipe-store';
+import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
 import {
   getGroceryChecklistByWeekStart,
@@ -41,6 +41,7 @@ export default function GroceryListPage() {
   const [highlightedRecipe, setHighlightedRecipe] = useState<string | null>(null);
   const [highlightedIngredient, setHighlightedIngredient] = useState<string | null>(null);
   const [unitSystem, setUnitSystemState] = useState<UnitSystem>('imperial');
+  const [fullRecipeCache, setFullRecipeCache] = useState<Map<string, Recipe>>(new Map());
 
   useEffect(() => {
     fetchRecipes();
@@ -64,12 +65,48 @@ export default function GroceryListPage() {
     loadData();
   }, [weekStart]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function enrichRecipes() {
+      const api = getApiClient();
+      const needed = new Set<string>();
+      for (const entry of entries) {
+        if (!entry.recipeId || entry.sourceType !== 'recipe') continue;
+        if (fullRecipeCache.has(entry.recipeId)) continue;
+        const fromStore = recipes.find(r => r.id === entry.recipeId);
+        if (fromStore && fromStore.ingredients.length > 0) continue;
+        needed.add(entry.recipeId);
+      }
+      if (needed.size === 0) return;
+      const newCache = new Map(fullRecipeCache);
+      for (const id of needed) {
+        try {
+          const full = await api.getRecipe(id);
+          if (full && !cancelled) {
+            newCache.set(id, toPublicRecipe(full));
+          }
+        } catch {}
+      }
+      if (!cancelled && newCache.size !== fullRecipeCache.size) {
+        setFullRecipeCache(newCache);
+      }
+    }
+    enrichRecipes();
+    return () => { cancelled = true; };
+  }, [entries, recipes, fullRecipeCache]);
+
+  const enrichedRecipes = useMemo(() => {
+    const map = new Map(recipes.map(r => [r.id, r]));
+    for (const [id, r] of fullRecipeCache) map.set(id, r);
+    return Array.from(map.values());
+  }, [recipes, fullRecipeCache]);
+
   const nonLeftoverEntries = useMemo(() => entries.filter((e) => !e.isLeftover), [entries]);
 
   const recipeList = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
     for (const entry of nonLeftoverEntries) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
+      const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
       if (!recipe) continue;
       const existing = map.get(entry.recipeId);
       if (existing) {
@@ -79,7 +116,7 @@ export default function GroceryListPage() {
       }
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [nonLeftoverEntries, recipes]);
+  }, [nonLeftoverEntries, enrichedRecipes]);
 
   const aggregatedIngredients = useMemo(() => {
     const allIngredients: Array<{ name: string; amount: number; unit: string; recipeId: string }> = [];
@@ -94,7 +131,7 @@ export default function GroceryListPage() {
       if (depth > 2) return;
       for (const ing of recipe.ingredients) {
         if (ing.linkedRecipeId) {
-          const linkedRecipe = recipes.find((r) => r.id === ing.linkedRecipeId);
+          const linkedRecipe = enrichedRecipes.find((r) => r.id === ing.linkedRecipeId);
           if (linkedRecipe) {
             const linkedServings = linkedRecipe.servings || 1;
             const subMultiplier = (multiplier * ing.amount) / linkedServings;
@@ -112,14 +149,23 @@ export default function GroceryListPage() {
     }
 
     for (const entry of nonLeftoverEntries) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
-      if (!recipe) continue;
-      const recipeServings = recipe.servings || 1;
-      const entryMultiplier = entry.servings / recipeServings;
-      expandIngredients(entry.servings, recipe, recipe.id, 0, entryMultiplier);
+      if (entry.sourceType === 'recipe') {
+        const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
+        if (!recipe) continue;
+        const recipeServings = recipe.servings || 1;
+        const entryMultiplier = entry.servings / recipeServings;
+        expandIngredients(entry.servings, recipe, recipe.id, 0, entryMultiplier);
+      } else if (entry.foodName) {
+        allIngredients.push({
+          name: entry.foodName,
+          amount: entry.servings,
+          unit: 'serving',
+          recipeId: `food-${entry.id}`,
+        });
+      }
     }
     return aggregateIngredients(allIngredients);
-  }, [nonLeftoverEntries, recipes, unitSystem]);
+  }, [nonLeftoverEntries, enrichedRecipes, unitSystem]);
 
   const recipeIngredientMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -131,7 +177,7 @@ export default function GroceryListPage() {
       if (depth > 2) return;
       for (const ing of recipe.ingredients) {
         if (ing.linkedRecipeId) {
-          const linkedRecipe = recipes.find((r) => r.id === ing.linkedRecipeId);
+          const linkedRecipe = enrichedRecipes.find((r) => r.id === ing.linkedRecipeId);
           if (linkedRecipe) {
             addIngredientEntries(linkedRecipe, parentRecipeId, depth + 1);
           }
@@ -143,12 +189,18 @@ export default function GroceryListPage() {
       }
     }
     for (const entry of nonLeftoverEntries) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
-      if (!recipe) continue;
-      addIngredientEntries(recipe, recipe.id, 0);
+      if (entry.sourceType === 'recipe') {
+        const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
+        if (!recipe) continue;
+        addIngredientEntries(recipe, recipe.id, 0);
+      } else if (entry.foodName) {
+        const key = entry.foodName.toLowerCase().trim();
+        if (!map.has(key)) map.set(key, new Set());
+        map.get(key)!.add(`food-${entry.id}`);
+      }
     }
     return map;
-  }, [nonLeftoverEntries, recipes]);
+  }, [nonLeftoverEntries, enrichedRecipes]);
 
   const ingredientRecipeMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -160,7 +212,7 @@ export default function GroceryListPage() {
       if (depth > 2) return;
       for (const ing of recipe.ingredients) {
         if (ing.linkedRecipeId) {
-          const linkedRecipe = recipes.find((r) => r.id === ing.linkedRecipeId);
+          const linkedRecipe = enrichedRecipes.find((r) => r.id === ing.linkedRecipeId);
           if (linkedRecipe) {
             addRecipeEntries(linkedRecipe, parentRecipeId, depth + 1);
           }
@@ -171,12 +223,18 @@ export default function GroceryListPage() {
       }
     }
     for (const entry of nonLeftoverEntries) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
-      if (!recipe) continue;
-      addRecipeEntries(recipe, recipe.id, 0);
+      if (entry.sourceType === 'recipe') {
+        const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
+        if (!recipe) continue;
+        addRecipeEntries(recipe, recipe.id, 0);
+      } else if (entry.foodName) {
+        const foodKey = `food-${entry.id}`;
+        if (!map.has(foodKey)) map.set(foodKey, new Set());
+        map.get(foodKey)!.add(entry.foodName.toLowerCase().trim());
+      }
     }
     return map;
-  }, [nonLeftoverEntries, recipes]);
+  }, [nonLeftoverEntries, enrichedRecipes]);
 
   const ingredientStorageMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -187,7 +245,7 @@ export default function GroceryListPage() {
       if (depth > 2) return;
       for (const ing of recipe.ingredients) {
         if (ing.linkedRecipeId) {
-          const linkedRecipe = recipes.find((r) => r.id === ing.linkedRecipeId);
+          const linkedRecipe = enrichedRecipes.find((r) => r.id === ing.linkedRecipeId);
           if (linkedRecipe) {
             collectStorageLocations(linkedRecipe, depth + 1);
           }
@@ -200,12 +258,12 @@ export default function GroceryListPage() {
       }
     }
     for (const entry of nonLeftoverEntries) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
+      const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
       if (!recipe) continue;
       collectStorageLocations(recipe as any, 0);
     }
     return map;
-  }, [nonLeftoverEntries, recipes]);
+  }, [nonLeftoverEntries, enrichedRecipes]);
 
   const handleToggleCheck = useCallback(
     async (ingredientName: string) => {
@@ -233,7 +291,7 @@ export default function GroceryListPage() {
       name: ing.name,
       displayAmount: ing.displayAmount,
       recipeNames: Array.from(recipeIngredientMap.get(ing.name.toLowerCase().trim()) || []).map(id => {
-        const r = recipes.find(r => r.id === id);
+        const r = enrichedRecipes.find(r => r.id === id);
         return r?.name;
       }).filter(Boolean) as string[],
     }));
@@ -245,7 +303,7 @@ export default function GroceryListPage() {
     a.download = `grocery-list-${weekStart}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [aggregatedIngredients, recipeIngredientMap, recipes, weekDate, weekStart]);
+  }, [aggregatedIngredients, recipeIngredientMap, enrichedRecipes, weekDate, weekStart]);
 
   return (
     <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">

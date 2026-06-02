@@ -469,6 +469,8 @@ func (s *SQLiteStore) ListRecipes(userID string, page, perPage int) ([]Recipe, i
 	for rows.Next() {
 		var r Recipe
 		rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt)
+		ings, _ := s.listIngredientsByRecipe(r.ID)
+		r.Ingredients = ings
 		recipes = append(recipes, r)
 	}
 	return recipes, total, nil

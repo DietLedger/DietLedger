@@ -558,10 +558,10 @@ function RecipePage() {
       amount: parseFloat(editAmount) || ingredient.amount,
       unit: editUnit,
       prepInstructions: editPrepInstructions,
-      storageLocation: editStorageLocation || undefined,
+      storageLocation: editStorageLocation,
     });
     setEditIngredientId(null);
-  }, [editIngredientId, editDescription, editAmount, editUnit, editPrepInstructions, activeRecipe, updateIngredient]);
+  }, [editIngredientId, editName, editDescription, editAmount, editUnit, editPrepInstructions, editStorageLocation, activeRecipe, updateIngredient]);
 
   const handleIngredientDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
