@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Download, Star, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createRecipe } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { detectAllergens, inferDietaryTags } from '@/lib/dietary-rules';
 import { DietaryBadges } from '@/components/recipe/dietary-badges';
 import Link from 'next/link';
@@ -59,7 +59,7 @@ function SharedRecipePageInner() {
     setImporting(true);
     try {
       const parsed = JSON.parse(recipe.recipeData);
-      await createRecipe(parsed.name || recipe.title);
+      await getApiClient().createRecipe(parsed.name || recipe.title);
       toast.success('Recipe imported to your collection!');
     } catch {
       toast.error('Failed to import recipe');

@@ -1,0 +1,1584 @@
+package main
+
+import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+type PostgresStore struct {
+	db *sql.DB
+}
+
+func NewPostgresStore(connString string) (*PostgresStore, error) {
+	db, err := sql.Open("pgx", connString)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return &PostgresStore{db: db}, nil
+}
+
+func (s *PostgresStore) Close() error {
+	return s.db.Close()
+}
+
+func (s *PostgresStore) DB() *sql.DB {
+	return s.db
+}
+
+func generateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "dl_" + hex.EncodeToString(b), nil
+}
+
+// ── Users & Auth ─────────────────────────────────────────────────────
+
+func (s *PostgresStore) CreateUser(email, password, displayName string) (*User, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate api key: %w", err)
+	}
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err = s.db.Exec(
+		`INSERT INTO users (id, email, display_name, password_hash, api_key, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+		id, email, displayName, string(hash), apiKey, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert user: %w", err)
+	}
+	return &User{ID: id, Email: email, DisplayName: displayName, PasswordHash: string(hash), APIKey: apiKey, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) GetUserByAPIKey(apiKey string) (*User, error) {
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE api_key = $1`, apiKey)
+}
+
+func (s *PostgresStore) GetUserByID(id string) (*User, error) {
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE id = $1`, id)
+}
+
+func (s *PostgresStore) GetUserByEmail(email string) (*User, error) {
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE email = $1`, email)
+}
+
+func (s *PostgresStore) UpdateUserLastLogin(id string) error {
+	_, err := s.db.Exec(`UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) scanUser(query string, args ...interface{}) (*User, error) {
+	u := &User{}
+	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.APIKey, &u.CreatedAt, &u.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// ── Recipes ──────────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe, int, error) {
+	if perPage <= 0 {
+		perPage = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM recipes WHERE user_id = $1`, userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * perPage
+	rows, err := s.db.Query(
+		`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at FROM recipes WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+		userID, perPage, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var recipes []Recipe
+	for rows.Next() {
+		var r Recipe
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		recipes = append(recipes, r)
+	}
+	return recipes, total, nil
+}
+
+func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
+	r := &Recipe{}
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at FROM recipes WHERE user_id = $1 AND id = $2`,
+		userID, id,
+	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ings, err := s.listIngredientsByRecipe(r.ID)
+	if err != nil {
+		return nil, err
+	}
+	r.Ingredients = ings
+	return r, nil
+}
+
+func (s *PostgresStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*Recipe, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	servName := "serving"
+	if req.ServingName != "" {
+		servName = req.ServingName
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO recipes (id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+		id, userID, req.Name, req.Servings, servName, req.Instructions, req.LeftoverStorage, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert recipe: %w", err)
+	}
+	var ings []Ingredient
+	for _, ing := range req.Ingredients {
+		created, err := s.CreateIngredient(id, &ing)
+		if err != nil {
+			return nil, fmt.Errorf("create ingredient: %w", err)
+		}
+		ings = append(ings, *created)
+	}
+	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: servName, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
+}
+
+func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
+	now := time.Now().UTC()
+	setClauses := []string{"updated_at = $1"}
+	args := []interface{}{now}
+	argN := 2
+	if req.Name != nil {
+		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argN))
+		args = append(args, *req.Name)
+		argN++
+	}
+	if req.Servings != nil {
+		setClauses = append(setClauses, fmt.Sprintf("servings = $%d", argN))
+		args = append(args, *req.Servings)
+		argN++
+	}
+	if req.ServingName != nil {
+		setClauses = append(setClauses, fmt.Sprintf("serving_name = $%d", argN))
+		args = append(args, *req.ServingName)
+		argN++
+	}
+	if req.Instructions != nil {
+		setClauses = append(setClauses, fmt.Sprintf("instructions = $%d", argN))
+		args = append(args, *req.Instructions)
+		argN++
+	}
+	if req.LeftoverStorage != nil {
+		setClauses = append(setClauses, fmt.Sprintf("leftover_storage = $%d", argN))
+		args = append(args, *req.LeftoverStorage)
+		argN++
+	}
+	args = append(args, userID, id)
+	query := fmt.Sprintf("UPDATE recipes SET %s WHERE user_id = $%d AND id = $%d", strings.Join(setClauses, ", "), argN, argN+1)
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, nil
+	}
+	if req.Ingredients != nil {
+		if err := s.ReplaceIngredients(id, *req.Ingredients); err != nil {
+			return nil, err
+		}
+	}
+	return s.GetRecipe(userID, id)
+}
+
+func (s *PostgresStore) DeleteRecipe(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM recipes WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("recipe not found")
+	}
+	_, _ = s.db.Exec(`DELETE FROM day_plan_entries WHERE recipe_id = $1`, id)
+	_, _ = s.db.Exec(`DELETE FROM chapter_recipes WHERE recipe_id = $1`, id)
+	_, _ = s.db.Exec(`DELETE FROM recipe_categories WHERE recipe_id = $1`, id)
+	return nil
+}
+
+// ── Ingredients ──────────────────────────────────────────────────────
+
+func (s *PostgresStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, error) {
+	rows, err := s.db.Query(
+		`SELECT id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,'') FROM ingredients WHERE recipe_id = $1 ORDER BY id`,
+		recipeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ings []Ingredient
+	for rows.Next() {
+		var i Ingredient
+		var prepJSON string
+		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation); err != nil {
+			return nil, err
+		}
+		i.ScanPrepInstructions(prepJSON)
+		ings = append(ings, i)
+	}
+	return ings, nil
+}
+
+func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error) {
+	id := uuid.New().String()
+	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
+	_, err := s.db.Exec(
+		`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+}
+
+func (s *PostgresStore) UpdateIngredient(id string, ing *CreateIngredientReq) (*Ingredient, error) {
+	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
+	_, err := s.db.Exec(
+		`UPDATE ingredients SET fdc_id=$1, name=$2, amount=$3, unit=$4, calories=$5, total_fat=$6, saturated_fat=$7, trans_fat=$8, cholesterol=$9, sodium=$10, total_carbs=$11, dietary_fiber=$12, total_sugars=$13, added_sugars=$14, protein=$15, vitamin_d=$16, calcium=$17, iron=$18, potassium=$19, prep_instructions=$20, storage_location=$21 WHERE id=$22`,
+		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Ingredient{ID: id, RecipeID: "", FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+}
+
+func (s *PostgresStore) DeleteIngredient(id string) error {
+	_, err := s.db.Exec(`DELETE FROM ingredients WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []CreateIngredientReq) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM ingredients WHERE recipe_id = $1`, recipeID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	for _, ing := range ingredients {
+		id := uuid.New().String()
+		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
+		if _, err := tx.Exec(
+			`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation,
+		); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ── Food Items ───────────────────────────────────────────────────────
+
+func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem, int, error) {
+	if perPage <= 0 {
+		perPage = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+	var total int
+	var rows *sql.Rows
+	var err error
+	args := []interface{}{}
+	if query != "" {
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM food_items WHERE search_vector @@ plainto_tsquery('english', $1)`, query).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+		args = []interface{}{query, perPage, offset}
+		rows, err = s.db.Query(
+			`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC LIMIT $2 OFFSET $3`,
+			args...,
+		)
+	} else {
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM food_items`).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+		args = []interface{}{perPage, offset}
+		rows, err = s.db.Query(
+			`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items ORDER BY description LIMIT $1 OFFSET $2`,
+			args...,
+		)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var foods []FoodItem
+	for rows.Next() {
+		var f FoodItem
+		if err := rows.Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		foods = append(foods, f)
+	}
+	return foods, total, nil
+}
+
+func (s *PostgresStore) GetFoodByFdcID(fdcID int) (*FoodItem, error) {
+	f := &FoodItem{}
+	err := s.db.QueryRow(
+		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE fdc_id = $1`,
+		fdcID,
+	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *PostgresStore) GetFoodByGtinUpc(gtinUpc string) (*FoodItem, error) {
+	f := &FoodItem{}
+	err := s.db.QueryRow(
+		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE gtin_upc = $1`,
+		gtinUpc,
+	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *PostgresStore) CreateFoodItem(f *FoodItem) (*FoodItem, error) {
+	now := time.Now().UTC()
+	err := s.db.QueryRow(
+		`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24) RETURNING id`,
+		f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit, f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium, f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein, f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now,
+	).Scan(&f.ID)
+	if err != nil {
+		return nil, err
+	}
+	f.CreatedAt = now
+	f.UpdatedAt = now
+	return f, nil
+}
+
+func (s *PostgresStore) ListSeedJobs() ([]SeedJob, error) {
+	rows, err := s.db.Query(`SELECT id, data_type, release_date, file_name, record_count, status, progress, error, checkpoint, started_at, completed_at, created_at FROM seed_jobs ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []SeedJob
+	for rows.Next() {
+		var j SeedJob
+		if err := rows.Scan(&j.ID, &j.DataType, &j.ReleaseDate, &j.FileName, &j.RecordCount, &j.Status, &j.Progress, &j.Error, &j.Checkpoint, &j.StartedAt, &j.CompletedAt, &j.CreatedAt); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, nil
+}
+
+func (s *PostgresStore) CreateSeedJob(dataType, releaseDate, fileName string) (*SeedJob, error) {
+	now := time.Now().UTC()
+	var id int
+	err := s.db.QueryRow(
+		`INSERT INTO seed_jobs (data_type, release_date, file_name, status, created_at) VALUES ($1,$2,$3,'pending',$4) RETURNING id`,
+		dataType, releaseDate, fileName, now,
+	).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &SeedJob{ID: id, DataType: dataType, ReleaseDate: releaseDate, FileName: fileName, Status: "pending", CreatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateSeedJob(id int, status string, recordCount int, progress float64, errorMsg string) error {
+	_, err := s.db.Exec(
+		`UPDATE seed_jobs SET status=$1, record_count=$2, progress=$3, error=CASE WHEN $1='failed' THEN $5 ELSE error END, started_at=CASE WHEN $1='running' THEN NOW() ELSE started_at END, completed_at=CASE WHEN $1 IN ('completed','failed') THEN NOW() ELSE completed_at END WHERE id=$4`,
+		status, recordCount, progress, id, errorMsg,
+	)
+	return err
+}
+
+func (s *PostgresStore) GetFoodStats() (*FoodStats, error) {
+	stats := &FoodStats{}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM food_items`).Scan(&stats.TotalFoods); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(`SELECT data_type, COUNT(*) as cnt FROM food_items GROUP BY data_type ORDER BY cnt DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tc FoodTypeCount
+		if err := rows.Scan(&tc.DataType, &tc.Count); err != nil {
+			return nil, err
+		}
+		stats.ByDataType = append(stats.ByDataType, tc)
+	}
+	rows2, err := s.db.Query(`SELECT source, COUNT(*) as cnt FROM food_items GROUP BY source ORDER BY cnt DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var sc FoodSourceCount
+		if err := rows2.Scan(&sc.Source, &sc.Count); err != nil {
+			return nil, err
+		}
+		stats.BySource = append(stats.BySource, sc)
+	}
+	return stats, nil
+}
+
+func (s *PostgresStore) DeleteAllFoods() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM food_items`); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM seed_jobs`); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	inserted := 0
+	for _, f := range items {
+		var existingID int
+		err := tx.QueryRow(`SELECT id FROM food_items WHERE fdc_id = $1`, f.FdcID).Scan(&existingID)
+		if err == nil {
+			_, err := tx.Exec(
+				`UPDATE food_items SET description=$1, data_type=$2, brand_owner=$3, gtin_upc=$4, serving_size=$5, serving_size_unit=$6, calories=$7, total_fat=$8, saturated_fat=$9, trans_fat=$10, cholesterol=$11, sodium=$12, total_carbs=$13, dietary_fiber=$14, total_sugars=$15, added_sugars=$16, protein=$17, vitamin_d=$18, calcium=$19, iron=$20, potassium=$21, source=$22, updated_at=$23 WHERE fdc_id=$24`,
+				f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
+				f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
+				f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein,
+				f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now, f.FdcID,
+			)
+			if err != nil {
+				tx.Rollback()
+				return inserted, err
+			}
+			inserted++
+			continue
+		}
+		_, err = tx.Exec(
+			`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24)`,
+			f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
+			f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
+			f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein,
+			f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now,
+		)
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
+		inserted++
+	}
+	return inserted, tx.Commit()
+}
+
+// ── Nutrition Profiles ───────────────────────────────────────────────
+
+func (s *PostgresStore) ListProfiles(userID string) ([]PersonProfile, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, name, sex, birth_date, height_cm, activity_level, goal_weight_kg, goal_date, bmr_equation, manual_bmr_value, calorie_target, protein_goal_g, carbs_goal_g, fat_goal_g, fiber_goal_g, sodium_max_mg, sugar_max_g, vitamin_d_goal_ug, calcium_goal_mg, iron_goal_mg, potassium_goal_mg, created_at, updated_at FROM person_profiles WHERE user_id = $1 ORDER BY updated_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var profiles []PersonProfile
+	for rows.Next() {
+		var p PersonProfile
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Sex, &p.BirthDate, &p.HeightCm, &p.ActivityLevel, &p.GoalWeightKg, &p.GoalDate, &p.BMREquation, &p.ManualBMRValue, &p.CalorieTarget, &p.ProteinGoalG, &p.CarbsGoalG, &p.FatGoalG, &p.FiberGoalG, &p.SodiumMaxMg, &p.SugarMaxG, &p.VitaminDGoalUg, &p.CalciumGoalMg, &p.IronGoalMg, &p.PotassiumGoalMg, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
+}
+
+func (s *PostgresStore) GetProfile(userID, id string) (*PersonProfile, error) {
+	p := &PersonProfile{}
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, sex, birth_date, height_cm, activity_level, goal_weight_kg, goal_date, bmr_equation, manual_bmr_value, calorie_target, protein_goal_g, carbs_goal_g, fat_goal_g, fiber_goal_g, sodium_max_mg, sugar_max_g, vitamin_d_goal_ug, calcium_goal_mg, iron_goal_mg, potassium_goal_mg, created_at, updated_at FROM person_profiles WHERE user_id = $1 AND id = $2`, userID, id,
+	).Scan(&p.ID, &p.UserID, &p.Name, &p.Sex, &p.BirthDate, &p.HeightCm, &p.ActivityLevel, &p.GoalWeightKg, &p.GoalDate, &p.BMREquation, &p.ManualBMRValue, &p.CalorieTarget, &p.ProteinGoalG, &p.CarbsGoalG, &p.FatGoalG, &p.FiberGoalG, &p.SodiumMaxMg, &p.SugarMaxG, &p.VitaminDGoalUg, &p.CalciumGoalMg, &p.IronGoalMg, &p.PotassiumGoalMg, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *PostgresStore) CreateProfile(userID string, req *CreateProfileRequest) (*PersonProfile, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	al := "moderate"
+	if req.ActivityLevel != "" {
+		al = req.ActivityLevel
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO person_profiles (id, user_id, name, sex, birth_date, height_cm, activity_level, goal_weight_kg, goal_date, bmr_equation, manual_bmr_value, calorie_target, protein_goal_g, carbs_goal_g, fat_goal_g, fiber_goal_g, sodium_max_mg, sugar_max_g, vitamin_d_goal_ug, calcium_goal_mg, iron_goal_mg, potassium_goal_mg, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$23)`,
+		id, userID, req.Name, req.Sex, req.BirthDate, req.HeightCm, al, req.GoalWeightKg, req.GoalDate, req.BMREquation, req.ManualBMRValue, req.CalorieTarget, req.ProteinGoalG, req.CarbsGoalG, req.FatGoalG, req.FiberGoalG, req.SodiumMaxMg, req.SugarMaxG, req.VitaminDGoalUg, req.CalciumGoalMg, req.IronGoalMg, req.PotassiumGoalMg, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProfile(userID, id)
+}
+
+func (s *PostgresStore) UpdateProfile(userID, id string, req *CreateProfileRequest) (*PersonProfile, error) {
+	_, err := s.db.Exec(
+		`UPDATE person_profiles SET name=$1, sex=$2, birth_date=$3, height_cm=$4, activity_level=$5, goal_weight_kg=$6, goal_date=$7, bmr_equation=$8, manual_bmr_value=$9, calorie_target=$10, protein_goal_g=$11, carbs_goal_g=$12, fat_goal_g=$13, fiber_goal_g=$14, sodium_max_mg=$15, sugar_max_g=$16, vitamin_d_goal_ug=$17, calcium_goal_mg=$18, iron_goal_mg=$19, potassium_goal_mg=$20, updated_at=NOW() WHERE user_id=$21 AND id=$22`,
+		req.Name, req.Sex, req.BirthDate, req.HeightCm, req.ActivityLevel, req.GoalWeightKg, req.GoalDate, req.BMREquation, req.ManualBMRValue, req.CalorieTarget, req.ProteinGoalG, req.CarbsGoalG, req.FatGoalG, req.FiberGoalG, req.SodiumMaxMg, req.SugarMaxG, req.VitaminDGoalUg, req.CalciumGoalMg, req.IronGoalMg, req.PotassiumGoalMg, userID, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProfile(userID, id)
+}
+
+func (s *PostgresStore) DeleteProfile(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM person_profiles WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("profile not found")
+	}
+	return nil
+}
+
+// ── Food Log Entries ─────────────────────────────────────────────────
+
+func (s *PostgresStore) ListFoodLogEntries(profileID, date string) ([]FoodLogEntry, error) {
+	query := `SELECT id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM food_log_entries WHERE profile_id = $1`
+	args := []interface{}{profileID}
+	if date != "" {
+		query += ` AND date = $2 ORDER BY time ASC`
+		args = append(args, date)
+	} else {
+		query += ` ORDER BY date DESC, time ASC`
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []FoodLogEntry
+	for rows.Next() {
+		var e FoodLogEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.ProfileID, &e.Date, &e.Time, &e.MealSlot, &e.SourceType, &e.SourceID, &e.Name, &e.Servings, &e.ServingAmount, &e.ServingUnit, &e.Calories, &e.TotalFat, &e.SaturatedFat, &e.TransFat, &e.Cholesterol, &e.Sodium, &e.TotalCarbs, &e.DietaryFiber, &e.TotalSugars, &e.AddedSugars, &e.Protein, &e.VitaminD, &e.Calcium, &e.Iron, &e.Potassium, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) ListFoodLogEntriesByDateRange(profileID, startDate, endDate string) ([]FoodLogEntry, error) {
+	query := `SELECT id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM food_log_entries WHERE profile_id = $1 AND date >= $2 AND date <= $3 ORDER BY date ASC, time ASC`
+	rows, err := s.db.Query(query, profileID, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []FoodLogEntry
+	for rows.Next() {
+		var e FoodLogEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.ProfileID, &e.Date, &e.Time, &e.MealSlot, &e.SourceType, &e.SourceID, &e.Name, &e.Servings, &e.ServingAmount, &e.ServingUnit, &e.Calories, &e.TotalFat, &e.SaturatedFat, &e.TransFat, &e.Cholesterol, &e.Sodium, &e.TotalCarbs, &e.DietaryFiber, &e.TotalSugars, &e.AddedSugars, &e.Protein, &e.VitaminD, &e.Calcium, &e.Iron, &e.Potassium, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) CreateFoodLogEntry(userID, profileID string, req *CreateFoodLogRequest) (*FoodLogEntry, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO food_log_entries (id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$28)`,
+		id, userID, profileID, req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	e := &FoodLogEntry{ID: id, UserID: userID, ProfileID: profileID, Date: req.Date, Time: req.Time, MealSlot: req.MealSlot, SourceType: req.SourceType, SourceID: req.SourceID, Name: req.Name, Servings: req.Servings, ServingAmount: req.ServingAmount, ServingUnit: req.ServingUnit, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now, UpdatedAt: now}
+	return e, nil
+}
+
+func (s *PostgresStore) UpdateFoodLogEntry(id string, req *CreateFoodLogRequest) (*FoodLogEntry, error) {
+	_, err := s.db.Exec(
+		`UPDATE food_log_entries SET date=$1, time=$2, meal_slot=$3, source_type=$4, source_id=$5, name=$6, servings=$7, serving_amount=$8, serving_unit=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25`,
+		req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	e := &FoodLogEntry{ID: id, Date: req.Date, Time: req.Time, MealSlot: req.MealSlot, SourceType: req.SourceType, SourceID: req.SourceID, Name: req.Name, Servings: req.Servings, ServingAmount: req.ServingAmount, ServingUnit: req.ServingUnit, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium}
+	return e, nil
+}
+
+func (s *PostgresStore) DeleteFoodLogEntry(id string) error {
+	_, err := s.db.Exec(`DELETE FROM food_log_entries WHERE id = $1`, id)
+	return err
+}
+
+// ── Weight Entries ───────────────────────────────────────────────────
+
+func (s *PostgresStore) ListWeightEntries(profileID, fromDate, toDate string) ([]WeightEntry, error) {
+	query := `SELECT id, user_id, profile_id, date, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at FROM weight_entries WHERE profile_id = $1`
+	args := []interface{}{profileID}
+	n := 2
+	if fromDate != "" {
+		query += fmt.Sprintf(` AND date >= $%d`, n)
+		args = append(args, fromDate)
+		n++
+	}
+	if toDate != "" {
+		query += fmt.Sprintf(` AND date <= $%d`, n)
+		args = append(args, toDate)
+		n++
+	}
+	query += ` ORDER BY date ASC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []WeightEntry
+	for rows.Next() {
+		var e WeightEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.ProfileID, &e.Date, &e.WeightKg, &e.Notes, &e.BloodSugar, &e.BloodPressureSystolic, &e.BloodPressureDiastolic, &e.MeasurementContext, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) CreateWeightEntry(userID, profileID string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	var returnedID string
+	err := s.db.QueryRow(
+		`INSERT INTO weight_entries (id, user_id, profile_id, date, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
+		 ON CONFLICT (profile_id, date) DO UPDATE SET weight_kg = $5, notes = $6, blood_sugar = $7, blood_pressure_systolic = $8, blood_pressure_diastolic = $9, measurement_context = $10, updated_at = $11
+		 RETURNING id`,
+		id, userID, profileID, req.Date, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, now,
+	).Scan(&returnedID)
+	if err != nil {
+		return nil, err
+	}
+	return &WeightEntry{ID: returnedID, UserID: userID, ProfileID: profileID, Date: req.Date, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateWeightEntry(id string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
+	_, err := s.db.Exec(
+		`UPDATE weight_entries SET date=$1, weight_kg=$2, notes=$3, blood_sugar=$4, blood_pressure_systolic=$5, blood_pressure_diastolic=$6, measurement_context=$7, updated_at=NOW() WHERE id=$8`,
+		req.Date, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &WeightEntry{ID: id, Date: req.Date, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext}, nil
+}
+
+func (s *PostgresStore) DeleteWeightEntry(id string) error {
+	_, err := s.db.Exec(`DELETE FROM weight_entries WHERE id = $1`, id)
+	return err
+}
+
+// ── Meal Plans ───────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListMealPlans(userID string) ([]MealPlan, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 ORDER BY week_start DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var plans []MealPlan
+	for rows.Next() {
+		var p MealPlan
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		plans = append(plans, p)
+	}
+	return plans, nil
+}
+
+func (s *PostgresStore) GetMealPlan(userID, id string) (*MealPlan, error) {
+	p := &MealPlan{}
+	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND id = $2`, userID, id).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *PostgresStore) GetMealPlanByWeekStart(userID, weekStart string) (*MealPlan, error) {
+	p := &MealPlan{}
+	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND week_start = $2`, userID, weekStart).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *PostgresStore) CreateMealPlan(userID string, req *CreateMealPlanRequest) (*MealPlan, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO meal_plans (id, user_id, name, week_start, slot_times, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Name, req.WeekStart, req.SlotTimes, now)
+	if err != nil {
+		return nil, err
+	}
+	return &MealPlan{ID: id, UserID: userID, Name: req.Name, WeekStart: req.WeekStart, SlotTimes: req.SlotTimes, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateMealPlan(userID, id string, req *CreateMealPlanRequest) (*MealPlan, error) {
+	_, err := s.db.Exec(`UPDATE meal_plans SET name=$1, slot_times=$2, updated_at=NOW() WHERE user_id=$3 AND id=$4`, req.Name, req.SlotTimes, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetMealPlan(userID, id)
+}
+
+func (s *PostgresStore) DeleteMealPlan(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM meal_plans WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("meal plan not found")
+	}
+	return nil
+}
+
+// ── Day Plan Entries ─────────────────────────────────────────────────
+
+func (s *PostgresStore) ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM day_plan_entries WHERE meal_plan_id = $1 ORDER BY date, position`, mealPlanID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []DayPlanEntry
+	for rows.Next() {
+		var e DayPlanEntry
+		if err := rows.Scan(&e.ID, &e.MealPlanID, &e.Date, &e.Slot, &e.RecipeID, &e.Position, &e.GroupID, &e.Servings, &e.IsLeftover, &e.SourceType, &e.FoodName, &e.Calories, &e.TotalFat, &e.SaturatedFat, &e.TransFat, &e.Cholesterol, &e.Sodium, &e.TotalCarbs, &e.DietaryFiber, &e.TotalSugars, &e.AddedSugars, &e.Protein, &e.VitaminD, &e.Calcium, &e.Iron, &e.Potassium, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) CreateDayPlanEntry(mealPlanID string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO day_plan_entries (id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$27)`,
+		id, mealPlanID, req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &DayPlanEntry{ID: id, MealPlanID: mealPlanID, Date: req.Date, Slot: req.Slot, RecipeID: req.RecipeID, Position: req.Position, GroupID: req.GroupID, Servings: req.Servings, IsLeftover: req.IsLeftover, SourceType: req.SourceType, FoodName: req.FoodName, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateDayPlanEntry(id string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
+	_, err := s.db.Exec(
+		`UPDATE day_plan_entries SET date=$1, slot=$2, recipe_id=$3, position=$4, group_id=$5, servings=$6, is_leftover=$7, source_type=$8, food_name=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25`,
+		req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &DayPlanEntry{ID: id, Date: req.Date, Slot: req.Slot, RecipeID: req.RecipeID, Position: req.Position, GroupID: req.GroupID, Servings: req.Servings, IsLeftover: req.IsLeftover, SourceType: req.SourceType, FoodName: req.FoodName, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium}, nil
+}
+
+func (s *PostgresStore) DeleteDayPlanEntry(id string) error {
+	_, err := s.db.Exec(`DELETE FROM day_plan_entries WHERE id = $1`, id)
+	return err
+}
+
+// ── Meal Groups ──────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListMealGroups(mealPlanID string) ([]MealGroup, error) {
+	rows, err := s.db.Query(`SELECT id, meal_plan_id, date, slot, name, position FROM meal_groups WHERE meal_plan_id = $1 ORDER BY position`, mealPlanID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var groups []MealGroup
+	for rows.Next() {
+		var g MealGroup
+		if err := rows.Scan(&g.ID, &g.MealPlanID, &g.Date, &g.Slot, &g.Name, &g.Position); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (s *PostgresStore) CreateMealGroup(mealPlanID, name, date, slot string, position int) (*MealGroup, error) {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT INTO meal_groups (id, meal_plan_id, date, slot, name, position) VALUES ($1,$2,$3,$4,$5,$6)`, id, mealPlanID, date, slot, name, position)
+	if err != nil {
+		return nil, err
+	}
+	return &MealGroup{ID: id, MealPlanID: mealPlanID, Date: date, Slot: slot, Name: name, Position: position}, nil
+}
+
+func (s *PostgresStore) DeleteMealGroup(id string) error {
+	_, err := s.db.Exec(`DELETE FROM meal_groups WHERE id = $1`, id)
+	return err
+}
+
+// ── Recipe Books ─────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListBooks(userID string) ([]RecipeBook, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 ORDER BY updated_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var books []RecipeBook
+	for rows.Next() {
+		var b RecipeBook
+		if err := rows.Scan(&b.ID, &b.UserID, &b.Title, &b.Description, &b.CoverColor, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, err
+		}
+		books = append(books, b)
+	}
+	return books, nil
+}
+
+func (s *PostgresStore) GetBook(userID, id string) (*RecipeBook, error) {
+	b := &RecipeBook{}
+	err := s.db.QueryRow(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id).Scan(&b.ID, &b.UserID, &b.Title, &b.Description, &b.CoverColor, &b.CreatedAt, &b.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s *PostgresStore) CreateBook(userID string, req *CreateBookRequest) (*RecipeBook, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	coverColor := "#059669"
+	if req.CoverColor != "" {
+		coverColor = req.CoverColor
+	}
+	_, err := s.db.Exec(`INSERT INTO recipe_books (id, user_id, title, description, cover_color, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Title, req.Description, coverColor, now)
+	if err != nil {
+		return nil, err
+	}
+	return &RecipeBook{ID: id, UserID: userID, Title: req.Title, Description: req.Description, CoverColor: coverColor, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateBook(userID, id string, req *CreateBookRequest) (*RecipeBook, error) {
+	_, err := s.db.Exec(`UPDATE recipe_books SET title=$1, description=$2, cover_color=$3, updated_at=NOW() WHERE user_id=$4 AND id=$5`, req.Title, req.Description, req.CoverColor, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetBook(userID, id)
+}
+
+func (s *PostgresStore) DeleteBook(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("book not found")
+	}
+	return nil
+}
+
+// ── Chapters ─────────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListChapters(bookID string) ([]Chapter, error) {
+	rows, err := s.db.Query(`SELECT id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at FROM chapters WHERE book_id = $1 ORDER BY position`, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var chapters []Chapter
+	for rows.Next() {
+		var c Chapter
+		if err := rows.Scan(&c.ID, &c.BookID, &c.Title, &c.Position, &c.PageTemplateID, &c.RecipeTemplateID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		chapters = append(chapters, c)
+	}
+	return chapters, nil
+}
+
+func (s *PostgresStore) CreateChapter(bookID string, req *CreateChapterRequest) (*Chapter, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO chapters (id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, bookID, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, now)
+	if err != nil {
+		return nil, err
+	}
+	return &Chapter{ID: id, BookID: bookID, Title: req.Title, Position: req.Position, PageTemplateID: req.PageTemplateID, RecipeTemplateID: req.RecipeTemplateID, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateChapter(id string, req *CreateChapterRequest) (*Chapter, error) {
+	_, err := s.db.Exec(`UPDATE chapters SET title=$1, position=$2, page_template_id=$3, recipe_template_id=$4, updated_at=NOW() WHERE id=$5`, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &Chapter{ID: id, Title: req.Title, Position: req.Position, PageTemplateID: req.PageTemplateID, RecipeTemplateID: req.RecipeTemplateID}, nil
+}
+
+func (s *PostgresStore) DeleteChapter(id string) error {
+	_, err := s.db.Exec(`DELETE FROM chapters WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) ReorderChapters(bookID string, chapterIDs []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for i, chID := range chapterIDs {
+		if _, err := tx.Exec(`UPDATE chapters SET position = $1 WHERE id = $2 AND book_id = $3`, i, chID, bookID); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ── Chapter Recipes ──────────────────────────────────────────────────
+
+func (s *PostgresStore) ListChapterRecipes(chapterID string) ([]ChapterRecipe, error) {
+	rows, err := s.db.Query(`SELECT id, chapter_id, recipe_id, position FROM chapter_recipes WHERE chapter_id = $1 ORDER BY position`, chapterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var crs []ChapterRecipe
+	for rows.Next() {
+		var cr ChapterRecipe
+		if err := rows.Scan(&cr.ID, &cr.ChapterID, &cr.RecipeID, &cr.Position); err != nil {
+			return nil, err
+		}
+		crs = append(crs, cr)
+	}
+	return crs, nil
+}
+
+func (s *PostgresStore) AddChapterRecipe(chapterID, recipeID string, position int) (*ChapterRecipe, error) {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT INTO chapter_recipes (id, chapter_id, recipe_id, position) VALUES ($1,$2,$3,$4)`, id, chapterID, recipeID, position)
+	if err != nil {
+		return nil, err
+	}
+	return &ChapterRecipe{ID: id, ChapterID: chapterID, RecipeID: recipeID, Position: position}, nil
+}
+
+func (s *PostgresStore) RemoveChapterRecipe(chapterID, recipeID string) error {
+	_, err := s.db.Exec(`DELETE FROM chapter_recipes WHERE chapter_id = $1 AND recipe_id = $2`, chapterID, recipeID)
+	return err
+}
+
+// ── Chapter Pages ────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListChapterPages(chapterID string) ([]ChapterPage, error) {
+	rows, err := s.db.Query(`SELECT id, chapter_id, title, content, position, created_at, updated_at FROM chapter_pages WHERE chapter_id = $1 ORDER BY position`, chapterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var pages []ChapterPage
+	for rows.Next() {
+		var p ChapterPage
+		if err := rows.Scan(&p.ID, &p.ChapterID, &p.Title, &p.Content, &p.Position, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, nil
+}
+
+func (s *PostgresStore) CreateChapterPage(chapterID, title, content string, position int) (*ChapterPage, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO chapter_pages (id, chapter_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, chapterID, title, content, position, now)
+	if err != nil {
+		return nil, err
+	}
+	return &ChapterPage{ID: id, ChapterID: chapterID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateChapterPage(id, title, content string, position int) (*ChapterPage, error) {
+	_, err := s.db.Exec(`UPDATE chapter_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
+	if err != nil {
+		return nil, err
+	}
+	return &ChapterPage{ID: id, Title: title, Content: content, Position: position}, nil
+}
+
+func (s *PostgresStore) DeleteChapterPage(id string) error {
+	_, err := s.db.Exec(`DELETE FROM chapter_pages WHERE id = $1`, id)
+	return err
+}
+
+// ── Categories ───────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListCategories() ([]Category, error) {
+	rows, err := s.db.Query(`SELECT id, name, parent_id, created_at, updated_at FROM categories ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cats []Category
+	for rows.Next() {
+		var c Category
+		if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		cats = append(cats, c)
+	}
+	return cats, nil
+}
+
+func (s *PostgresStore) CreateCategory(req *CreateCategoryRequest) (*Category, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO categories (id, name, parent_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)`, id, req.Name, req.ParentID, now)
+	if err != nil {
+		return nil, err
+	}
+	return &Category{ID: id, Name: req.Name, ParentID: req.ParentID, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateCategory(id string, req *CreateCategoryRequest) (*Category, error) {
+	_, err := s.db.Exec(`UPDATE categories SET name=$1, parent_id=$2, updated_at=NOW() WHERE id=$3`, req.Name, req.ParentID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &Category{ID: id, Name: req.Name, ParentID: req.ParentID}, nil
+}
+
+func (s *PostgresStore) DeleteCategory(id string) error {
+	_, err := s.db.Exec(`DELETE FROM categories WHERE id = $1`, id)
+	return err
+}
+
+// ── Recipe Categories ────────────────────────────────────────────────
+
+func (s *PostgresStore) ListRecipeCategories(recipeID string) ([]RecipeCategory, error) {
+	rows, err := s.db.Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE recipe_id = $1`, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rcs []RecipeCategory
+	for rows.Next() {
+		var rc RecipeCategory
+		if err := rows.Scan(&rc.ID, &rc.RecipeID, &rc.CategoryID); err != nil {
+			return nil, err
+		}
+		rcs = append(rcs, rc)
+	}
+	return rcs, nil
+}
+
+func (s *PostgresStore) AddRecipeCategory(recipeID, categoryID string) (*RecipeCategory, error) {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT INTO recipe_categories (id, recipe_id, category_id) VALUES ($1,$2,$3)`, id, recipeID, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	return &RecipeCategory{ID: id, RecipeID: recipeID, CategoryID: categoryID}, nil
+}
+
+func (s *PostgresStore) RemoveRecipeCategory(recipeID, categoryID string) error {
+	_, err := s.db.Exec(`DELETE FROM recipe_categories WHERE recipe_id = $1 AND category_id = $2`, recipeID, categoryID)
+	return err
+}
+
+// ── Custom Foods ─────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListCustomFoods(userID string) ([]CustomFood, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE user_id = $1 ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var foods []CustomFood
+	for rows.Next() {
+		var f CustomFood
+		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		foods = append(foods, f)
+	}
+	return foods, nil
+}
+
+func (s *PostgresStore) GetCustomFood(userID, id string) (*CustomFood, error) {
+	f := &CustomFood{}
+	err := s.db.QueryRow(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE user_id = $1 AND id = $2`, userID, id).Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *PostgresStore) CreateCustomFood(userID string, req *CreateCustomFoodRequest) (*CustomFood, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO custom_foods (id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+		id, userID, req.Name, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &CustomFood{ID: id, UserID: userID, Name: req.Name, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateCustomFood(userID, id string, req *CreateCustomFoodRequest) (*CustomFood, error) {
+	_, err := s.db.Exec(
+		`UPDATE custom_foods SET name=$1, calories=$2, total_fat=$3, saturated_fat=$4, trans_fat=$5, cholesterol=$6, sodium=$7, total_carbs=$8, dietary_fiber=$9, total_sugars=$10, added_sugars=$11, protein=$12, vitamin_d=$13, calcium=$14, iron=$15, potassium=$16 WHERE user_id=$17 AND id=$18`,
+		req.Name, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, userID, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetCustomFood(userID, id)
+}
+
+func (s *PostgresStore) DeleteCustomFood(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM custom_foods WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("custom food not found")
+	}
+	return nil
+}
+
+func (s *PostgresStore) ShareCustomFood(userID, id string) error {
+	res, err := s.db.Exec(`UPDATE custom_foods SET shared_with_community = TRUE WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("custom food not found")
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListSharedCustomFoods(page, perPage int) ([]CustomFood, int, error) {
+	if perPage <= 0 {
+		perPage = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM custom_foods WHERE shared_with_community = TRUE`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * perPage
+	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE shared_with_community = TRUE ORDER BY name LIMIT $1 OFFSET $2`, perPage, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var foods []CustomFood
+	for rows.Next() {
+		var f CustomFood
+		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		foods = append(foods, f)
+	}
+	return foods, total, nil
+}
+
+// ── Grocery Checklists ───────────────────────────────────────────────
+
+func (s *PostgresStore) GetGroceryChecklist(userID, weekStart string) (*GroceryChecklist, error) {
+	g := &GroceryChecklist{}
+	err := s.db.QueryRow(`SELECT id, user_id, week_start, checked_items, updated_at FROM grocery_checklists WHERE user_id = $1 AND week_start = $2`, userID, weekStart).Scan(&g.ID, &g.UserID, &g.WeekStart, &g.CheckedItems, &g.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+func (s *PostgresStore) UpsertGroceryChecklist(userID string, g *GroceryChecklist) (*GroceryChecklist, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO grocery_checklists (id, user_id, week_start, checked_items, updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id, week_start) DO UPDATE SET checked_items = $4, updated_at = $5`,
+		id, userID, g.WeekStart, g.CheckedItems, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetGroceryChecklist(userID, g.WeekStart)
+}
+
+// ── Book Pages ───────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListBookPages(bookID string) ([]BookPage, error) {
+	rows, err := s.db.Query(`SELECT id, book_id, title, content, position, created_at, updated_at FROM book_pages WHERE book_id = $1 ORDER BY position`, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var pages []BookPage
+	for rows.Next() {
+		var p BookPage
+		if err := rows.Scan(&p.ID, &p.BookID, &p.Title, &p.Content, &p.Position, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, nil
+}
+
+func (s *PostgresStore) CreateBookPage(bookID, title, content string, position int) (*BookPage, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO book_pages (id, book_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, bookID, title, content, position, now)
+	if err != nil {
+		return nil, err
+	}
+	return &BookPage{ID: id, BookID: bookID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateBookPage(id, title, content string, position int) (*BookPage, error) {
+	_, err := s.db.Exec(`UPDATE book_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
+	if err != nil {
+		return nil, err
+	}
+	return &BookPage{ID: id, Title: title, Content: content, Position: position}, nil
+}
+
+func (s *PostgresStore) DeleteBookPage(id string) error {
+	_, err := s.db.Exec(`DELETE FROM book_pages WHERE id = $1`, id)
+	return err
+}
+
+// ── API Keys ─────────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListAPIKeys(userID string) ([]ApiKey, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, key_hash, key_prefix, permissions, last_used_at, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []ApiKey
+	for rows.Next() {
+		var k ApiKey
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Permissions, &k.LastUsedAt, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (s *PostgresStore) CreateAPIKey(userID, name, permissions string) (*ApiKey, string, error) {
+	key, err := generateAPIKey()
+	if err != nil {
+		return nil, "", err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(key), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, "", err
+	}
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	prefix := key[:8]
+	_, err = s.db.Exec(`INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, permissions, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, id, userID, name, string(hash), prefix, permissions, now)
+	if err != nil {
+		return nil, "", err
+	}
+	return &ApiKey{ID: id, UserID: userID, Name: name, KeyPrefix: prefix, Permissions: permissions, CreatedAt: now}, key, nil
+}
+
+func (s *PostgresStore) DeleteAPIKey(userID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM api_keys WHERE user_id = $1 AND id = $2`, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("api key not found")
+	}
+	return nil
+}
+
+// ── Sharing (from existing store) ────────────────────────────────────
+
+func (s *PostgresStore) CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData string, isPublic bool) (*SharedRecipe, error) {
+	id := uuid.New().String()
+	shareToken := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO shared_recipes (id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
+		id, userID, recipeID, shareToken, isPublic, title, description, category, tags, recipeData, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &SharedRecipe{ID: id, UserID: userID, RecipeID: recipeID, ShareToken: shareToken, IsPublic: isPublic, Title: title, Description: description, Category: category, Tags: tags, RecipeData: recipeData, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) GetSharedRecipeByToken(shareToken string) (*SharedRecipe, error) {
+	r := &SharedRecipe{}
+	err := s.db.QueryRow(
+		`SELECT id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE share_token = $1`, shareToken,
+	).Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func (s *PostgresStore) GetSharedRecipesByUser(userID string) ([]SharedRecipe, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE user_id = $1 ORDER BY updated_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var recipes []SharedRecipe
+	for rows.Next() {
+		var r SharedRecipe
+		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		recipes = append(recipes, r)
+	}
+	return recipes, nil
+}
+
+func (s *PostgresStore) SetSharedRecipePublic(id string, isPublic bool) error {
+	_, err := s.db.Exec(`UPDATE shared_recipes SET is_public = $1, updated_at = NOW() WHERE id = $2`, isPublic, id)
+	return err
+}
+
+func (s *PostgresStore) DeleteSharedRecipe(id string) error {
+	_, err := s.db.Exec(`UPDATE shared_recipes SET is_public = FALSE, updated_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) IncrementSharedRecipeViews(id string) error {
+	_, err := s.db.Exec(`UPDATE shared_recipes SET view_count = view_count + 1 WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) IncrementSharedRecipeImports(id string) error {
+	_, err := s.db.Exec(`UPDATE shared_recipes SET import_count = import_count + 1 WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStore) UpsertRecipeRating(recipeID, userID string, rating int) error {
+	now := time.Now().UTC()
+	_, err := s.db.Exec(
+		`INSERT INTO recipe_ratings (id, recipe_id, user_id, rating, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$5) ON CONFLICT (recipe_id, user_id) DO UPDATE SET rating = $4, updated_at = $5`,
+		uuid.New().String(), recipeID, userID, rating, now,
+	)
+	if err != nil {
+		return err
+	}
+	return s.recalcAverageRating(recipeID)
+}
+
+func (s *PostgresStore) recalcAverageRating(recipeID string) error {
+	var avg float64
+	var count int
+	if err := s.db.QueryRow(`SELECT COALESCE(AVG(rating), 0), COUNT(*) FROM recipe_ratings WHERE recipe_id = $1`, recipeID).Scan(&avg, &count); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE shared_recipes SET average_rating = $1, rating_count = $2 WHERE id = $3`, avg, count, recipeID)
+	return err
+}
+
+func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, page, perPage int) ([]SharedRecipe, error) {
+	if perPage <= 0 {
+		perPage = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+	orderClause := "ORDER BY s.created_at DESC"
+	switch sort {
+	case "rating":
+		orderClause = "ORDER BY s.average_rating DESC"
+	case "most_imported":
+		orderClause = "ORDER BY s.import_count DESC"
+	}
+	whereClause := "WHERE s.is_public = TRUE"
+	args := []interface{}{}
+	argN := 1
+	if query != "" {
+		whereClause += fmt.Sprintf(` AND s.title ILIKE $%d`, argN)
+		args = append(args, "%"+query+"%")
+		argN++
+	}
+	if category != "" {
+		whereClause += fmt.Sprintf(` AND s.category = $%d`, argN)
+		args = append(args, category)
+		argN++
+	}
+	args = append(args, perPage, offset)
+	rows, err := s.db.Query(
+		fmt.Sprintf(`SELECT s.id, s.user_id, s.recipe_id, s.share_token, s.is_public, s.title, s.description, s.category, s.tags, '' as recipe_data, s.view_count, s.import_count, s.average_rating, s.rating_count, s.created_at, s.updated_at FROM shared_recipes s %s %s LIMIT $%d OFFSET $%d`, whereClause, orderClause, argN, argN+1),
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var recipes []SharedRecipe
+	for rows.Next() {
+		var r SharedRecipe
+		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		recipes = append(recipes, r)
+	}
+	return recipes, nil
+}
+
+func (s *PostgresStore) GetCommunityCategories() ([]CommunityCategory, error) {
+	rows, err := s.db.Query(`SELECT id, name, slug FROM community_categories ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cats []CommunityCategory
+	for rows.Next() {
+		var c CommunityCategory
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug); err != nil {
+			return nil, err
+		}
+		cats = append(cats, c)
+	}
+	return cats, nil
+}
+
+func (s *PostgresStore) SeedCategories() error {
+	cats := []CommunityCategory{
+		{ID: uuid.New().String(), Name: "Breakfast", Slug: "breakfast"},
+		{ID: uuid.New().String(), Name: "Lunch", Slug: "lunch"},
+		{ID: uuid.New().String(), Name: "Dinner", Slug: "dinner"},
+		{ID: uuid.New().String(), Name: "Desserts", Slug: "desserts"},
+		{ID: uuid.New().String(), Name: "Snacks", Slug: "snacks"},
+		{ID: uuid.New().String(), Name: "Beverages", Slug: "beverages"},
+		{ID: uuid.New().String(), Name: "Appetizers", Slug: "appetizers"},
+		{ID: uuid.New().String(), Name: "Soups", Slug: "soups"},
+		{ID: uuid.New().String(), Name: "Salads", Slug: "salads"},
+		{ID: uuid.New().String(), Name: "Sides", Slug: "sides"},
+	}
+	for _, c := range cats {
+		s.db.Exec(`INSERT INTO community_categories (id, name, slug) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, c.ID, c.Name, c.Slug)
+	}
+	return nil
+}
+
+// ── Grocery Checklists user_id unique constraint ────────────────────
+// NOTE: The grocery_checklists table has UNIQUE(user_id, week_start) via the migration.
+// The UpsertGroceryChecklist method uses ON CONFLICT for this.
+// However, the migration only has UNIQUE(week_start). Let me fix the upsert.
+
+func init() {
+	log.Println("[PostgresStore] Registering pgx driver")
+}

@@ -11,9 +11,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { useRecipeStore } from '@/lib/recipe-store';
+import { getApiClient } from '@/lib/api-client';
 import {
-  getMealPlanByWeekStart,
-  getDayEntriesByMealPlanId,
   getGroceryChecklistByWeekStart,
   createGroceryChecklist,
   putGroceryChecklist,
@@ -50,10 +49,11 @@ export default function GroceryListPage() {
 
   useEffect(() => {
     async function loadData() {
-      const plan = await getMealPlanByWeekStart(weekStart);
+      const client = getApiClient();
+      const plan = await client.getMealPlanByWeekStart(weekStart);
       if (plan) {
-        const ents = await getDayEntriesByMealPlanId(plan.id);
-        setEntries(ents);
+        const ents = await client.getDayEntriesByMealPlanId(plan.id);
+        setEntries(ents as DayPlanEntryRecord[]);
       }
       let cl = await getGroceryChecklistByWeekStart(weekStart);
       if (!cl) {

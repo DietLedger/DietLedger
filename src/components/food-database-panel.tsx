@@ -102,7 +102,8 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
       try {
         const res = await fetch(`/api/foods/seed/${jobId}`);
         if (res.ok) {
-          const data: JobStatus = await res.json();
+          const json = await res.json();
+          const data: JobStatus = json.data ?? json;
           setJob(data);
           if (data.status === 'completed' || data.status === 'failed') {
             if (pollRef.current) clearInterval(pollRef.current);
@@ -215,11 +216,13 @@ export default function FoodDatabasePanel() {
         fetch('/api/foods/stats'),
       ]);
       if (seedRes.ok) {
-        const seedData = await seedRes.json();
-        setDatasets(seedData.datasets || []);
+        const seedJson = await seedRes.json();
+        const seedData = seedJson.data ?? seedJson;
+        setDatasets(seedData || []);
       }
       if (statsRes.ok) {
-        setStats(await statsRes.json());
+        const statsJson = await statsRes.json();
+        setStats(statsJson.data ?? statsJson);
       }
     } catch {
       // ignore
@@ -245,8 +248,8 @@ export default function FoodDatabasePanel() {
         body: JSON.stringify({ dataset: datasetKey }),
       });
       if (res.ok) {
-        const data = await res.json();
-        setActiveJobId(data.jobId);
+        const json = await res.json();
+        setActiveJobId((json.data ?? json).jobId);
       }
     } catch {
       // ignore
@@ -262,8 +265,8 @@ export default function FoodDatabasePanel() {
       formData.append('dataType', uploadDataType);
       const res = await fetch('/api/foods/seed/upload', { method: 'POST', body: formData });
       if (res.ok) {
-        const data = await res.json();
-        setActiveJobId(data.jobId);
+        const json = await res.json();
+        setActiveJobId((json.data ?? json).jobId);
         setUploadFile(null);
       }
     } catch {
@@ -279,8 +282,25 @@ export default function FoodDatabasePanel() {
     try {
       const res = await fetch(`/api/foods/search?query=${encodeURIComponent(testQuery)}&limit=10`);
       if (res.ok) {
-        const data = await res.json();
-        setTestResults(data.foods || []);
+        const json = await res.json();
+        const data = json.data ?? json;
+        const rawFoods = data.foods || [];
+        const mapped = rawFoods.map((f: any) => {
+          if (f.nutrients && typeof f.nutrients === 'object') return f;
+          return {
+            fdcId: f.fdcId,
+            description: f.description,
+            dataType: f.dataType,
+            brandOwner: f.brandOwner ?? null,
+            nutrients: {
+              calories: f.calories ?? 0,
+              protein: f.protein ?? 0,
+              totalFat: f.totalFat ?? 0,
+              totalCarbs: f.totalCarbs ?? 0,
+            },
+          };
+        });
+        setTestResults(mapped);
         setTestSource(data.source || '');
       }
     } catch {
@@ -484,7 +504,7 @@ export default function FoodDatabasePanel() {
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="text-xs">
-                    {stats.totalFoods.toLocaleString()} total foods
+                    {(stats?.totalFoods ?? 0).toLocaleString()} total foods
                   </Badge>
                   {!clearConfirm ? (
                     <Button
@@ -503,7 +523,7 @@ export default function FoodDatabasePanel() {
                         size="sm"
                         className="h-7 text-xs"
                         onClick={async () => {
-                          await fetch('/api/foods/stats', { method: 'DELETE' });
+                          await fetch('/api/foods/cache', { method: 'DELETE' });
                           setClearConfirm(false);
                           fetchData();
                         }}
@@ -525,7 +545,7 @@ export default function FoodDatabasePanel() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {stats.byDataType.map((dt) => (
+                {(stats?.byDataType ?? []).map((dt) => (
                   <div key={dt.dataType} className="p-3 bg-stone-50 rounded-lg">
                     <p className="text-xs text-stone-500">{dt.dataType}</p>
                     <p className="text-lg font-semibold text-stone-900">
@@ -533,7 +553,7 @@ export default function FoodDatabasePanel() {
                     </p>
                   </div>
                 ))}
-                {stats.bySource.map((s) => (
+                {(stats?.bySource ?? []).map((s) => (
                   <div key={s.source} className="p-3 bg-stone-50 rounded-lg">
                     <p className="text-xs text-stone-500">Source: {s.source}</p>
                     <p className="text-lg font-semibold text-stone-900">
@@ -542,12 +562,12 @@ export default function FoodDatabasePanel() {
                   </div>
                 ))}
               </div>
-              {stats.recentJobs.length > 0 && (
+              {(stats?.recentJobs?.length ?? 0) > 0 && (
                 <>
                   <Separator className="my-4" />
                   <p className="text-xs font-medium text-stone-500 mb-2">Recent Import Jobs</p>
                   <div className="space-y-1">
-                    {stats.recentJobs.map((job) => (
+                    {(stats?.recentJobs ?? []).map((job) => (
                       <div
                         key={job.id}
                         className="flex items-center justify-between text-xs text-stone-500 py-1"

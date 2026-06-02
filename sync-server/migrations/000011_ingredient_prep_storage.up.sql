@@ -1,0 +1,2 @@
+ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS prep_instructions TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS storage_location TEXT NOT NULL DEFAULT '';

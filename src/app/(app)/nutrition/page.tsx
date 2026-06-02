@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useNutritionStore } from '@/lib/nutrition-store';
-import { getLatestWeight } from '@/lib/storage';
-import { WeightEntryRecord, FoodLogEntryRecord } from '@/lib/storage';
+import { FoodLogEntryRecord } from '@/lib/storage';
 import { PersonSelector } from '@/components/nutrition/person-selector';
 import { PeriodSelector, Period, getPeriodDates, formatDateForDB } from '@/components/nutrition/period-selector';
 import { BmiCalorieStats } from '@/components/nutrition/bmi-calorie-stats';
@@ -54,7 +53,7 @@ function NutritionDashboard() {
   } = useNutritionStore();
 
   const [period, setPeriod] = useState<Period>('today');
-  const [latestWeight, setLatestWeight] = useState<WeightEntryRecord | undefined>();
+  const [selectedDate, setSelectedDate] = useState(formatDateForDB(new Date()));
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
   const [dietsDialogOpen, setDietsDialogOpen] = useState(false);
@@ -90,19 +89,32 @@ function NutritionDashboard() {
 
   useEffect(() => {
     if (activeProfileId) {
-      const { start, end } = getPeriodDates(period);
+      const { start, end } = getPeriodDates(period, selectedDate);
       fetchFoodLog(activeProfileId, formatDateForDB(start), formatDateForDB(end));
       fetchWeights(activeProfileId);
     }
-  }, [activeProfileId, period, fetchFoodLog, fetchWeights]);
+  }, [activeProfileId, period, selectedDate, fetchFoodLog, fetchWeights]);
 
-  useEffect(() => {
-    if (activeProfileId) {
-      getLatestWeight(activeProfileId).then(setLatestWeight);
-    } else {
-      setLatestWeight(undefined);
+  const latestWeight = useMemo(() => {
+    if (!weights.length) return undefined;
+    return [...weights].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  }, [weights]);
+
+  const periodLabel = useMemo(() => {
+    const labels: Record<string, string> = { today: "Today's", week: "This Week's", month: "This Month's", year: "This Year's", day: '' };
+    if (period === 'day') {
+      const d = new Date(selectedDate + 'T00:00:00');
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
-  }, [activeProfileId, weights]);
+    return labels[period] ?? "Today's";
+  }, [period, selectedDate]);
+
+  const periodEntries = useMemo(() => {
+    const { start, end } = getPeriodDates(period, selectedDate);
+    const startStr = formatDateForDB(start);
+    const endStr = formatDateForDB(end);
+    return foodLog.filter((e) => e.date >= startStr && e.date <= endStr);
+  }, [foodLog, period, selectedDate]);
 
   const todayEntries = useMemo(() => {
     const today = formatDateForDB(new Date());
@@ -247,7 +259,7 @@ function NutritionDashboard() {
 
       <div className="flex items-center gap-4 mb-6">
         <PersonSelector />
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <PeriodSelector value={period} onChange={setPeriod} selectedDate={selectedDate} onDateChange={setSelectedDate} />
       </div>
 
       <div ref={exportRef}>
@@ -305,7 +317,19 @@ function NutritionDashboard() {
               <CardTitle className="text-sm">Nutrient Trends</CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <NutrientTrendChart entries={foodLog} period={period} />
+              <NutrientTrendChart
+                entries={foodLog}
+                period={period}
+                targets={{
+                  calorieTarget: effectiveCalorieTarget,
+                  proteinGoalG: activeProfile?.proteinGoalG,
+                  fatGoalG: activeProfile?.fatGoalG,
+                  carbsGoalG: activeProfile?.carbsGoalG,
+                  sodiumMaxMg: activeProfile?.sodiumMaxMg,
+                  fiberGoalG: activeProfile?.fiberGoalG,
+                  sugarMaxG: activeProfile?.sugarMaxG,
+                }}
+              />
             </CardContent>
           </Card>
 
@@ -327,10 +351,10 @@ function NutritionDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm">Today&apos;s Food</CardTitle>
+            <CardTitle className="text-sm">{periodLabel} Food</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <TodaysFoodList entries={todayEntries} onEdit={handleEditEntry} onDelete={handleDeleteEntry} />
+            <TodaysFoodList entries={periodEntries} onEdit={handleEditEntry} onDelete={handleDeleteEntry} />
           </CardContent>
         </Card>
 
@@ -339,7 +363,7 @@ function NutritionDashboard() {
             <CardTitle className="text-sm">Most Eaten</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <MostEatenList entries={foodLog} limit={period === 'year' ? 20 : 10} />
+            <MostEatenList entries={periodEntries} limit={period === 'year' ? 20 : 10} />
           </CardContent>
         </Card>
       </div>

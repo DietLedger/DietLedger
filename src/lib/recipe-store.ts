@@ -1,22 +1,11 @@
 import { create } from "zustand";
 import {
-  getAllRecipes,
-  getRecipe,
-  createRecipe as dbCreateRecipe,
-  updateRecipe as dbUpdateRecipe,
-  deleteRecipe as dbDeleteRecipe,
-  addIngredient as dbAddIngredient,
-  removeIngredient as dbRemoveIngredient,
-  updateIngredient as dbUpdateIngredient,
   getStoredApiKey,
   setStoredApiKey as dbSetApiKey,
-  type RecipeRecord,
-  type IngredientRecord,
-  type IngredientGroup,
-  getAllCustomFoods,
 } from "@/lib/storage";
+import { getApiClient } from "@/lib/api-client";
+import type { RecipeRecord, IngredientGroup } from "@/lib/api-client";
 import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
-import { notifyLocalChange } from '@/lib/sync-store';
 import { generateUUID } from '@/lib/utils';
 
 interface InstructionStep {
@@ -92,6 +81,7 @@ interface Ingredient {
   groupId: string | null;
   linkedRecipeId: string | null;
   prepInstructions: string[];
+  storageLocation: string;
 }
 
 interface Recipe {
@@ -140,7 +130,7 @@ function toPublicRecipe(r: RecipeRecord): Recipe {
     instructionSteps: instr.steps,
     instructionGroups: instr.groups,
     ingredientGroups: r.ingredientGroups || [],
-    ingredients: r.ingredients.map((i) => ({
+    ingredients: (r.ingredients || []).map((i) => ({
       ...i,
       groupId: i.groupId || null,
       linkedRecipeId: i.linkedRecipeId || null,
@@ -152,7 +142,7 @@ function toPublicFDAFood(r: FDASearchResult): FDAFood {
   return { ...r };
 }
 
-const UNIT_TO_GRAMS: Record<string, number> = {
+export const UNIT_TO_GRAMS: Record<string, number> = {
   g: 1,
   oz: 28.35,
   lb: 453.6,
@@ -264,8 +254,14 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   fetchRecipes: async () => {
     set({ isLoading: true, error: null });
     try {
-      const recipes = await getAllRecipes();
-      set({ recipes: recipes.map(toPublicRecipe), isLoading: false });
+      const api = getApiClient();
+      const firstPage = await api.getRecipes(1, 100);
+      let allRecipes = firstPage.data;
+      for (let p = 2; p <= firstPage.totalPages; p++) {
+        const page = await api.getRecipes(p, 100);
+        allRecipes = allRecipes.concat(page.data);
+      }
+      set({ recipes: allRecipes.map(toPublicRecipe), isLoading: false });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -277,14 +273,14 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   createRecipe: async (name: string) => {
     set({ isLoading: true, error: null });
     try {
-      const recipe = await dbCreateRecipe(name);
+      const api = getApiClient();
+      const recipe = await api.createRecipe(name);
       const publicRecipe = toPublicRecipe(recipe);
       set((state) => ({
         recipes: [publicRecipe, ...state.recipes],
         activeRecipe: publicRecipe,
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -296,7 +292,8 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   selectRecipe: async (id: string) => {
     set({ isLoading: true, error: null });
     try {
-      const recipe = await getRecipe(id);
+      const api = getApiClient();
+      const recipe = await api.getRecipe(id);
       if (!recipe) throw new Error("Recipe not found");
       set({ activeRecipe: toPublicRecipe(recipe), isLoading: false });
     } catch (err) {
@@ -321,7 +318,8 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         delete storageData.instructionSteps;
         delete storageData.instructionGroups;
       }
-      const updated = await dbUpdateRecipe(activeRecipe.id, storageData as Parameters<typeof dbUpdateRecipe>[1]);
+      const api = getApiClient();
+      const updated = await api.updateRecipe(activeRecipe.id, storageData as any);
       const publicUpdated = toPublicRecipe(updated);
       set((state) => ({
         activeRecipe: publicUpdated,
@@ -330,7 +328,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -342,13 +339,13 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   deleteRecipe: async (id: string) => {
     set({ isLoading: true, error: null });
     try {
-      await dbDeleteRecipe(id);
+      const api = getApiClient();
+      await api.deleteRecipe(id);
       set((state) => ({
         recipes: state.recipes.filter((r) => r.id !== id),
         activeRecipe: state.activeRecipe?.id === id ? null : state.activeRecipe,
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -364,7 +361,8 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
 
       let customFoods: FDAFood[] = [];
       try {
-        const allCustom = await getAllCustomFoods();
+        const api = getApiClient();
+        const allCustom = await api.getCustomFoods();
         const q = query.toLowerCase();
         customFoods = allCustom
           .filter((f) => f.name.toLowerCase().includes(q))
@@ -449,9 +447,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         groupId: null as string | null,
         linkedRecipeId: null as string | null,
         prepInstructions: [] as string[],
+        storageLocation: '',
       };
 
-      const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
+      const newIngredient = await getApiClient().addIngredient(activeRecipe.id, ingredientData);
 
       const updatedRecipe: Recipe = {
         ...activeRecipe,
@@ -466,7 +465,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -508,9 +506,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         groupId: null as string | null,
         linkedRecipeId: null as string | null,
         prepInstructions: [] as string[],
+        storageLocation: '',
       };
 
-      const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
+      const newIngredient = await getApiClient().addIngredient(activeRecipe.id, ingredientData);
 
       const updatedRecipe: Recipe = {
         ...activeRecipe,
@@ -525,7 +524,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -566,9 +564,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         groupId: null as string | null,
         linkedRecipeId: sourceRecipe.id,
         prepInstructions: [] as string[],
+        storageLocation: '',
       };
 
-      const newIngredient = await dbAddIngredient(activeRecipe.id, ingredientData);
+      const newIngredient = await getApiClient().addIngredient(activeRecipe.id, ingredientData);
 
       const updatedRecipe: Recipe = {
         ...activeRecipe,
@@ -583,7 +582,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -597,7 +595,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
     if (!activeRecipe) return;
     set({ isLoading: true, error: null });
     try {
-      await dbRemoveIngredient(activeRecipe.id, ingredientId);
+      await getApiClient().removeIngredient(activeRecipe.id, ingredientId);
       const updatedRecipe: Recipe = {
         ...activeRecipe,
         ingredients: activeRecipe.ingredients.filter(
@@ -612,7 +610,6 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -676,7 +673,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         }
       }
 
-      const updatedIngredient = await dbUpdateIngredient(activeRecipe.id, ingredientId, updateData as Parameters<typeof dbUpdateIngredient>[2]);
+      const updatedIngredient = await getApiClient().updateIngredient(activeRecipe.id, ingredientId, updateData as any);
 
       const updatedRecipe: Recipe = {
         ...activeRecipe,
@@ -693,7 +690,7 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
         ),
         isLoading: false,
       }));
-      notifyLocalChange();
+      // sync handled by write queue
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Unknown error",
@@ -720,10 +717,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       ),
     }));
     try {
-      await dbUpdateRecipe(activeRecipe.id, {
+      await getApiClient().updateRecipe(activeRecipe.id, {
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
       });
-      notifyLocalChange();
+      // sync handled by write queue
     } catch {}
   },
 
@@ -782,11 +779,11 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       ),
     }));
     try {
-      await dbUpdateRecipe(activeRecipe.id, {
+      await getApiClient().updateRecipe(activeRecipe.id, {
         ingredients: reordered.map((i) => ({ ...i, recipeId: activeRecipe.id })),
         ingredientGroups: groups,
       });
-      notifyLocalChange();
+      // sync handled by write queue
     } catch {}
   },
 
@@ -810,11 +807,11 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       ),
     }));
     try {
-      await dbUpdateRecipe(activeRecipe.id, {
+      await getApiClient().updateRecipe(activeRecipe.id, {
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
         ingredientGroups: groups,
       });
-      notifyLocalChange();
+      // sync handled by write queue
     } catch {}
   },
 
@@ -836,8 +833,8 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       ),
     }));
     try {
-      await dbUpdateRecipe(activeRecipe.id, { ingredientGroups: groups });
-      notifyLocalChange();
+      await getApiClient().updateRecipe(activeRecipe.id, { ingredientGroups: groups });
+      // sync handled by write queue
     } catch {}
   },
 
@@ -859,10 +856,10 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
       ),
     }));
     try {
-      await dbUpdateRecipe(activeRecipe.id, {
+      await getApiClient().updateRecipe(activeRecipe.id, {
         ingredients: ingredients.map((i) => ({ ...i, recipeId: activeRecipe.id })),
       });
-      notifyLocalChange();
+      // sync handled by write queue
     } catch {}
   },
 

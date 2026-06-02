@@ -1,0 +1,875 @@
+import { writeQueue } from './write-queue';
+import { readCache, DEFAULT_TTL_LIST, DEFAULT_TTL_ITEM } from './read-cache';
+import type {
+  ApiClient,
+  AuthResult,
+  RecipeRecord,
+  IngredientRecord,
+  BookRecord,
+  ChapterRecord,
+  ChapterRecipeRecord,
+  ChapterPageRecord,
+  BookPageRecord,
+  CategoryRecord,
+  RecipeCategoryRecord,
+  MealPlanRecord,
+  DayPlanEntryRecord,
+  MealGroupRecord,
+  GroceryChecklistRecord,
+  NutritionProfileRecord,
+  FoodLogEntryRecord,
+  WeightEntryRecord,
+  CustomFoodRecord,
+  FDAFood,
+  PaginatedResult,
+  TemplateRecord,
+  DietaryProfileRecord,
+  AllergenRuleRecord,
+} from './api-client';
+
+const TOKEN_KEY = 'dietledger_access_token';
+const REFRESH_KEY = 'dietledger_refresh_token';
+
+export class GoApiClient implements ApiClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    writeQueue.init(this.baseUrl);
+    readCache.init();
+  }
+  private getToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(TOKEN_KEY);
+  }
+
+  private setTokens(access: string, refresh: string): void {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(TOKEN_KEY, access);
+    localStorage.setItem(REFRESH_KEY, refresh);
+  }
+
+  private clearTokens(): void {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    retry = true
+  ): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token = this.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (res.status === 401 && retry) {
+      const refreshed = await this.tryRefresh();
+      if (refreshed) return this.request<T>(method, path, body, false);
+      this.clearTokens();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dietledger:unauthorized'));
+      }
+      throw new Error('Unauthorized');
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  private async cachedGet<T>(cacheKey: string, path: string, ttl = DEFAULT_TTL_LIST): Promise<T> {
+    try {
+      const data = await this.request<T>('GET', path);
+      readCache.set(cacheKey, data, ttl);
+      return data;
+    } catch (e: unknown) {
+      const cached = await readCache.get<T>(cacheKey);
+      if (cached !== null) return cached;
+      throw e;
+    }
+  }
+
+  private async queuedWrite(method: string, path: string, cachePrefix?: string, body?: unknown): Promise<void> {
+    try {
+      await this.request(method, path, body);
+      if (cachePrefix) readCache.invalidate(cachePrefix);
+    } catch (e: unknown) {
+      if (e instanceof TypeError || (e instanceof Error && e.message === 'Failed to fetch')) {
+        await writeQueue.enqueue(method, path, body);
+        if (cachePrefix) readCache.invalidate(cachePrefix);
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  private async tryRefresh(): Promise<boolean> {
+    const refresh = typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null;
+    if (!refresh) return false;
+    try {
+      const res = await fetch(`${this.baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refresh }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      this.setTokens(data.accessToken, data.refreshToken);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private unwrap<T>(resp: { ok: boolean; data: T }): T {
+    return resp.data;
+  }
+
+  private unwrapPaginated<T>(resp: {
+    data: T[];
+    total: number;
+    page: number;
+    perPage: number;
+    totalPages: number;
+  }): PaginatedResult<T> {
+    return resp;
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────
+
+  async register(email: string, password: string, displayName: string): Promise<AuthResult> {
+    const res = await this.request<AuthResult>('POST', '/api/auth/register', {
+      email,
+      password,
+      displayName,
+    });
+    this.setTokens(res.accessToken, res.refreshToken);
+    return res;
+  }
+
+  async login(email: string, password: string): Promise<AuthResult> {
+    const res = await this.request<AuthResult>('POST', '/api/auth/login', {
+      email,
+      password,
+    });
+    this.setTokens(res.accessToken, res.refreshToken);
+    return res;
+  }
+
+  async refreshToken(token: string): Promise<AuthResult> {
+    const res = await this.request<AuthResult>('POST', '/api/auth/refresh', {
+      refreshToken: token,
+    });
+    this.setTokens(res.accessToken, res.refreshToken);
+    return res;
+  }
+
+  // ── Recipes ──────────────────────────────────────────────────────
+
+  async getRecipes(page = 1, perPage = 20): Promise<PaginatedResult<RecipeRecord>> {
+    const resp = await this.request<{
+      ok: boolean;
+      data: RecipeRecord[];
+      total: number;
+      page: number;
+      perPage: number;
+      totalPages: number;
+    }>('GET', `/api/recipes?page=${page}&perPage=${perPage}`);
+    return this.unwrapPaginated(resp);
+  }
+
+  async getRecipe(id: string): Promise<RecipeRecord | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: RecipeRecord }>('GET', `/api/recipes/${id}`);
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  async createRecipe(name: string): Promise<RecipeRecord> {
+    const resp = await this.request<{ ok: boolean; data: RecipeRecord }>('POST', '/api/recipes', {
+      name,
+      servings: 1,
+      servingName: 'serving',
+      ingredients: [],
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateRecipe(
+    id: string,
+    data: Partial<
+      Pick<
+        RecipeRecord,
+        'name' | 'servings' | 'servingName' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
+      >
+    >
+  ): Promise<RecipeRecord> {
+    const payload: Record<string, unknown> = { ...data };
+    if (data.ingredients) {
+      payload.ingredients = data.ingredients.map((ing) => ({
+        fdcId: ing.fdcId,
+        name: ing.name,
+        amount: ing.amount,
+        unit: ing.unit,
+        calories: ing.calories,
+        totalFat: ing.totalFat,
+        saturatedFat: ing.saturatedFat,
+        transFat: ing.transFat,
+        cholesterol: ing.cholesterol,
+        sodium: ing.sodium,
+        totalCarbs: ing.totalCarbs,
+        dietaryFiber: ing.dietaryFiber,
+        totalSugars: ing.totalSugars,
+        addedSugars: ing.addedSugars,
+        protein: ing.protein,
+        vitaminD: ing.vitaminD,
+        calcium: ing.calcium,
+        iron: ing.iron,
+        potassium: ing.potassium,
+      }));
+    }
+    const resp = await this.request<{ ok: boolean; data: RecipeRecord }>('PUT', `/api/recipes/${id}`, payload);
+    return this.unwrap(resp);
+  }
+
+  async deleteRecipe(id: string): Promise<void> {
+    await this.request('DELETE', `/api/recipes/${id}`);
+  }
+
+  // ── Ingredients ──────────────────────────────────────────────────
+
+  async addIngredient(
+    recipeId: string,
+    ingredient: Omit<IngredientRecord, 'id' | 'recipeId'>
+  ): Promise<IngredientRecord> {
+    const resp = await this.request<{ ok: boolean; data: IngredientRecord }>(
+      'POST',
+      `/api/recipes/${recipeId}/ingredients`,
+      {
+        fdcId: ingredient.fdcId,
+        name: ingredient.name,
+        amount: ingredient.amount,
+        unit: ingredient.unit,
+        calories: ingredient.calories,
+        totalFat: ingredient.totalFat,
+        saturatedFat: ingredient.saturatedFat,
+        transFat: ingredient.transFat,
+        cholesterol: ingredient.cholesterol,
+        sodium: ingredient.sodium,
+        totalCarbs: ingredient.totalCarbs,
+        dietaryFiber: ingredient.dietaryFiber,
+        totalSugars: ingredient.totalSugars,
+        addedSugars: ingredient.addedSugars,
+        protein: ingredient.protein,
+        vitaminD: ingredient.vitaminD,
+        calcium: ingredient.calcium,
+        iron: ingredient.iron,
+        potassium: ingredient.potassium,
+      }
+    );
+    return this.unwrap(resp);
+  }
+
+  async updateIngredient(
+    recipeId: string,
+    ingredientId: string,
+    data: Partial<Omit<IngredientRecord, 'id' | 'recipeId'>>
+  ): Promise<IngredientRecord> {
+    const resp = await this.request<{ ok: boolean; data: IngredientRecord }>(
+      'PUT',
+      `/api/recipes/${recipeId}/ingredients/${ingredientId}`,
+      data
+    );
+    return this.unwrap(resp);
+  }
+
+  async removeIngredient(recipeId: string, ingredientId: string): Promise<void> {
+    await this.request('DELETE', `/api/recipes/${recipeId}/ingredients/${ingredientId}`);
+  }
+
+  // ── Books ────────────────────────────────────────────────────────
+
+  async getBooks(): Promise<BookRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: BookRecord[] }>('GET', '/api/books');
+    return this.unwrap(resp);
+  }
+
+  async getBook(id: string): Promise<BookRecord | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: BookRecord }>('GET', `/api/books/${id}`);
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  async createBook(title: string, description = '', coverColor = '#059669'): Promise<BookRecord> {
+    const resp = await this.request<{ ok: boolean; data: BookRecord }>('POST', '/api/books', {
+      title,
+      description,
+      coverColor,
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateBook(
+    id: string,
+    data: Partial<Pick<BookRecord, 'title' | 'description' | 'coverColor'>>
+  ): Promise<BookRecord> {
+    const resp = await this.request<{ ok: boolean; data: BookRecord }>('PUT', `/api/books/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteBook(id: string): Promise<void> {
+    await this.request('DELETE', `/api/books/${id}`);
+  }
+
+  // ── Chapters ─────────────────────────────────────────────────────
+
+  async getChaptersByBook(bookId: string): Promise<ChapterRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: ChapterRecord[] }>('GET', `/api/books/${bookId}/chapters`);
+    return this.unwrap(resp);
+  }
+
+  async createChapter(bookId: string, title: string): Promise<ChapterRecord> {
+    const resp = await this.request<{ ok: boolean; data: ChapterRecord }>('POST', `/api/books/${bookId}/chapters`, {
+      title,
+      position: 0,
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateChapter(
+    id: string,
+    data: Partial<Pick<ChapterRecord, 'title' | 'position' | 'pageTemplateId' | 'recipeTemplateId'>>
+  ): Promise<ChapterRecord> {
+    const resp = await this.request<{ ok: boolean; data: ChapterRecord }>('PUT', `/api/chapters/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteChapter(id: string): Promise<void> {
+    await this.request('DELETE', `/api/chapters/${id}`);
+  }
+
+  async reorderChapters(bookId: string, chapterIds: string[]): Promise<void> {
+    await this.request('PUT', `/api/books/${bookId}/chapters/reorder`, { chapterIds });
+  }
+
+  // ── Chapter Recipes ──────────────────────────────────────────────
+
+  async getChapterRecipes(chapterId: string): Promise<ChapterRecipeRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: ChapterRecipeRecord[] }>(
+      'GET',
+      `/api/chapters/${chapterId}/recipes`
+    );
+    return this.unwrap(resp);
+  }
+
+  async addRecipeToChapter(chapterId: string, recipeId: string): Promise<ChapterRecipeRecord> {
+    const resp = await this.request<{ ok: boolean; data: ChapterRecipeRecord }>(
+      'POST',
+      `/api/chapters/${chapterId}/recipes`,
+      { recipeId }
+    );
+    return this.unwrap(resp);
+  }
+
+  async removeRecipeFromChapter(chapterId: string, recipeId: string): Promise<void> {
+    await this.request('DELETE', `/api/chapters/${chapterId}/recipes/${recipeId}`);
+  }
+
+  // ── Chapter Pages ────────────────────────────────────────────────
+
+  async getChapterPages(chapterId: string): Promise<ChapterPageRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: ChapterPageRecord[] }>(
+      'GET',
+      `/api/chapters/${chapterId}/pages`
+    );
+    return this.unwrap(resp);
+  }
+
+  async createChapterPage(chapterId: string, title: string, content: string): Promise<ChapterPageRecord> {
+    const resp = await this.request<{ ok: boolean; data: ChapterPageRecord }>(
+      'POST',
+      `/api/chapters/${chapterId}/pages`,
+      { title, content }
+    );
+    return this.unwrap(resp);
+  }
+
+  async updateChapterPage(
+    id: string,
+    data: Partial<Pick<ChapterPageRecord, 'title' | 'content' | 'position'>>
+  ): Promise<ChapterPageRecord> {
+    const resp = await this.request<{ ok: boolean; data: ChapterPageRecord }>('PUT', `/api/pages/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteChapterPage(id: string): Promise<void> {
+    await this.request('DELETE', `/api/pages/${id}`);
+  }
+
+  // ── Book Pages ───────────────────────────────────────────────────
+
+  async getBookPages(bookId: string): Promise<BookPageRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: BookPageRecord[] }>('GET', `/api/books/${bookId}/pages`);
+    return this.unwrap(resp);
+  }
+
+  async createBookPage(bookId: string, title: string, content: string): Promise<BookPageRecord> {
+    const resp = await this.request<{ ok: boolean; data: BookPageRecord }>('POST', `/api/books/${bookId}/pages`, {
+      title,
+      content,
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateBookPage(
+    id: string,
+    data: Partial<Pick<BookPageRecord, 'title' | 'content' | 'position'>>
+  ): Promise<BookPageRecord> {
+    const resp = await this.request<{ ok: boolean; data: BookPageRecord }>('PUT', `/api/book-pages/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteBookPage(id: string): Promise<void> {
+    await this.request('DELETE', `/api/book-pages/${id}`);
+  }
+
+  // ── Categories ───────────────────────────────────────────────────
+
+  async getCategories(): Promise<CategoryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: CategoryRecord[] }>('GET', '/api/categories');
+    return this.unwrap(resp);
+  }
+
+  async createCategory(name: string, parentId?: string | null): Promise<CategoryRecord> {
+    const resp = await this.request<{ ok: boolean; data: CategoryRecord }>('POST', '/api/categories', {
+      name,
+      parentId: parentId || null,
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateCategory(
+    id: string,
+    data: Partial<Pick<CategoryRecord, 'name' | 'parentId'>>
+  ): Promise<CategoryRecord> {
+    const resp = await this.request<{ ok: boolean; data: CategoryRecord }>('PUT', `/api/categories/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    await this.request('DELETE', `/api/categories/${id}`);
+  }
+
+  // ── Recipe Categories ────────────────────────────────────────────
+
+  async getRecipeCategories(recipeId: string): Promise<RecipeCategoryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: RecipeCategoryRecord[] }>(
+      'GET',
+      `/api/recipes/${recipeId}/categories`
+    );
+    return this.unwrap(resp);
+  }
+
+  async addCategoryToRecipe(recipeId: string, categoryId: string): Promise<RecipeCategoryRecord> {
+    const resp = await this.request<{ ok: boolean; data: RecipeCategoryRecord }>(
+      'POST',
+      `/api/recipes/${recipeId}/categories`,
+      { categoryId }
+    );
+    return this.unwrap(resp);
+  }
+
+  async removeCategoryFromRecipe(recipeId: string, categoryId: string): Promise<void> {
+    await this.request('DELETE', `/api/recipes/${recipeId}/categories/${categoryId}`);
+  }
+
+  // ── Meal Plans ───────────────────────────────────────────────────
+
+  async getMealPlans(): Promise<MealPlanRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: MealPlanRecord[] }>('GET', '/api/meal-plans');
+    return this.unwrap(resp);
+  }
+
+  async getMealPlanByWeekStart(weekStart: string): Promise<MealPlanRecord | null> {
+    const plans = await this.getMealPlans();
+    return plans.find((p) => p.weekStart === weekStart) || null;
+  }
+
+  async createMealPlan(name: string, weekStart: string): Promise<MealPlanRecord> {
+    const resp = await this.request<{ ok: boolean; data: MealPlanRecord }>('POST', '/api/meal-plans', {
+      name,
+      weekStart,
+    });
+    return this.unwrap(resp);
+  }
+
+  async updateMealPlan(
+    id: string,
+    data: Partial<Pick<MealPlanRecord, 'name'>>
+  ): Promise<MealPlanRecord> {
+    const resp = await this.request<{ ok: boolean; data: MealPlanRecord }>('PUT', `/api/meal-plans/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteMealPlan(id: string): Promise<void> {
+    await this.request('DELETE', `/api/meal-plans/${id}`);
+  }
+
+  // ── Day Plan Entries ─────────────────────────────────────────────
+
+  async getDayEntriesByMealPlanId(mealPlanId: string): Promise<DayPlanEntryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: DayPlanEntryRecord[] }>(
+      'GET',
+      `/api/meal-plans/${mealPlanId}/entries`
+    );
+    return this.unwrap(resp);
+  }
+
+  async createDayPlanEntry(
+    mealPlanId: string,
+    date: string,
+    slot: string,
+    recipeId: string | null,
+    position: number,
+    options?: Partial<Omit<DayPlanEntryRecord, 'id' | 'mealPlanId' | 'date' | 'slot' | 'recipeId' | 'position'>>
+  ): Promise<DayPlanEntryRecord> {
+    const payload = {
+      date,
+      slot,
+      recipeId,
+      position,
+      servings: 1,
+      isLeftover: false,
+      sourceType: 'recipe',
+      ...options,
+    };
+    const resp = await this.request<{ ok: boolean; data: DayPlanEntryRecord }>(
+      'POST',
+      `/api/meal-plans/${mealPlanId}/entries`,
+      payload
+    );
+    return this.unwrap(resp);
+  }
+
+  async updateDayPlanEntry(
+    id: string,
+    data: Partial<Omit<DayPlanEntryRecord, 'id' | 'mealPlanId'>>
+  ): Promise<DayPlanEntryRecord> {
+    const resp = await this.request<{ ok: boolean; data: DayPlanEntryRecord }>('PUT', `/api/entries/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteDayPlanEntry(id: string): Promise<void> {
+    await this.request('DELETE', `/api/entries/${id}`);
+  }
+
+  // ── Meal Groups ──────────────────────────────────────────────────
+
+  async getMealGroupsByMealPlanId(mealPlanId: string): Promise<MealGroupRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: MealGroupRecord[] }>(
+      'GET',
+      `/api/meal-plans/${mealPlanId}/groups`
+    );
+    return this.unwrap(resp);
+  }
+
+  async createMealGroup(
+    mealPlanId: string,
+    date: string,
+    slot: string,
+    name: string,
+    position: number
+  ): Promise<MealGroupRecord> {
+    const resp = await this.request<{ ok: boolean; data: MealGroupRecord }>(
+      'POST',
+      `/api/meal-plans/${mealPlanId}/groups`,
+      { date, slot, name, position }
+    );
+    return this.unwrap(resp);
+  }
+
+  async deleteMealGroup(id: string): Promise<void> {
+    await this.request('DELETE', `/api/meal-plans/_/groups?id=${id}`);
+  }
+
+  // ── Grocery Checklists ───────────────────────────────────────────
+
+  async getGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: GroceryChecklistRecord }>(
+        'GET',
+        `/api/grocery?weekStart=${weekStart}`
+      );
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  async upsertGroceryChecklist(record: GroceryChecklistRecord): Promise<GroceryChecklistRecord> {
+    const resp = await this.request<{ ok: boolean; data: GroceryChecklistRecord }>('PUT', '/api/grocery', {
+      weekStart: record.weekStart,
+      checkedItems: JSON.stringify(record.checkedItems),
+    });
+    return this.unwrap(resp);
+  }
+
+  // ── Nutrition Profiles ───────────────────────────────────────────
+
+  async getNutritionProfiles(): Promise<NutritionProfileRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: NutritionProfileRecord[] }>('GET', '/api/profiles');
+    return this.unwrap(resp);
+  }
+
+  async getNutritionProfile(id: string): Promise<NutritionProfileRecord | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: NutritionProfileRecord }>('GET', `/api/profiles/${id}`);
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  async createNutritionProfile(
+    data: Omit<NutritionProfileRecord, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<NutritionProfileRecord> {
+    const resp = await this.request<{ ok: boolean; data: NutritionProfileRecord }>('POST', '/api/profiles', data);
+    return this.unwrap(resp);
+  }
+
+  async updateNutritionProfile(
+    id: string,
+    data: Partial<Omit<NutritionProfileRecord, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<NutritionProfileRecord> {
+    const resp = await this.request<{ ok: boolean; data: NutritionProfileRecord }>('PUT', `/api/profiles/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteNutritionProfile(id: string): Promise<void> {
+    await this.request('DELETE', `/api/profiles/${id}`);
+  }
+
+  // ── Food Log ─────────────────────────────────────────────────────
+
+  async getFoodLogByProfileAndDate(profileId: string, date: string): Promise<FoodLogEntryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: FoodLogEntryRecord[] }>(
+      'GET',
+      `/api/profiles/${profileId}/log?date=${date}`
+    );
+    return this.unwrap(resp);
+  }
+
+  async getFoodLogByProfileAndDateRange(profileId: string, startDate: string, endDate: string): Promise<FoodLogEntryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: FoodLogEntryRecord[] }>(
+      'GET',
+      `/api/profiles/${profileId}/log?startDate=${startDate}&endDate=${endDate}`
+    );
+    return this.unwrap(resp);
+  }
+
+  async createFoodLogEntry(
+    data: Omit<FoodLogEntryRecord, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<FoodLogEntryRecord> {
+    const resp = await this.request<{ ok: boolean; data: FoodLogEntryRecord }>(
+      'POST',
+      `/api/profiles/${data.profileId}/log`,
+      data
+    );
+    return this.unwrap(resp);
+  }
+
+  async updateFoodLogEntry(
+    id: string,
+    data: Partial<Omit<FoodLogEntryRecord, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<FoodLogEntryRecord> {
+    const resp = await this.request<{ ok: boolean; data: FoodLogEntryRecord }>('PUT', `/api/log/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteFoodLogEntry(id: string): Promise<void> {
+    await this.request('DELETE', `/api/log/${id}`);
+  }
+
+  // ── Weight Entries ───────────────────────────────────────────────
+
+  async getWeightByProfile(profileId: string): Promise<WeightEntryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: WeightEntryRecord[] }>(
+      'GET',
+      `/api/profiles/${profileId}/weight`
+    );
+    return this.unwrap(resp);
+  }
+
+  async createWeightEntry(
+    data: Omit<WeightEntryRecord, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<WeightEntryRecord> {
+    const resp = await this.request<{ ok: boolean; data: WeightEntryRecord }>(
+      'POST',
+      `/api/profiles/${data.profileId}/weight`,
+      data
+    );
+    return this.unwrap(resp);
+  }
+
+  async updateWeightEntry(
+    id: string,
+    data: Partial<Omit<WeightEntryRecord, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<WeightEntryRecord> {
+    const resp = await this.request<{ ok: boolean; data: WeightEntryRecord }>('PUT', `/api/weight/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteWeightEntry(id: string): Promise<void> {
+    await this.request('DELETE', `/api/weight/${id}`);
+  }
+
+  // ── Custom Foods ─────────────────────────────────────────────────
+
+  async getCustomFoods(): Promise<CustomFoodRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: CustomFoodRecord[] }>('GET', '/api/custom-foods');
+    return this.unwrap(resp);
+  }
+
+  async createCustomFood(
+    food: Omit<CustomFoodRecord, 'id' | 'createdAt' | 'sharedWithCommunity'>
+  ): Promise<CustomFoodRecord> {
+    const resp = await this.request<{ ok: boolean; data: CustomFoodRecord }>('POST', '/api/custom-foods', food);
+    return this.unwrap(resp);
+  }
+
+  async updateCustomFood(
+    id: string,
+    data: Partial<Omit<CustomFoodRecord, 'id' | 'createdAt'>>
+  ): Promise<CustomFoodRecord> {
+    const resp = await this.request<{ ok: boolean; data: CustomFoodRecord }>('PUT', `/api/custom-foods/${id}`, data);
+    return this.unwrap(resp);
+  }
+
+  async deleteCustomFood(id: string): Promise<void> {
+    await this.request('DELETE', `/api/custom-foods/${id}`);
+  }
+
+  async shareCustomFood(id: string): Promise<void> {
+    await this.request('POST', `/api/custom-foods/${id}/share`);
+  }
+
+  async getCommunityFoods(page = 1, perPage = 20): Promise<PaginatedResult<CustomFoodRecord>> {
+    const resp = await this.request<{
+      ok: boolean;
+      data: CustomFoodRecord[];
+      total: number;
+      page: number;
+      perPage: number;
+      totalPages: number;
+    }>('GET', `/api/custom-foods/community?page=${page}&perPage=${perPage}`);
+    return this.unwrapPaginated(resp);
+  }
+
+  // ── Food Search ──────────────────────────────────────────────────
+
+  async searchFoods(query: string, page = 1, perPage = 20): Promise<PaginatedResult<FDAFood>> {
+    const resp = await this.request<PaginatedResult<FDAFood> & { ok?: boolean }>(
+      'GET',
+      `/api/foods/search?q=${encodeURIComponent(query)}&page=${page}&perPage=${perPage}`
+    );
+    return resp;
+  }
+
+  async getFoodByFdcId(fdcId: number): Promise<FDAFood | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: FDAFood }>('GET', `/api/foods/${fdcId}`);
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  async getFoodByUPC(upc: string): Promise<FDAFood | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: FDAFood }>('GET', `/api/foods/upc/${upc}`);
+      return this.unwrap(resp);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+
+  // ── Templates (client-only — delegated to LocalApiClient) ────────
+
+  private async localFallback(): Promise<import('./api-client-local').LocalApiClient> {
+    const { LocalApiClient } = await import('./api-client-local');
+    return new LocalApiClient();
+  }
+
+  async getTemplates(): Promise<TemplateRecord[]> {
+    return (await this.localFallback()).getTemplates();
+  }
+  async getTemplatesByType(type: TemplateRecord['type']): Promise<TemplateRecord[]> {
+    return (await this.localFallback()).getTemplatesByType(type);
+  }
+  async getTemplate(id: string): Promise<TemplateRecord | null> {
+    return (await this.localFallback()).getTemplate(id);
+  }
+  async createTemplate(data: Omit<TemplateRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<TemplateRecord> {
+    return (await this.localFallback()).createTemplate(data);
+  }
+  async updateTemplate(id: string, data: Partial<Omit<TemplateRecord, 'id' | 'createdAt'>>): Promise<TemplateRecord> {
+    return (await this.localFallback()).updateTemplate(id, data);
+  }
+  async deleteTemplate(id: string): Promise<void> {
+    return (await this.localFallback()).deleteTemplate(id);
+  }
+
+  // ── Dietary Profiles (client-only — delegated to LocalApiClient) ─
+
+  async getDietaryProfiles(): Promise<DietaryProfileRecord[]> {
+    return (await this.localFallback()).getDietaryProfiles();
+  }
+  async createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
+    return (await this.localFallback()).createDietaryProfile(data);
+  }
+  async updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord> {
+    return (await this.localFallback()).updateDietaryProfile(id, data);
+  }
+  async deleteDietaryProfile(id: string): Promise<void> {
+    return (await this.localFallback()).deleteDietaryProfile(id);
+  }
+  async getAllergenRulesByProfile(profileId: string): Promise<AllergenRuleRecord[]> {
+    return (await this.localFallback()).getAllergenRulesByProfile(profileId);
+  }
+  async createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord> {
+    return (await this.localFallback()).createAllergenRule(data);
+  }
+  async updateAllergenRule(id: string, data: Partial<Omit<AllergenRuleRecord, 'id' | 'createdAt'>>): Promise<AllergenRuleRecord> {
+    return (await this.localFallback()).updateAllergenRule(id, data);
+  }
+  async deleteAllergenRule(id: string): Promise<void> {
+    return (await this.localFallback()).deleteAllergenRule(id);
+  }
+}

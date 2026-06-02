@@ -22,7 +22,8 @@ import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { useAppSettingsStore } from '@/lib/app-settings-store';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
-import { getAllCustomFoods, type CustomFoodRecord } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+import type { CustomFoodRecord } from '@/lib/storage';
 import type { DaySlot } from '@/lib/types';
 import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
 import type { DayPlanEntryRecord, MealGroupRecord } from '@/lib/storage';
@@ -141,7 +142,7 @@ export default function WeeklyPlanPage() {
   useEffect(() => {
     fetchRecipes();
     fetchSettings();
-    getAllCustomFoods().then(setCustomFoods);
+    getApiClient().getCustomFoods().then(setCustomFoods);
   }, [fetchRecipes, fetchSettings]);
 
   useEffect(() => {

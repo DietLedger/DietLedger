@@ -4,7 +4,8 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookStore } from '@/lib/book-store';
 import { useRecipeStore } from '@/lib/recipe-store';
-import { getRecipe, type RecipeRecord } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+import type { RecipeRecord } from '@/lib/storage';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -291,7 +292,7 @@ export default function BookDetailPage() {
       for (const ch of activeBook.chapters) {
         const infos: ChapterRecipeInfo[] = [];
         for (const cr of ch.chapterRecipes) {
-          const recipe = await getRecipe(cr.recipeId).catch(() => undefined);
+          const recipe = await getApiClient().getRecipe(cr.recipeId).catch(() => undefined);
           infos.push({ chapterRecipeId: cr.id, recipeId: cr.recipeId, recipe: recipe || null });
         }
         map.set(ch.id, infos);
