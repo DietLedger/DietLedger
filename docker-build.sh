@@ -24,7 +24,7 @@ if [ "$BUMP" = true ]; then
 else
     node "$BASE_DIR/scripts/version-sync.js"
 fi
-VERSION=$(node -e "console.log(require('$BASE_DIR/package.json').version))")
+VERSION=$(node -e "console.log(require('$BASE_DIR/package.json').version)")
 echo "     Version: $VERSION"
 echo ""
 
