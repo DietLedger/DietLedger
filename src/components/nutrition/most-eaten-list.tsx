@@ -35,9 +35,9 @@ export function MostEatenList({ entries, limit = 10 }: MostEatenListProps) {
   return (
     <div className="space-y-1">
       {ranked.map((item, i) => (
-        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground w-5">{i + 1}.</span>
+        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0 min-w-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            <span className="text-xs text-muted-foreground w-5 shrink-0">{i + 1}.</span>
             <span className="truncate">{item.name}</span>
           </div>
           <div className="text-xs text-muted-foreground flex gap-3 shrink-0">

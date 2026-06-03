@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Download, Star } from 'lucide-react';
 import { toast } from 'sonner';
-import { createRecipe } from '@/lib/storage';
+
 import Link from 'next/link';
 
 interface PublicRecipe {

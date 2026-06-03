@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRecipeStore, type Recipe } from '@/lib/recipe-store';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
-import { getAllMealPlans, getDayEntriesByMealPlanId, getMealGroupsByMealPlanId, type MealGroupRecord, type DayPlanEntryRecord } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/storage';
 import { format, startOfWeek, parseISO } from 'date-fns';
 import type { DaySlot } from '@/lib/types';
 
@@ -150,9 +151,10 @@ function KitchenHelperContent() {
     async function loadMealData() {
       const allGroups: MealGroupRecord[] = [];
       const allEntries: DayPlanEntryRecord[] = [];
+      const client = getApiClient();
       for (const plan of mealPlans) {
-        const groups = await getMealGroupsByMealPlanId(plan.id);
-        const entries = await getDayEntriesByMealPlanId(plan.id);
+        const groups = await client.getMealGroupsByMealPlanId(plan.id);
+        const entries = await client.getDayEntriesByMealPlanId(plan.id);
         allGroups.push(...groups);
         allEntries.push(...entries);
       }

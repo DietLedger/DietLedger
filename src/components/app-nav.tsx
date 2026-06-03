@@ -22,7 +22,6 @@ import {
   Check,
   Wifi,
   WifiOff,
-  RefreshCw,
   ScanBarcode,
   Salad,
   Database,
@@ -32,21 +31,18 @@ import {
   MapPin,
   Activity,
   Palette,
-  ChevronDown,
-  ChevronRight,
-  AlertTriangle,
-  ClipboardList,
   Plus,
+  LogOut,
+  Weight,
 } from 'lucide-react';
 import FoodDatabasePanel from '@/components/food-database-panel';
 import CategoriesPanel from '@/components/categories-panel';
 import PantryStaplesPanel from '@/components/pantry-staples-panel';
 import LocationPanel from '@/components/location-panel';
 import CustomFoodsPanel from '@/components/custom-foods-panel';
-import SyncStatusIndicator from '@/components/sync/sync-status-indicator';
-import SyncSettingsPanel from '@/components/sync/sync-settings-panel';
-import ConflictResolver from '@/components/sync/conflict-resolver';
-import { useSyncStore } from '@/lib/sync-store';
+import SyncIndicator from '@/components/sync-indicator';
+import { LogWeightDialog } from '@/components/nutrition/log-weight-dialog';
+import { useAuth } from '@/hooks/use-auth';
 import { useAppTheme } from '@/hooks/use-app-theme';
 
 const NAV_ITEMS = [
@@ -56,16 +52,15 @@ const NAV_ITEMS = [
   { href: '/kitchen-helper', label: 'Kitchen Helper', icon: ChefHat },
   { href: '/nutrition', label: 'Nutrition', icon: Activity },
   { href: '/nutrition?action=addfood', label: 'Add Food', icon: Plus },
-  { href: '/nutrition/log', label: 'Food Log', icon: ClipboardList },
 ] as const;
 
 export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { apiKey, setApiKey, loadApiKey, recipes } = useRecipeStore();
-  const syncServers = useSyncStore((s) => s.servers);
-  const [conflictsOpen, setConflictsOpen] = useState(false);
+  const { user, logout } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logWeightOpen, setLogWeightOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const { themeId, setTheme, themes, mounted: themeMounted } = useAppTheme();
@@ -124,6 +119,15 @@ export default function AppNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs text-brand-700 border-brand-200 hover:bg-brand-50"
+            onClick={() => setLogWeightOpen(true)}
+          >
+            <Weight className="w-3.5 h-3.5" />
+            Log Weight
+          </Button>
           <Badge variant="secondary" className="text-xs gap-1">
             <HardDrive className="w-3 h-3" />Local Storage
           </Badge>
@@ -149,7 +153,16 @@ export default function AppNav() {
             <TooltipContent>Barcode Scanner</TooltipContent>
           </Tooltip>
 
-          <SyncStatusIndicator />
+          <SyncIndicator />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400 hover:text-red-500" onClick={logout}>
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Sign Out</TooltipContent>
+          </Tooltip>
 
           <Dialog open={settingsOpen} onOpenChange={(open) => { setSettingsOpen(open); if (open) { setApiKeyInput(apiKey); setApiKeySaved(false); } }}>
             <DialogTrigger asChild>
@@ -172,7 +185,6 @@ export default function AppNav() {
                   <TabsTrigger value="custom-foods" className="text-xs gap-1"><Package className="w-3 h-3" />Custom Foods</TabsTrigger>
                   <TabsTrigger value="location" className="text-xs gap-1"><MapPin className="w-3 h-3" />Location</TabsTrigger>
                   <TabsTrigger value="templates" className="text-xs gap-1"><LayoutTemplate className="w-3 h-3" />Templates</TabsTrigger>
-                  <TabsTrigger value="sync" className="text-xs gap-1"><RefreshCw className="w-3 h-3" />Sync</TabsTrigger>
                 </TabsList>
                 <div className="flex-1 min-h-0 overflow-y-auto mt-4">
                 <TabsContent value="general" className="mt-0">
@@ -242,13 +254,13 @@ export default function AppNav() {
                     <Separator />
                     <div>
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
-                        <HardDrive className="w-3.5 h-3.5 text-brand-600" />Local Storage
+                        <HardDrive className="w-3.5 h-3.5 text-brand-600" />Account
                       </label>
                       <p className="text-xs text-stone-400">
-                        All your recipes are stored locally in your browser&apos;s IndexedDB. Configure a sync server in the Sync tab to back up and synchronize across devices.
+                        Signed in as <span className="text-stone-600 font-medium">{user?.displayName || user?.email}</span>
                       </p>
                       <div className="mt-2 p-2 bg-stone-50 rounded-md text-xs text-stone-500">
-                        {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} stored locally
+                        {recipes.length} recipe{recipes.length !== 1 ? 's' : ''}
                       </div>
                     </div>
                     <Separator />
@@ -293,38 +305,14 @@ export default function AppNav() {
                     </div>
                   </div>
                 </TabsContent>
-                <TabsContent value="sync" className="mt-4">
-                  <SyncSettingsPanel />
-                  {(() => {
-                    const conflictedServers = syncServers.filter((s) => s.lastSyncStatus === 'conflict' && s.apiKey);
-                    if (conflictedServers.length === 0) return null;
-                    const first = conflictedServers[0];
-                    return (
-                      <div className="mt-4">
-                        <button
-                          type="button"
-                          className="flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 w-full"
-                          onClick={() => setConflictsOpen(!conflictsOpen)}
-                        >
-                          {conflictsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                          <AlertTriangle className="w-4 h-4" />
-                          {conflictedServers.length} Server{conflictedServers.length !== 1 ? 's' : ''} with Conflicts
-                        </button>
-                        {conflictsOpen && (
-                          <div className="mt-2">
-                            <ConflictResolver serverUrl={first.serverUrl} apiKey={first.apiKey} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </TabsContent>
                 </div>
               </Tabs>
             </DialogContent>
           </Dialog>
         </div>
       </div>
+
+      <LogWeightDialog open={logWeightOpen} onOpenChange={setLogWeightOpen} />
     </header>
   );
 }

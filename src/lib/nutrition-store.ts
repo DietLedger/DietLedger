@@ -1,30 +1,10 @@
 import { create } from "zustand";
 import {
-  getAllNutritionProfiles,
-  getNutritionProfile,
-  createNutritionProfile as dbCreateProfile,
-  updateNutritionProfile as dbUpdateProfile,
-  deleteNutritionProfile as dbDeleteProfile,
-  getFoodLogByProfileAndDate,
-  getFoodLogByProfileAndDateRange,
-  createFoodLogEntry as dbCreateFoodLog,
-  updateFoodLogEntry as dbUpdateFoodLog,
-  deleteFoodLogEntry as dbDeleteFoodLog,
-  getFoodLogEntry,
-  createWeightEntry as dbCreateWeight,
-  updateWeightEntry as dbUpdateWeight,
-  deleteWeightEntry as dbDeleteWeight,
-  getWeightByProfile,
-  getLatestWeight,
-  getWeightEntry,
+  getApiClient,
   type NutritionProfileRecord,
   type FoodLogEntryRecord,
   type WeightEntryRecord,
-  type ActivityLevel,
-  type MealSlot,
-  type FoodSourceType,
-} from "@/lib/storage";
-import { notifyLocalChange } from '@/lib/sync-store';
+} from "@/lib/api-client";
 
 interface NutritionState {
   profiles: NutritionProfileRecord[];
@@ -65,7 +45,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
   fetchProfiles: async () => {
     set({ isLoading: true, error: null });
     try {
-      const profiles = await getAllNutritionProfiles();
+      const client = getApiClient();
+      const profiles = await client.getNutritionProfiles();
       const activeId = get().activeProfileId;
       set({
         profiles,
@@ -79,13 +60,13 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   createProfile: async (data) => {
     try {
-      const record = await dbCreateProfile(data);
+      const client = getApiClient();
+      const record = await client.createNutritionProfile(data as any);
       set((s) => ({
         profiles: [record, ...s.profiles],
         activeProfileId: s.activeProfileId ?? record.id,
       }));
       syncSingleProfile(record);
-      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -95,12 +76,12 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   updateProfile: async (id, data) => {
     try {
-      const record = await dbUpdateProfile(id, data);
+      const client = getApiClient();
+      const record = await client.updateNutritionProfile(id, data as any);
       set((s) => ({
         profiles: s.profiles.map((p) => (p.id === id ? record : p)),
       }));
       syncSingleProfile(record);
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -109,7 +90,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   deleteProfile: async (id) => {
     try {
-      await dbDeleteProfile(id);
+      const client = getApiClient();
+      await client.deleteNutritionProfile(id);
       set((s) => {
         const profiles = s.profiles.filter((p) => p.id !== id);
         return {
@@ -119,7 +101,6 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
           weights: s.activeProfileId === id ? [] : s.weights,
         };
       });
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -132,7 +113,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   fetchFoodLog: async (profileId, startDate, endDate) => {
     try {
-      const entries = await getFoodLogByProfileAndDateRange(profileId, startDate, endDate);
+      const client = getApiClient();
+      const entries = await client.getFoodLogByProfileAndDateRange(profileId, startDate, endDate);
       set({ foodLog: entries });
     } catch (e) {
       set({ error: String(e) });
@@ -141,7 +123,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   fetchFoodLogForDate: async (profileId, date) => {
     try {
-      const entries = await getFoodLogByProfileAndDate(profileId, date);
+      const client = getApiClient();
+      const entries = await client.getFoodLogByProfileAndDate(profileId, date);
       set({ foodLog: entries });
     } catch (e) {
       set({ error: String(e) });
@@ -150,10 +133,10 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   addFoodLogEntry: async (data) => {
     try {
-      const record = await dbCreateFoodLog(data);
+      const client = getApiClient();
+      const record = await client.createFoodLogEntry(data as any);
       set((s) => ({ foodLog: [...s.foodLog, record] }));
       syncSingleFoodLog(record);
-      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -163,12 +146,12 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   updateFoodLogEntry: async (id, data) => {
     try {
-      const record = await dbUpdateFoodLog(id, data);
+      const client = getApiClient();
+      const record = await client.updateFoodLogEntry(id, data as any);
       set((s) => ({
         foodLog: s.foodLog.map((e) => (e.id === id ? record : e)),
       }));
       syncSingleFoodLog(record);
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -177,9 +160,9 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   deleteFoodLogEntry: async (id) => {
     try {
-      await dbDeleteFoodLog(id);
+      const client = getApiClient();
+      await client.deleteFoodLogEntry(id);
       set((s) => ({ foodLog: s.foodLog.filter((e) => e.id !== id) }));
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -188,7 +171,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   fetchWeights: async (profileId) => {
     try {
-      const entries = await getWeightByProfile(profileId);
+      const client = getApiClient();
+      const entries = await client.getWeightByProfile(profileId);
       set({ weights: entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) });
     } catch (e) {
       set({ error: String(e) });
@@ -197,7 +181,8 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   logWeight: async (data) => {
     try {
-      const record = await dbCreateWeight(data);
+      const client = getApiClient();
+      const record = await client.createWeightEntry(data as any);
       set((s) => {
         const existing = s.weights.findIndex((w) => w.id === record.id);
         const weights = [...s.weights];
@@ -209,7 +194,6 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
         return { weights: weights.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) };
       });
       syncSingleWeight(record);
-      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -219,9 +203,9 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
 
   deleteWeightEntry: async (id) => {
     try {
-      await dbDeleteWeight(id);
+      const client = getApiClient();
+      await client.deleteWeightEntry(id);
       set((s) => ({ weights: s.weights.filter((w) => w.id !== id) }));
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -231,9 +215,12 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
   syncToServer: async () => {
     try {
       const { profiles, foodLog, weights } = get();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('dietledger_access_token') : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch("/api/nutrition/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ profiles, foodLogEntries: foodLog, weightEntries: weights }),
       });
       if (!res.ok) {
@@ -280,11 +267,18 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
   },
 }));
 
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = typeof window !== 'undefined' ? localStorage.getItem('dietledger_access_token') : null;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
 async function syncSingleProfile(record: NutritionProfileRecord) {
   try {
     const res = await fetch("/api/nutrition/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ profiles: [record] }),
     });
     if (!res.ok) console.error(`Failed to sync profile ${record.id}: ${res.status}`);
@@ -297,7 +291,7 @@ async function syncSingleFoodLog(record: FoodLogEntryRecord) {
   try {
     const res = await fetch("/api/nutrition/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ foodLogEntries: [record] }),
     });
     if (!res.ok) console.error(`Failed to sync food log ${record.id}: ${res.status}`);
@@ -310,7 +304,7 @@ async function syncSingleWeight(record: WeightEntryRecord) {
   try {
     const res = await fetch("/api/nutrition/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ weightEntries: [record] }),
     });
     if (!res.ok) console.error(`Failed to sync weight ${record.id}: ${res.status}`);

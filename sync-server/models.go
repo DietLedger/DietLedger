@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type User struct {
 	ID           string    `json:"id"`
@@ -21,114 +24,332 @@ type Device struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 }
 
-type SyncRecord struct {
+type Recipe struct {
+	ID              string       `json:"id"`
+	UserID          string       `json:"userId"`
+	Name            string       `json:"name"`
+	Servings        int          `json:"servings"`
+	ServingName     string       `json:"servingName"`
+	Instructions    *string      `json:"instructions,omitempty"`
+	LeftoverStorage *string      `json:"leftoverStorage,omitempty"`
+	CreatedAt       time.Time    `json:"createdAt"`
+	UpdatedAt       time.Time    `json:"updatedAt"`
+	Ingredients     []Ingredient `json:"ingredients,omitempty"`
+}
+
+type Ingredient struct {
+	ID               string  `json:"id"`
+	RecipeID         string  `json:"recipeId"`
+	FdcID            int     `json:"fdcId"`
+	Name             string  `json:"name"`
+	Amount           float64 `json:"amount"`
+	Unit             string  `json:"unit"`
+	Calories         float64 `json:"calories"`
+	TotalFat         float64 `json:"totalFat"`
+	SaturatedFat     float64 `json:"saturatedFat"`
+	TransFat         float64 `json:"transFat"`
+	Cholesterol      float64 `json:"cholesterol"`
+	Sodium           float64 `json:"sodium"`
+	TotalCarbs       float64 `json:"totalCarbs"`
+	DietaryFiber     float64 `json:"dietaryFiber"`
+	TotalSugars      float64 `json:"totalSugars"`
+	AddedSugars      float64 `json:"addedSugars"`
+	Protein          float64 `json:"protein"`
+	VitaminD         float64 `json:"vitaminD"`
+	Calcium          float64 `json:"calcium"`
+	Iron             float64 `json:"iron"`
+	Potassium        float64  `json:"potassium"`
+	PrepInstructions []string `json:"prepInstructions"`
+	StorageLocation  string   `json:"storageLocation"`
+}
+
+func (i *Ingredient) ScanPrepInstructions(v string) {
+	if v != "" {
+		json.Unmarshal([]byte(v), &i.PrepInstructions)
+	}
+	if i.PrepInstructions == nil {
+		i.PrepInstructions = []string{}
+	}
+}
+
+func PrepInstructionsJSON(v []string) string {
+	if v == nil {
+		return "[]"
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+type FoodItem struct {
+	ID             int     `json:"id"`
+	FdcID          int     `json:"fdcId"`
+	Description    string  `json:"description"`
+	DataType       string  `json:"dataType"`
+	BrandOwner     *string `json:"brandOwner,omitempty"`
+	GtinUpc        *string `json:"gtinUpc,omitempty"`
+	ServingSize    float64 `json:"servingSize"`
+	ServingSizeUnit string `json:"servingSizeUnit"`
+	Calories       float64 `json:"calories"`
+	TotalFat       float64 `json:"totalFat"`
+	SaturatedFat   float64 `json:"saturatedFat"`
+	TransFat       float64 `json:"transFat"`
+	Cholesterol    float64 `json:"cholesterol"`
+	Sodium         float64 `json:"sodium"`
+	TotalCarbs     float64 `json:"totalCarbs"`
+	DietaryFiber   float64 `json:"dietaryFiber"`
+	TotalSugars    float64 `json:"totalSugars"`
+	AddedSugars    float64 `json:"addedSugars"`
+	Protein        float64 `json:"protein"`
+	VitaminD       float64 `json:"vitaminD"`
+	Calcium        float64 `json:"calcium"`
+	Iron           float64 `json:"iron"`
+	Potassium      float64 `json:"potassium"`
+	Source         string  `json:"source"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+type PersonProfile struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	Name            string    `json:"name"`
+	Sex             string    `json:"sex"`
+	BirthDate       *string   `json:"birthDate,omitempty"`
+	HeightCm        *float64  `json:"heightCm,omitempty"`
+	ActivityLevel   string    `json:"activityLevel"`
+	GoalWeightKg    *float64  `json:"goalWeightKg,omitempty"`
+	GoalDate        *string   `json:"goalDate,omitempty"`
+	BMREquation     *string   `json:"bmrEquation,omitempty"`
+	ManualBMRValue  *float64  `json:"manualBmrValue,omitempty"`
+	CalorieTarget   *float64  `json:"calorieTarget,omitempty"`
+	ProteinGoalG    *float64  `json:"proteinGoalG,omitempty"`
+	CarbsGoalG      *float64  `json:"carbsGoalG,omitempty"`
+	FatGoalG        *float64  `json:"fatGoalG,omitempty"`
+	FiberGoalG      *float64  `json:"fiberGoalG,omitempty"`
+	SodiumMaxMg     *float64  `json:"sodiumMaxMg,omitempty"`
+	SugarMaxG       *float64  `json:"sugarMaxG,omitempty"`
+	VitaminDGoalUg  *float64  `json:"vitaminDGoalUg,omitempty"`
+	CalciumGoalMg   *float64  `json:"calciumGoalMg,omitempty"`
+	IronGoalMg      *float64  `json:"ironGoalMg,omitempty"`
+	PotassiumGoalMg *float64  `json:"potassiumGoalMg,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+type FoodLogEntry struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"userId"`
+	ProfileID     string    `json:"profileId"`
+	Date          string    `json:"date"`
+	Time          *string   `json:"time,omitempty"`
+	MealSlot      string    `json:"mealSlot"`
+	SourceType    string    `json:"sourceType"`
+	SourceID      *string   `json:"sourceId,omitempty"`
+	Name          string    `json:"name"`
+	Servings      float64   `json:"servings"`
+	ServingAmount *float64  `json:"servingAmount,omitempty"`
+	ServingUnit   *string   `json:"servingUnit,omitempty"`
+	Calories      float64   `json:"calories"`
+	TotalFat      float64   `json:"totalFat"`
+	SaturatedFat  float64   `json:"saturatedFat"`
+	TransFat      float64   `json:"transFat"`
+	Cholesterol   float64   `json:"cholesterol"`
+	Sodium        float64   `json:"sodium"`
+	TotalCarbs    float64   `json:"totalCarbs"`
+	DietaryFiber  float64   `json:"dietaryFiber"`
+	TotalSugars   float64   `json:"totalSugars"`
+	AddedSugars   float64   `json:"addedSugars"`
+	Protein       float64   `json:"protein"`
+	VitaminD      float64   `json:"vitaminD"`
+	Calcium       float64   `json:"calcium"`
+	Iron          float64   `json:"iron"`
+	Potassium     float64   `json:"potassium"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+type WeightEntry struct {
+	ID                     string    `json:"id"`
+	UserID                 string    `json:"userId"`
+	ProfileID              string    `json:"profileId"`
+	Date                   string    `json:"date"`
+	WeightKg               float64   `json:"weightKg"`
+	Notes                  *string   `json:"notes,omitempty"`
+	BloodSugar             *float64  `json:"bloodSugar,omitempty"`
+	BloodPressureSystolic  *float64  `json:"bloodPressureSystolic,omitempty"`
+	BloodPressureDiastolic *float64  `json:"bloodPressureDiastolic,omitempty"`
+	MeasurementContext     *string   `json:"measurementContext,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
+}
+
+type MealPlan struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"userId"`
-	StoreName string    `json:"storeName"`
-	RecordID  string    `json:"recordId"`
-	Action    string    `json:"action"`
-	Data      string    `json:"data"`
-	Version   int       `json:"version"`
-	Checksum  string    `json:"checksum"`
-	Timestamp time.Time `json:"timestamp"`
-	DeviceID  string    `json:"deviceId"`
+	Name      string    `json:"name"`
+	WeekStart string    `json:"weekStart"`
+	SlotTimes *string   `json:"slotTimes,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-type Conflict struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"userId"`
-	StoreName     string     `json:"storeName"`
-	RecordID      string     `json:"recordId"`
-	LocalData     string     `json:"localData"`
-	RemoteData    string     `json:"remoteData"`
-	LocalVersion  int        `json:"localVersion"`
-	RemoteVersion int        `json:"remoteVersion"`
-	Status        string     `json:"status"`
-	Resolution    string     `json:"resolution,omitempty"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	ResolvedAt    *time.Time `json:"resolvedAt,omitempty"`
+type DayPlanEntry struct {
+	ID           string    `json:"id"`
+	MealPlanID   string    `json:"mealPlanId"`
+	Date         string    `json:"date"`
+	Slot         string    `json:"slot"`
+	RecipeID     *string   `json:"recipeId,omitempty"`
+	Position     int       `json:"position"`
+	GroupID      *string   `json:"groupId,omitempty"`
+	Servings     float64   `json:"servings"`
+	IsLeftover   bool      `json:"isLeftover"`
+	SourceType   string    `json:"sourceType"`
+	FoodName     *string   `json:"foodName,omitempty"`
+	Calories     float64   `json:"calories"`
+	TotalFat     float64   `json:"totalFat"`
+	SaturatedFat float64   `json:"saturatedFat"`
+	TransFat     float64   `json:"transFat"`
+	Cholesterol  float64   `json:"cholesterol"`
+	Sodium       float64   `json:"sodium"`
+	TotalCarbs   float64   `json:"totalCarbs"`
+	DietaryFiber float64   `json:"dietaryFiber"`
+	TotalSugars  float64   `json:"totalSugars"`
+	AddedSugars  float64   `json:"addedSugars"`
+	Protein      float64   `json:"protein"`
+	VitaminD     float64   `json:"vitaminD"`
+	Calcium      float64   `json:"calcium"`
+	Iron         float64   `json:"iron"`
+	Potassium    float64   `json:"potassium"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-type RegisterRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	DisplayName string `json:"displayName"`
-	DeviceName  string `json:"deviceName"`
-	DeviceType  string `json:"deviceType"`
+type MealGroup struct {
+	ID         string    `json:"id"`
+	MealPlanID string    `json:"mealPlanId"`
+	Date       string    `json:"date"`
+	Slot       string    `json:"slot"`
+	Name       string    `json:"name"`
+	Position   int       `json:"position"`
 }
 
-type RegisterResponse struct {
-	UserID   string `json:"userId"`
-	DeviceID string `json:"deviceId"`
-	APIKey   string `json:"apiKey"`
+type RecipeBook struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"userId"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	CoverColor  string    `json:"coverColor"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-type PushRequest struct {
-	DeviceID string       `json:"deviceId"`
-	Changes  []PushChange `json:"changes"`
+type Chapter struct {
+	ID                string    `json:"id"`
+	BookID            string    `json:"bookId"`
+	Title             string    `json:"title"`
+	Position         int       `json:"position"`
+	PageTemplateID   *string   `json:"pageTemplateId,omitempty"`
+	RecipeTemplateID *string   `json:"recipeTemplateId,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
-type PushChange struct {
-	StoreName string `json:"storeName"`
-	RecordID  string `json:"recordId"`
-	Action    string `json:"action"`
-	Data      string `json:"data"`
-	Checksum  string `json:"checksum"`
-	Timestamp string `json:"timestamp"`
-}
-
-type PushResponse struct {
-	Accepted      []string      `json:"accepted"`
-	Conflicts     []ConflictOut `json:"conflicts"`
-	ServerVersion int64         `json:"serverVersion"`
-}
-
-type ConflictOut struct {
-	StoreName     string `json:"storeName"`
-	RecordID      string `json:"recordId"`
-	ServerData    string `json:"serverData"`
-	ServerVersion int    `json:"serverVersion"`
-	LocalData     string `json:"localData"`
-	LocalVersion  int    `json:"localVersion"`
-}
-
-type PullResponse struct {
-	Changes         []SyncRecordOut `json:"changes"`
-	ServerTimestamp string          `json:"serverTimestamp"`
-}
-
-type SyncRecordOut struct {
+type ChapterRecipe struct {
 	ID        string `json:"id"`
-	StoreName string `json:"storeName"`
-	RecordID  string `json:"recordId"`
-	Action    string `json:"action"`
-	Data      string `json:"data"`
-	Version   int    `json:"version"`
-	Checksum  string `json:"checksum"`
-	Timestamp string `json:"timestamp"`
-	DeviceID  string `json:"deviceId"`
+	ChapterID string `json:"chapterId"`
+	RecipeID  string `json:"recipeId"`
+	Position  int    `json:"position"`
 }
 
-type StatusResponse struct {
-	LastSyncedAt     *time.Time `json:"lastSyncedAt"`
-	TotalRecords     int        `json:"totalRecords"`
-	Devices          []Device   `json:"devices"`
-	PendingConflicts int        `json:"pendingConflicts"`
+type ChapterPage struct {
+	ID        string    `json:"id"`
+	ChapterID string    `json:"chapterId"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-type FullDumpRequest struct {
-	DeviceID string                    `json:"deviceId"`
-	Data     map[string][]SyncRecordOut `json:"data"`
+type Category struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  *string   `json:"parentId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-type FullDumpResponse struct {
-	Data            map[string][]SyncRecordOut `json:"data"`
-	ServerTimestamp string                     `json:"serverTimestamp"`
+type RecipeCategory struct {
+	ID         string `json:"id"`
+	RecipeID   string `json:"recipeId"`
+	CategoryID string `json:"categoryId"`
 }
 
-type ResolveConflictRequest struct {
-	Resolution string `json:"resolution"`
-	Data       string `json:"data,omitempty"`
+type CustomFood struct {
+	ID                  string    `json:"id"`
+	UserID              string    `json:"userId"`
+	Name                string    `json:"name"`
+	Calories            float64   `json:"calories"`
+	TotalFat            float64   `json:"totalFat"`
+	SaturatedFat        float64   `json:"saturatedFat"`
+	TransFat            float64   `json:"transFat"`
+	Cholesterol         float64   `json:"cholesterol"`
+	Sodium              float64   `json:"sodium"`
+	TotalCarbs          float64   `json:"totalCarbs"`
+	DietaryFiber        float64   `json:"dietaryFiber"`
+	TotalSugars         float64   `json:"totalSugars"`
+	AddedSugars         float64   `json:"addedSugars"`
+	Protein             float64   `json:"protein"`
+	VitaminD            float64   `json:"vitaminD"`
+	Calcium             float64   `json:"calcium"`
+	Iron                float64   `json:"iron"`
+	Potassium           float64   `json:"potassium"`
+	SharedWithCommunity bool      `json:"sharedWithCommunity"`
+	CreatedAt           time.Time `json:"createdAt"`
+}
+
+type GroceryChecklist struct {
+	ID           string    `json:"id"`
+	UserID       string    `json:"userId"`
+	WeekStart    string    `json:"weekStart"`
+	CheckedItems string    `json:"checkedItems"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+type BookPage struct {
+	ID        string    `json:"id"`
+	BookID    string    `json:"bookId"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type ApiKey struct {
+	ID          string     `json:"id"`
+	UserID      string     `json:"userId"`
+	Name        string     `json:"name"`
+	KeyHash     string     `json:"-"`
+	KeyPrefix   string     `json:"keyPrefix"`
+	Permissions string     `json:"permissions"`
+	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+}
+
+type SeedJob struct {
+	ID          int       `json:"id"`
+	DataType    string    `json:"dataType"`
+	ReleaseDate string    `json:"releaseDate"`
+	FileName    string    `json:"fileName"`
+	RecordCount int       `json:"recordCount"`
+	Status      string    `json:"status"`
+	Progress    float64   `json:"progress"`
+	Error       *string   `json:"error,omitempty"`
+	Checkpoint  *string   `json:"checkpoint,omitempty"`
+	StartedAt   *time.Time `json:"startedAt,omitempty"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type SharedRecipe struct {
@@ -165,6 +386,202 @@ type CommunityCategory struct {
 	Slug string `json:"slug"`
 }
 
+type RegisterRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"displayName"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type AuthResponse struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresIn    int64  `json:"expiresIn"`
+	User         User   `json:"user"`
+}
+
+type CreateRecipeRequest struct {
+	Name            string                `json:"name"`
+	Servings        int                   `json:"servings"`
+	ServingName     string                `json:"servingName"`
+	Instructions    *string               `json:"instructions,omitempty"`
+	LeftoverStorage *string               `json:"leftoverStorage,omitempty"`
+	Ingredients     []CreateIngredientReq `json:"ingredients"`
+}
+
+type UpdateRecipeRequest struct {
+	Name            *string                `json:"name,omitempty"`
+	Servings        *int                   `json:"servings,omitempty"`
+	ServingName     *string                `json:"servingName,omitempty"`
+	Instructions    *string                `json:"instructions"`
+	LeftoverStorage *string                `json:"leftoverStorage"`
+	Ingredients     *[]CreateIngredientReq `json:"ingredients,omitempty"`
+}
+
+type CreateIngredientReq struct {
+	FdcID            int     `json:"fdcId"`
+	Name             string  `json:"name"`
+	Amount           float64 `json:"amount"`
+	Unit             string  `json:"unit"`
+	Calories         float64 `json:"calories"`
+	TotalFat         float64 `json:"totalFat"`
+	SaturatedFat     float64 `json:"saturatedFat"`
+	TransFat         float64 `json:"transFat"`
+	Cholesterol      float64 `json:"cholesterol"`
+	Sodium           float64 `json:"sodium"`
+	TotalCarbs       float64 `json:"totalCarbs"`
+	DietaryFiber     float64 `json:"dietaryFiber"`
+	TotalSugars      float64 `json:"totalSugars"`
+	AddedSugars      float64 `json:"addedSugars"`
+	Protein          float64 `json:"protein"`
+	VitaminD         float64 `json:"vitaminD"`
+	Calcium          float64 `json:"calcium"`
+	Iron             float64 `json:"iron"`
+	Potassium        float64  `json:"potassium"`
+	PrepInstructions []string `json:"prepInstructions"`
+	StorageLocation  string   `json:"storageLocation"`
+}
+
+type CreateProfileRequest struct {
+	Name            string   `json:"name"`
+	Sex             string   `json:"sex"`
+	BirthDate       *string  `json:"birthDate,omitempty"`
+	HeightCm        *float64 `json:"heightCm,omitempty"`
+	ActivityLevel   string   `json:"activityLevel"`
+	GoalWeightKg    *float64 `json:"goalWeightKg,omitempty"`
+	GoalDate        *string  `json:"goalDate,omitempty"`
+	BMREquation     *string  `json:"bmrEquation,omitempty"`
+	ManualBMRValue  *float64 `json:"manualBmrValue,omitempty"`
+	CalorieTarget   *float64 `json:"calorieTarget,omitempty"`
+	ProteinGoalG    *float64 `json:"proteinGoalG,omitempty"`
+	CarbsGoalG      *float64 `json:"carbsGoalG,omitempty"`
+	FatGoalG        *float64 `json:"fatGoalG,omitempty"`
+	FiberGoalG      *float64 `json:"fiberGoalG,omitempty"`
+	SodiumMaxMg     *float64 `json:"sodiumMaxMg,omitempty"`
+	SugarMaxG       *float64 `json:"sugarMaxG,omitempty"`
+	VitaminDGoalUg  *float64 `json:"vitaminDGoalUg,omitempty"`
+	CalciumGoalMg   *float64 `json:"calciumGoalMg,omitempty"`
+	IronGoalMg      *float64 `json:"ironGoalMg,omitempty"`
+	PotassiumGoalMg *float64 `json:"potassiumGoalMg,omitempty"`
+}
+
+type CreateFoodLogRequest struct {
+	ProfileID     string   `json:"profileId"`
+	Date          string   `json:"date"`
+	Time          *string  `json:"time,omitempty"`
+	MealSlot      string   `json:"mealSlot"`
+	SourceType    string   `json:"sourceType"`
+	SourceID      *string  `json:"sourceId,omitempty"`
+	Name          string   `json:"name"`
+	Servings      float64  `json:"servings"`
+	ServingAmount *float64 `json:"servingAmount,omitempty"`
+	ServingUnit   *string  `json:"servingUnit,omitempty"`
+	Calories      float64  `json:"calories"`
+	TotalFat      float64  `json:"totalFat"`
+	SaturatedFat  float64  `json:"saturatedFat"`
+	TransFat      float64  `json:"transFat"`
+	Cholesterol   float64  `json:"cholesterol"`
+	Sodium        float64  `json:"sodium"`
+	TotalCarbs    float64  `json:"totalCarbs"`
+	DietaryFiber  float64  `json:"dietaryFiber"`
+	TotalSugars   float64  `json:"totalSugars"`
+	AddedSugars   float64  `json:"addedSugars"`
+	Protein       float64  `json:"protein"`
+	VitaminD      float64  `json:"vitaminD"`
+	Calcium       float64  `json:"calcium"`
+	Iron          float64  `json:"iron"`
+	Potassium     float64  `json:"potassium"`
+}
+
+type CreateWeightEntryRequest struct {
+	ProfileID              string   `json:"profileId"`
+	Date                   string   `json:"date"`
+	WeightKg               float64  `json:"weightKg"`
+	Notes                  *string  `json:"notes,omitempty"`
+	BloodSugar             *float64 `json:"bloodSugar,omitempty"`
+	BloodPressureSystolic  *float64 `json:"bloodPressureSystolic,omitempty"`
+	BloodPressureDiastolic *float64 `json:"bloodPressureDiastolic,omitempty"`
+	MeasurementContext     *string  `json:"measurementContext,omitempty"`
+}
+
+type CreateMealPlanRequest struct {
+	Name      string  `json:"name"`
+	WeekStart string  `json:"weekStart"`
+	SlotTimes *string `json:"slotTimes,omitempty"`
+}
+
+type CreateDayPlanEntryRequest struct {
+	Date         string   `json:"date"`
+	Slot         string   `json:"slot"`
+	RecipeID     *string  `json:"recipeId,omitempty"`
+	Position     int      `json:"position"`
+	GroupID      *string  `json:"groupId,omitempty"`
+	Servings     float64  `json:"servings"`
+	IsLeftover   bool     `json:"isLeftover"`
+	SourceType   string   `json:"sourceType"`
+	FoodName     *string  `json:"foodName,omitempty"`
+	Calories     float64  `json:"calories"`
+	TotalFat     float64  `json:"totalFat"`
+	SaturatedFat float64  `json:"saturatedFat"`
+	TransFat     float64  `json:"transFat"`
+	Cholesterol  float64  `json:"cholesterol"`
+	Sodium       float64  `json:"sodium"`
+	TotalCarbs   float64  `json:"totalCarbs"`
+	DietaryFiber float64  `json:"dietaryFiber"`
+	TotalSugars  float64  `json:"totalSugars"`
+	AddedSugars  float64  `json:"addedSugars"`
+	Protein      float64  `json:"protein"`
+	VitaminD     float64  `json:"vitaminD"`
+	Calcium      float64  `json:"calcium"`
+	Iron         float64  `json:"iron"`
+	Potassium    float64  `json:"potassium"`
+}
+
+type CreateBookRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	CoverColor  string `json:"coverColor"`
+}
+
+type CreateChapterRequest struct {
+	Title             string  `json:"title"`
+	Position          int     `json:"position"`
+	PageTemplateID    *string `json:"pageTemplateId,omitempty"`
+	RecipeTemplateID  *string `json:"recipeTemplateId,omitempty"`
+}
+
+type CreateCategoryRequest struct {
+	Name     string  `json:"name"`
+	ParentID *string `json:"parentId,omitempty"`
+}
+
+type CreateCustomFoodRequest struct {
+	Name         string  `json:"name"`
+	Calories     float64 `json:"calories"`
+	TotalFat     float64 `json:"totalFat"`
+	SaturatedFat float64 `json:"saturatedFat"`
+	TransFat     float64 `json:"transFat"`
+	Cholesterol  float64 `json:"cholesterol"`
+	Sodium       float64 `json:"sodium"`
+	TotalCarbs   float64 `json:"totalCarbs"`
+	DietaryFiber float64 `json:"dietaryFiber"`
+	TotalSugars  float64 `json:"totalSugars"`
+	AddedSugars  float64 `json:"addedSugars"`
+	Protein      float64 `json:"protein"`
+	VitaminD     float64 `json:"vitaminD"`
+	Calcium      float64 `json:"calcium"`
+	Iron         float64 `json:"iron"`
+	Potassium    float64 `json:"potassium"`
+}
+
 type ShareRecipeRequest struct {
 	RecipeID    string `json:"recipeId"`
 	Title       string `json:"title"`
@@ -179,10 +596,68 @@ type RateRecipeRequest struct {
 	Rating int `json:"rating"`
 }
 
-type CommunityQuery struct {
-	Query    string `json:"query"`
-	Category string `json:"category"`
-	Sort     string `json:"sort"`
-	Page     int    `json:"page"`
-	PerPage  int    `json:"perPage"`
+type PaginatedResponse struct {
+	Data       interface{} `json:"data"`
+	Total      int         `json:"total"`
+	Page       int         `json:"page"`
+	PerPage    int         `json:"perPage"`
+	TotalPages int         `json:"totalPages"`
+}
+
+type FoodSearchResult struct {
+	Foods      []FoodItem `json:"foods"`
+	Total      int        `json:"total"`
+	Page       int        `json:"page"`
+	PerPage    int        `json:"perPage"`
+	TotalPages int        `json:"totalPages"`
+}
+
+type SyncRecord struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	StoreName string    `json:"storeName"`
+	RecordID  string    `json:"recordId"`
+	Action    string    `json:"action"`
+	Data      string    `json:"data"`
+	Version   int       `json:"version"`
+	Checksum  string    `json:"checksum"`
+	Timestamp time.Time `json:"timestamp"`
+	DeviceID  string    `json:"deviceId"`
+}
+
+type Conflict struct {
+	ID            string     `json:"id"`
+	UserID        string     `json:"userId"`
+	StoreName     string     `json:"storeName"`
+	RecordID      string     `json:"recordId"`
+	LocalData     string     `json:"localData"`
+	RemoteData    string     `json:"remoteData"`
+	LocalVersion  int        `json:"localVersion"`
+	RemoteVersion int        `json:"remoteVersion"`
+	Status        string     `json:"status"`
+	Resolution    string     `json:"resolution,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	ResolvedAt    *time.Time `json:"resolvedAt,omitempty"`
+}
+
+type FoodStats struct {
+	TotalFoods int               `json:"totalFoods"`
+	ByDataType []FoodTypeCount   `json:"byDataType"`
+	BySource   []FoodSourceCount `json:"bySource"`
+}
+
+type FoodTypeCount struct {
+	DataType string `json:"dataType"`
+	Count    int    `json:"count"`
+}
+
+type FoodSourceCount struct {
+	Source string `json:"source"`
+	Count  int    `json:"count"`
+}
+
+type APIResponse struct {
+	OK    bool        `json:"ok"`
+	Data  interface{} `json:"data,omitempty"`
+	Error string      `json:"error,omitempty"`
 }

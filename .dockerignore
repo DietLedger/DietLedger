@@ -3,6 +3,7 @@ node_modules
 out
 build
 builds
+docker-build
 src-tauri
 download
 mini-services
@@ -17,11 +18,16 @@ examples
 *.log
 *.db
 *.pem
+*.tar
+*.tar.gz
 .DS_Store
 .claude
 .z-ai-config
+.vercel
 .vercel
 coverage
 tmp-migration.sql
 AGENTS.md
 spec.md
+docker-compose*.yml
+docker-build.bat

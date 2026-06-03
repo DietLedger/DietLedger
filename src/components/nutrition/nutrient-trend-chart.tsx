@@ -11,7 +11,7 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Legend,
+  ReferenceLine,
 } from 'recharts';
 import { format } from 'date-fns';
 import { eachDayOfInterval, eachMonthOfInterval } from 'date-fns';
@@ -19,17 +19,28 @@ import { eachDayOfInterval, eachMonthOfInterval } from 'date-fns';
 interface NutrientTrendChartProps {
   entries: FoodLogEntryRecord[];
   period: Period;
+  targets?: {
+    calorieTarget?: number | null;
+    proteinGoalG?: number | null;
+    fatGoalG?: number | null;
+    carbsGoalG?: number | null;
+    sodiumMaxMg?: number | null;
+    fiberGoalG?: number | null;
+    sugarMaxG?: number | null;
+  };
 }
 
 const TRACKED = [
-  { key: 'calories', label: 'Calories', color: '#3b82f6', unit: 'kcal' },
-  { key: 'protein', label: 'Protein', color: '#22c55e', unit: 'g' },
-  { key: 'totalFat', label: 'Fat', color: '#ef4444', unit: 'g' },
-  { key: 'totalCarbs', label: 'Carbs', color: '#f59e0b', unit: 'g' },
-  { key: 'sodium', label: 'Sodium', color: '#8b5cf6', unit: 'mg' },
+  { key: 'calories', label: 'Calories', color: '#3b82f6', unit: 'kcal', targetKey: 'calorieTarget' },
+  { key: 'protein', label: 'Protein', color: '#22c55e', unit: 'g', targetKey: 'proteinGoalG' },
+  { key: 'totalFat', label: 'Fat', color: '#ef4444', unit: 'g', targetKey: 'fatGoalG' },
+  { key: 'totalCarbs', label: 'Carbs', color: '#f59e0b', unit: 'g', targetKey: 'carbsGoalG' },
+  { key: 'sodium', label: 'Sodium', color: '#8b5cf6', unit: 'mg', targetKey: 'sodiumMaxMg' },
+  { key: 'dietaryFiber', label: 'Fiber', color: '#10b981', unit: 'g', targetKey: 'fiberGoalG' },
+  { key: 'totalSugars', label: 'Sugars', color: '#ec4899', unit: 'g', targetKey: 'sugarMaxG' },
 ] as const;
 
-export function NutrientTrendChart({ entries, period }: NutrientTrendChartProps) {
+export function NutrientTrendChart({ entries, period, targets }: NutrientTrendChartProps) {
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set(['calories', 'protein']));
 
   const chartData = useMemo(() => {
@@ -50,6 +61,8 @@ export function NutrientTrendChart({ entries, period }: NutrientTrendChartProps)
     } else {
       dates = eachDayOfInterval({ start, end });
     }
+
+    if (dates.length === 0) dates = [start];
 
     return dates.map((d) => {
       const key = formatDateForDB(d);
@@ -80,6 +93,11 @@ export function NutrientTrendChart({ entries, period }: NutrientTrendChartProps)
       </div>
     );
   }
+
+  const getTarget = (t: typeof TRACKED[number]): number | null => {
+    if (!targets) return null;
+    return (targets as Record<string, number | null | undefined>)[t.targetKey] ?? null;
+  };
 
   return (
     <div>
@@ -112,6 +130,26 @@ export function NutrientTrendChart({ entries, period }: NutrientTrendChartProps)
               strokeWidth={2}
               dot={false}
               name={`${t.label} (${t.unit})`}
+            />
+          ))}
+          {targets && TRACKED.filter((t) => {
+            if (!activeKeys.has(t.key)) return false;
+            const val = getTarget(t);
+            return val != null && val > 0;
+          }).map((t) => (
+            <ReferenceLine
+              key={`${t.key}-target`}
+              y={getTarget(t)!}
+              stroke={t.color}
+              strokeDasharray="4 4"
+              strokeWidth={1.5}
+              strokeOpacity={0.5}
+              label={{
+                value: `${t.label} goal`,
+                fontSize: 9,
+                fill: t.color,
+                position: 'right',
+              }}
             />
           ))}
         </LineChart>

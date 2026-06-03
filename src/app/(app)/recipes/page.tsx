@@ -4,7 +4,8 @@ import React, { Suspense, useEffect, useState, useCallback, useRef, useMemo } fr
 import { useSearchParams } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { useBookStore, type CategoryNode } from '@/lib/book-store';
-import { getCategoryDescendants, getRecipesByCategory, addCustomFood } from '@/lib/storage';
+import { getCategoryDescendants, getRecipesByCategory } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { generateUUID } from '@/lib/utils';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
 import { computeRecipeGL, type GLResult } from '@/lib/glycemic-load';
@@ -427,7 +428,7 @@ function RecipePage() {
     await addCustomIngredient(customName.trim(), nutrition, parseFloat(customAmount) || 100, customUnit);
     if (customSaveForReuse) {
       try {
-        await addCustomFood({
+        await getApiClient().createCustomFood({
           name: customName.trim(),
           calories: parseFloat(customCalories) || 0,
           totalFat: parseFloat(customTotalFat) || 0,
@@ -557,10 +558,10 @@ function RecipePage() {
       amount: parseFloat(editAmount) || ingredient.amount,
       unit: editUnit,
       prepInstructions: editPrepInstructions,
-      storageLocation: editStorageLocation || undefined,
+      storageLocation: editStorageLocation,
     });
     setEditIngredientId(null);
-  }, [editIngredientId, editDescription, editAmount, editUnit, editPrepInstructions, activeRecipe, updateIngredient]);
+  }, [editIngredientId, editName, editDescription, editAmount, editUnit, editPrepInstructions, editStorageLocation, activeRecipe, updateIngredient]);
 
   const handleIngredientDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;

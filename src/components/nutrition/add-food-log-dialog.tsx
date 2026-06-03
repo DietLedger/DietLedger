@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useNutritionStore } from '@/lib/nutrition-store';
 import {
   FoodLogEntryRecord,
@@ -28,8 +29,9 @@ import {
   RecipeRecord,
   CustomFoodRecord,
 } from '@/lib/storage';
-import { getAllRecipes, getAllCustomFoods } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
+import { UNIT_TO_GRAMS } from '@/lib/recipe-store';
 import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
 const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [
@@ -61,6 +63,15 @@ const NUTRIENT_FIELDS = [
 ] as const;
 
 type NutrientKey = (typeof NUTRIENT_FIELDS)[number]['key'];
+
+const SERVING_UNITS = [
+  { value: 'g', label: 'g' },
+  { value: 'oz', label: 'oz' },
+  { value: 'cup', label: 'cup' },
+  { value: 'tbsp', label: 'tbsp' },
+  { value: 'tsp', label: 'tsp' },
+  { value: 'ml', label: 'ml' },
+] as const;
 
 interface AddFoodLogDialogProps {
   open: boolean;
@@ -124,9 +135,14 @@ export function AddFoodLogDialog({
 
   const [fdaResults, setFdaResults] = useState<FDASearchResult[]>([]);
   const [fdaSearching, setFdaSearching] = useState(false);
+  const [saveAsCustom, setSaveAsCustom] = useState(false);
+  const [servingAmount, setServingAmount] = useState('100');
+  const [servingUnit, setServingUnit] = useState('g');
+  const [baseNutrients, setBaseNutrients] = useState<Record<NutrientKey, string> | null>(null);
 
   useEffect(() => {
     if (open) {
+      setSaveAsCustom(false);
       if (editEntry) {
         setName(editEntry.name);
         setMealSlot(editEntry.mealSlot);
@@ -173,15 +189,20 @@ export function AddFoodLogDialog({
     setTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
     setServings('1');
     setNutrients(emptyNutrients());
+    setSaveAsCustom(false);
     setTab('recipes');
     setSelectedItem(null);
     setSearchQuery('');
     setFdaResults([]);
+    setServingAmount('100');
+    setServingUnit('g');
+    setBaseNutrients(null);
   }, [defaultMealSlot, defaultDate]);
 
   const loadItems = useCallback(async () => {
-    const [r, c] = await Promise.all([getAllRecipes(), getAllCustomFoods()]);
-    setRecipes(r);
+    const client = getApiClient();
+    const [recipePage, c] = await Promise.all([client.getRecipes(1, 200), client.getCustomFoods()]);
+    setRecipes(recipePage.data);
     setCustomFoods(c);
   }, []);
 
@@ -227,6 +248,9 @@ export function AddFoodLogDialog({
     setName(food.name);
     const n: Record<string, string> = {};
     for (const f of NUTRIENT_FIELDS) n[f.key] = nutrition[f.key]?.toString() ?? '0';
+    setBaseNutrients(n as Record<NutrientKey, string>);
+    setServingAmount('100');
+    setServingUnit('g');
     setNutrients(n as Record<NutrientKey, string>);
   }, []);
 
@@ -236,7 +260,19 @@ export function AddFoodLogDialog({
     for (const f of NUTRIENT_FIELDS) nutrition[f.key] = food.nutrients[f.key as keyof typeof food.nutrients] ?? 0;
     setSelectedItem({ id: `fdc-${food.fdcId}`, name: foodName, type: 'customFood', nutrition });
     setName(foodName);
-    setNutrients(nutrientsFromFDASearch(food));
+    const base = nutrientsFromFDASearch(food);
+    setBaseNutrients(base);
+    const amt = food.servingSize?.toString() || '100';
+    const unit = food.servingSizeUnit || 'g';
+    setServingAmount(amt);
+    setServingUnit(unit);
+    const grams = (parseFloat(amt) || 100) * (UNIT_TO_GRAMS[unit] || 1);
+    const ratio = grams / 100;
+    const display: Record<string, string> = {};
+    for (const f of NUTRIENT_FIELDS) {
+      display[f.key] = ((parseFloat(base[f.key]) || 0) * ratio).toFixed(2);
+    }
+    setNutrients(display as Record<NutrientKey, string>);
   }, []);
 
   const handleNutrientChange = useCallback((key: NutrientKey, value: string) => {
@@ -247,7 +283,56 @@ export function AddFoodLogDialog({
     setTab(v);
     setSearchQuery('');
     setFdaResults([]);
+    setBaseNutrients(null);
+    setSelectedItem(null);
+    setNutrients(emptyNutrients());
+    setServingAmount('100');
+    setServingUnit('g');
   }, []);
+
+  const recalcFromServing = useCallback((amount: string, unit: string) => {
+    if (!baseNutrients) return;
+    const grams = (parseFloat(amount) || 0) * (UNIT_TO_GRAMS[unit] || 1);
+    const ratio = grams / 100;
+    const updated: Record<string, string> = {};
+    for (const f of NUTRIENT_FIELDS) {
+      updated[f.key] = ((parseFloat(baseNutrients[f.key]) || 0) * ratio).toFixed(2);
+    }
+    setNutrients(updated as Record<NutrientKey, string>);
+  }, [baseNutrients]);
+
+  const handleServingAmountChange = useCallback((value: string) => {
+    setServingAmount(value);
+    recalcFromServing(value, servingUnit);
+  }, [servingUnit, recalcFromServing]);
+
+  const handleServingUnitChange = useCallback((newUnit: string) => {
+    const currentGrams = (parseFloat(servingAmount) || 0) * (UNIT_TO_GRAMS[servingUnit] || 1);
+    const newUnitGrams = UNIT_TO_GRAMS[newUnit] || 1;
+    const newAmount = Math.round((currentGrams / newUnitGrams) * 100) / 100;
+    setServingAmount(newAmount.toString());
+    setServingUnit(newUnit);
+    recalcFromServing(newAmount.toString(), newUnit);
+  }, [servingAmount, servingUnit, recalcFromServing]);
+
+  const buildCustomFoodData = useCallback(() => ({
+    name: name.trim(),
+    calories: parseFloat(nutrients.calories) || 0,
+    totalFat: parseFloat(nutrients.totalFat) || 0,
+    saturatedFat: parseFloat(nutrients.saturatedFat) || 0,
+    transFat: parseFloat(nutrients.transFat) || 0,
+    cholesterol: parseFloat(nutrients.cholesterol) || 0,
+    sodium: parseFloat(nutrients.sodium) || 0,
+    totalCarbs: parseFloat(nutrients.totalCarbs) || 0,
+    dietaryFiber: parseFloat(nutrients.dietaryFiber) || 0,
+    totalSugars: parseFloat(nutrients.totalSugars) || 0,
+    addedSugars: parseFloat(nutrients.addedSugars) || 0,
+    protein: parseFloat(nutrients.protein) || 0,
+    vitaminD: parseFloat(nutrients.vitaminD) || 0,
+    calcium: parseFloat(nutrients.calcium) || 0,
+    iron: parseFloat(nutrients.iron) || 0,
+    potassium: parseFloat(nutrients.potassium) || 0,
+  }), [name, nutrients]);
 
   const handleSubmit = useCallback(async () => {
     const servingsNum = parseFloat(servings) || 1;
@@ -266,7 +351,13 @@ export function AddFoodLogDialog({
         servings: servingsNum,
         ...nutritionData,
       });
+      if (saveAsCustom) {
+        await getApiClient().createCustomFood(buildCustomFoodData());
+      }
     } else {
+      if (tab === 'manual') {
+        await getApiClient().createCustomFood(buildCustomFoodData());
+      }
       await addFoodLogEntry({
         profileId,
         name,
@@ -277,11 +368,13 @@ export function AddFoodLogDialog({
         sourceType: tab === 'recipes' ? 'recipe' : tab === 'food' ? 'customFood' : tab === 'custom' ? 'customFood' : 'manual',
         sourceId: selectedItem?.id ?? null,
         lastSyncedAt: null,
+        servingAmount: baseNutrients ? parseFloat(servingAmount) || undefined : undefined,
+        servingUnit: baseNutrients ? servingUnit : undefined,
         ...nutritionData,
       });
     }
     onOpenChange(false);
-  }, [name, mealSlot, date, time, servings, nutrients, profileId, tab, selectedItem, editEntry, addFoodLogEntry, updateFoodLogEntry, onOpenChange]);
+  }, [name, mealSlot, date, time, servings, nutrients, profileId, tab, selectedItem, editEntry, saveAsCustom, baseNutrients, servingAmount, servingUnit, addFoodLogEntry, updateFoodLogEntry, buildCustomFoodData, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -439,6 +532,7 @@ export function AddFoodLogDialog({
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Chicken breast" className="h-8 text-sm" />
               </div>
               <p className="text-xs text-muted-foreground mb-2">Nutrition per serving:</p>
+              <p className="text-xs text-brand-600 mb-2">This food will be saved to your custom foods list.</p>
               <ScrollArea className="h-[180px]">
                 <div className="grid grid-cols-2 gap-2">
                   {NUTRIENT_FIELDS.map((f) => (
@@ -457,6 +551,33 @@ export function AddFoodLogDialog({
               </ScrollArea>
             </TabsContent>
           </Tabs>
+        )}
+
+        {!editEntry && baseNutrients && (
+          <div className="flex items-end gap-2 mt-2">
+            <div>
+              <Label className="text-xs">Serving</Label>
+              <Input
+                type="number"
+                step="any"
+                min="0"
+                value={servingAmount}
+                onChange={(e) => handleServingAmountChange(e.target.value)}
+                className="h-8 w-24 text-sm"
+              />
+            </div>
+            <Select value={servingUnit} onValueChange={handleServingUnitChange}>
+              <SelectTrigger className="h-8 w-[90px] text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SERVING_UNITS.map((u) => (
+                  <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground pb-1 whitespace-nowrap">
+              ≈ {Math.round((parseFloat(servingAmount) || 0) * (UNIT_TO_GRAMS[servingUnit] || 1))}g
+            </span>
+          </div>
         )}
 
         {editEntry && (
@@ -481,6 +602,10 @@ export function AddFoodLogDialog({
                 ))}
               </div>
             </ScrollArea>
+            <div className="flex items-center gap-2">
+              <Checkbox id="saveAsCustom" checked={saveAsCustom} onCheckedChange={(v) => setSaveAsCustom(v === true)} />
+              <Label htmlFor="saveAsCustom" className="text-xs cursor-pointer">Save as new custom food</Label>
+            </div>
           </div>
         )}
 

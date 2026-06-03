@@ -12,14 +12,18 @@ type contextKey string
 const userContextKey contextKey = "user"
 
 type Server struct {
-	store        *SQLiteStore
+	store        Store
+	auth         *AuthService
+	rateLimiter  *RateLimiter
 	corsOrigin   string
 	maxBodyBytes int64
 }
 
-func NewServer(store *SQLiteStore, corsOrigin string, maxBodyMB int64) *Server {
+func NewServer(store Store, auth *AuthService, corsOrigin string, maxBodyMB int64, rl *RateLimiter) *Server {
 	return &Server{
 		store:        store,
+		auth:         auth,
+		rateLimiter:  rl,
 		corsOrigin:   corsOrigin,
 		maxBodyBytes: maxBodyMB * 1024 * 1024,
 	}
@@ -30,22 +34,185 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/about", s.about)
-	mux.HandleFunc("/api/sync/register", s.register)
 
-	mux.HandleFunc("/api/sync/push", s.requireAuth(s.push))
-	mux.HandleFunc("/api/sync/pull", s.requireAuth(s.pull))
-	mux.HandleFunc("/api/sync/status", s.requireAuth(s.status))
-	mux.HandleFunc("/api/sync/conflicts", s.requireAuth(s.listConflicts))
-	mux.HandleFunc("/api/sync/conflicts/", s.requireAuth(s.conflictsRouter))
-	mux.HandleFunc("/api/sync/device/", s.requireAuth(s.deviceRouter))
-	mux.HandleFunc("/api/sync/full-dump", s.requireAuth(s.fullDumpRouter))
+	mux.HandleFunc("/api/auth/register", s.registerHandler)
+	mux.HandleFunc("/api/auth/login", s.loginHandler)
+	mux.HandleFunc("/api/auth/refresh", s.refreshHandler)
+
+	mux.HandleFunc("/api/recipes/", s.requireAuth(s.recipeRoutes))
+	mux.HandleFunc("/api/recipes", s.requireAuth(s.recipesRouter))
+
+	mux.HandleFunc("/api/profiles/", s.requireAuth(s.profileRoutes))
+	mux.HandleFunc("/api/profiles", s.requireAuth(s.profilesRouter))
+
+	mux.HandleFunc("/api/foods/search", s.foodSearchHandler)
+	mux.HandleFunc("/api/foods/", s.foodRoutes)
+	mux.HandleFunc("/api/foods", s.foodSearchHandler)
+
+	mux.HandleFunc("/api/meal-plans/", s.requireAuth(s.mealPlanRoutes))
+	mux.HandleFunc("/api/meal-plans", s.requireAuth(s.mealPlansRouter))
+
+	mux.HandleFunc("/api/entries/", s.requireAuth(s.entryRoutes))
+
+	mux.HandleFunc("/api/books/", s.requireAuth(s.bookRoutes))
+	mux.HandleFunc("/api/books", s.requireAuth(s.booksRouter))
+
+	mux.HandleFunc("/api/categories/", s.requireAuth(s.categoryRoutes))
+	mux.HandleFunc("/api/categories", s.requireAuth(s.categoriesRouter))
+
+	mux.HandleFunc("/api/custom-foods/community", s.requireAuth(s.communityCustomFoodsRouter))
+	mux.HandleFunc("/api/custom-foods/", s.requireAuth(s.customFoodRoutes))
+	mux.HandleFunc("/api/custom-foods", s.requireAuth(s.customFoodsRouter))
+
+	mux.HandleFunc("/api/grocery", s.requireAuth(s.groceryRouter))
+
+	mux.HandleFunc("/api/keys/", s.requireAuth(s.apiKeyRoutes))
+	mux.HandleFunc("/api/keys", s.requireAuth(s.apiKeysRouter))
+	mux.HandleFunc("/api/nutrition/sync", s.requireAuth(s.nutritionSyncRouter))
 
 	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
-	mux.HandleFunc("/api/share/", s.shareItemRouter)
+	mux.HandleFunc("/api/share/", s.requireAuth(s.shareItemRouter))
 	mux.HandleFunc("/api/community", s.communitySearch)
 	mux.HandleFunc("/api/community/categories", s.communityCategories)
 
-	return s.corsMiddleware(mux)
+	var handler http.Handler = mux
+	if s.rateLimiter != nil {
+		handler = s.rateLimiter.Middleware(handler)
+	}
+	return s.corsMiddleware(handler)
+}
+
+func (s *Server) recipeRoutes(w http.ResponseWriter, r *http.Request) {
+	s.recipeItemRouter(w, r)
+}
+
+func (s *Server) profileRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/profiles/")
+	if path == "" {
+		s.profilesRouter(w, r)
+		return
+	}
+	parts := strings.SplitN(path, "/", 3)
+	profileID := parts[0]
+	if len(parts) >= 2 {
+		sub := parts[1]
+		if sub == "log" {
+			entryID := ""
+			if len(parts) >= 3 {
+				entryID = parts[2]
+			}
+			if entryID != "" {
+				s.foodLogEntryRouter(w, r, entryID)
+			} else {
+				s.foodLogRouter(w, r, profileID)
+			}
+			return
+		}
+		if sub == "weight" {
+			entryID := ""
+			if len(parts) >= 3 {
+				entryID = parts[2]
+			}
+			if entryID != "" {
+				s.weightEntryRouter(w, r, entryID)
+			} else {
+				s.weightRouter(w, r, profileID)
+			}
+			return
+		}
+	}
+	s.profileItemRouter(w, r, profileID)
+}
+
+func (s *Server) foodRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/foods/")
+	if path == "seed" || path == "seed/" {
+		s.foodSeedRouter(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "seed/upload") {
+		s.foodSeedUploadHandler(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "seed/") {
+		jobID := strings.TrimPrefix(path, "seed/")
+		jobID = strings.TrimSuffix(jobID, "/")
+		s.foodSeedItemRouter(w, r, jobID)
+		return
+	}
+	if path == "stats" || path == "stats/" {
+		s.foodStatsHandler(w, r)
+		return
+	}
+	if path == "cache" || path == "cache/" {
+		s.foodCacheHandler(w, r)
+		return
+	}
+	s.foodItemHandler(w, r, path)
+}
+
+func (s *Server) entryRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/entries/")
+	id = strings.TrimSuffix(id, "/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "entry id is required")
+		return
+	}
+	s.dayPlanEntryItemRouter(w, r, id)
+}
+
+func (s *Server) mealPlanRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/meal-plans/")
+	if path == "" {
+		s.mealPlansRouter(w, r)
+		return
+	}
+	parts := strings.SplitN(path, "/", 3)
+	planID := parts[0]
+	if len(parts) >= 2 {
+		sub := parts[1]
+		if sub == "entries" {
+			entryID := ""
+			if len(parts) >= 3 {
+				entryID = parts[2]
+			}
+			if entryID != "" {
+				s.dayPlanEntryItemRouter(w, r, entryID)
+			} else {
+				s.dayPlanEntriesRouter(w, r, planID)
+			}
+			return
+		}
+		if sub == "groups" {
+			s.mealGroupsRouter(w, r, planID)
+			return
+		}
+	}
+	s.mealPlanItemRouter(w, r, planID)
+}
+
+func (s *Server) bookRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/books/")
+	s.bookItemRouter(w, r, path)
+}
+
+func (s *Server) categoryRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/categories/")
+	s.categoryItemRouter(w, r, id)
+}
+
+func (s *Server) customFoodRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/custom-foods/")
+	if path == "" || path == "community" {
+		s.customFoodsRouter(w, r)
+		return
+	}
+	s.customFoodItemRouter(w, r, path)
+}
+
+func (s *Server) apiKeyRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/keys/")
+	s.apiKeyItemRouter(w, r, id)
 }
 
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
@@ -58,36 +225,51 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
-			writeError(w, http.StatusUnauthorized, "invalid Authorization format, use: Bearer <token>")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			userID, err := s.auth.ValidateAccessToken(token)
+			if err != nil {
+				user, err2 := s.store.GetUserByAPIKey(token)
+				if err2 != nil || user == nil {
+					writeError(w, http.StatusUnauthorized, "invalid token or API key")
+					return
+				}
+				ctx := context.WithValue(r.Context(), userContextKey, user)
+				h.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			user, err := s.store.GetUserByID(userID)
+			if err != nil || user == nil {
+				writeError(w, http.StatusUnauthorized, "user not found")
+				return
+			}
+			ctx := context.WithValue(r.Context(), userContextKey, user)
+			h.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 
-		user, err := s.store.GetUserByAPIKey(token)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		if user == nil {
-			writeError(w, http.StatusUnauthorized, "invalid API key")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), userContextKey, user)
-		h.ServeHTTP(w, r.WithContext(ctx))
+		writeError(w, http.StatusUnauthorized, "invalid Authorization format, use: Bearer <token>")
 	}
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigins := parseAllowedOrigins(s.corsOrigin)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+
 		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+			if isOriginAllowed(origin, allowedOrigins) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			} else {
+				w.Header().Set("Vary", "Origin")
+			}
 		} else {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
@@ -98,6 +280,29 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func parseAllowedOrigins(raw string) []string {
+	if raw == "" || raw == "*" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
+}
+
+func isOriginAllowed(origin string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, a := range allowed {
+		if a == "*" || a == origin {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -116,27 +321,25 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func getUserFromContext(r *http.Request) *User {
-	return r.Context().Value(userContextKey).(*User)
-}
-
-func (s *Server) conflictsRouter(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/sync/conflicts/")
-	if id == "" {
-		s.listConflicts(w, r)
-		return
+	u := r.Context().Value(userContextKey)
+	if u == nil {
+		return nil
 	}
-	s.resolveConflict(w, r, id)
+	return u.(*User)
 }
 
-func (s *Server) deviceRouter(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/sync/device/")
-	s.removeDevice(w, r, id)
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":      true,
+		"service": "dietledger-api",
+		"version": version,
+	})
 }
 
-func (s *Server) fullDumpRouter(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		s.fullDumpUpload(w, r)
-	} else {
-		s.fullDumpDownload(w, r)
-	}
+func (s *Server) about(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":        "DietLedger API Server",
+		"version":     version,
+		"description": "Server-first API for DietLedger",
+	})
 }

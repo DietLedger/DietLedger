@@ -1,14 +1,6 @@
 import { create } from 'zustand';
-import {
-  getAllTemplates as dbGetAllTemplates,
-  getTemplatesByType as dbGetTemplatesByType,
-  getTemplate as dbGetTemplate,
-  createTemplate as dbCreateTemplate,
-  updateTemplate as dbUpdateTemplate,
-  deleteTemplate as dbDeleteTemplate,
-  type TemplateRecord,
-} from '@/lib/storage';
-import { notifyLocalChange } from '@/lib/sync-store';
+import { getApiClient } from '@/lib/api-client';
+import type { TemplateRecord } from '@/lib/api-client';
 
 interface TemplateState {
   templates: TemplateRecord[];
@@ -30,7 +22,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   fetchTemplates: async () => {
     set({ isLoading: true, error: null });
     try {
-      const templates = await dbGetAllTemplates();
+      const templates = await getApiClient().getTemplates();
       set({ templates, isLoading: false });
     } catch (err) {
       set({
@@ -43,9 +35,8 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   createTemplate: async (data) => {
     set({ error: null });
     try {
-      const record = await dbCreateTemplate(data);
+      const record = await getApiClient().createTemplate(data);
       set((state) => ({ templates: [...state.templates, record] }));
-      notifyLocalChange();
       return record;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
@@ -56,11 +47,10 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   updateTemplate: async (id, data) => {
     set({ error: null });
     try {
-      const updated = await dbUpdateTemplate(id, data);
+      const updated = await getApiClient().updateTemplate(id, data);
       set((state) => ({
         templates: state.templates.map((t) => (t.id === id ? updated : t)),
       }));
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
       throw err;
@@ -70,11 +60,10 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   deleteTemplate: async (id) => {
     set({ error: null });
     try {
-      await dbDeleteTemplate(id);
+      await getApiClient().deleteTemplate(id);
       set((state) => ({
         templates: state.templates.filter((t) => t.id !== id),
       }));
-      notifyLocalChange();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });
       throw err;
@@ -84,10 +73,10 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   duplicateTemplate: async (id) => {
     set({ error: null });
     try {
-      const source = await dbGetTemplate(id);
+      const source = await getApiClient().getTemplate(id);
       if (!source) throw new Error('Template not found');
 
-      const record = await dbCreateTemplate({
+      const record = await getApiClient().createTemplate({
         name: `${source.name} (Copy)`,
         type: source.type,
         isDefault: false,
@@ -95,7 +84,6 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
       });
 
       set((state) => ({ templates: [...state.templates, record] }));
-      notifyLocalChange();
       return record;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' });

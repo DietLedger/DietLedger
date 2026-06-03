@@ -1,16 +1,6 @@
 import { create } from 'zustand';
-import {
-  getAllDietaryProfiles,
-  createDietaryProfile as dbCreateProfile,
-  updateDietaryProfile as dbUpdateProfile,
-  deleteDietaryProfile as dbDeleteProfile,
-  getAllergenRulesByProfile,
-  createAllergenRule as dbCreateRule,
-  updateAllergenRule as dbUpdateRule,
-  deleteAllergenRule as dbDeleteRule,
-} from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import type { DietaryProfileRecord, AllergenRuleRecord, Allergen, DietaryTag, NutrientThreshold } from '@/lib/types';
-import { notifyLocalChange } from '@/lib/sync-store';
 
 interface DietaryState {
   profiles: DietaryProfileRecord[];
@@ -46,7 +36,7 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
   fetchProfiles: async () => {
     set({ isLoading: true, error: null });
     try {
-      const profiles = await getAllDietaryProfiles();
+      const profiles = await getApiClient().getDietaryProfiles();
       const activeId = get().activeProfileId;
       const active = activeId && profiles.some(p => p.id === activeId)
         ? activeId
@@ -59,12 +49,11 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   createProfile: async (data) => {
     try {
-      const record = await dbCreateProfile(data);
+      const record = await getApiClient().createDietaryProfile(data);
       set((s) => ({
         profiles: [record, ...s.profiles],
         activeProfileId: s.activeProfileId ?? record.id,
       }));
-      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -74,11 +63,10 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   updateProfile: async (id, data) => {
     try {
-      const record = await dbUpdateProfile(id, data);
+      const record = await getApiClient().updateDietaryProfile(id, data);
       set((s) => ({
         profiles: s.profiles.map((p) => (p.id === id ? record : p)),
       }));
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -87,7 +75,7 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   deleteProfile: async (id) => {
     try {
-      await dbDeleteProfile(id);
+      await getApiClient().deleteDietaryProfile(id);
       set((s) => {
         const profiles = s.profiles.filter((p) => p.id !== id);
         return {
@@ -96,7 +84,6 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
           allergenRules: s.activeProfileId === id ? [] : s.allergenRules,
         };
       });
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -114,7 +101,7 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   fetchAllergenRules: async (profileId) => {
     try {
-      const rules = await getAllergenRulesByProfile(profileId);
+      const rules = await getApiClient().getAllergenRulesByProfile(profileId);
       set({ allergenRules: rules });
     } catch (e) {
       set({ error: String(e) });
@@ -123,9 +110,8 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   saveAllergenRule: async (data) => {
     try {
-      const record = await dbCreateRule(data);
+      const record = await getApiClient().createAllergenRule(data);
       set((s) => ({ allergenRules: [...s.allergenRules, record] }));
-      notifyLocalChange();
       return record;
     } catch (e) {
       set({ error: String(e) });
@@ -135,11 +121,10 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   updateAllergenRule: async (id, data) => {
     try {
-      const record = await dbUpdateRule(id, data);
+      const record = await getApiClient().updateAllergenRule(id, data);
       set((s) => ({
         allergenRules: s.allergenRules.map((r) => (r.id === id ? record : r)),
       }));
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -148,9 +133,8 @@ export const useDietaryStore = create<DietaryState>((set, get) => ({
 
   deleteAllergenRule: async (id) => {
     try {
-      await dbDeleteRule(id);
+      await getApiClient().deleteAllergenRule(id);
       set((s) => ({ allergenRules: s.allergenRules.filter((r) => r.id !== id) }));
-      notifyLocalChange();
     } catch (e) {
       set({ error: String(e) });
       throw e;

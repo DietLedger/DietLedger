@@ -4,7 +4,8 @@ import React, { Suspense, useEffect, useState, useCallback, useRef, useMemo } fr
 import { useSearchParams } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { useBookStore, type CategoryNode } from '@/lib/book-store';
-import { getCategoryDescendants, getRecipesByCategory, addCustomFood } from '@/lib/storage';
+import { getCategoryDescendants, getRecipesByCategory } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { generateUUID } from '@/lib/utils';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
@@ -401,7 +402,7 @@ function RecipePage() {
     await addCustomIngredient(customName.trim(), nutrition, parseFloat(customAmount) || 100, customUnit);
     if (customSaveForReuse) {
       try {
-        await addCustomFood({
+        await getApiClient().createCustomFood({
           name: customName.trim(),
           calories: parseFloat(customCalories) || 0,
           totalFat: parseFloat(customTotalFat) || 0,

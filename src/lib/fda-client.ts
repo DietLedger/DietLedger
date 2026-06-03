@@ -1,13 +1,11 @@
 import { searchFallbackFoodsAsResult } from '@/lib/fallback-foods';
-import { getStoredApiKey } from '@/lib/storage';
-
-const FDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
 
 export interface FDASearchResult {
   fdcId: number;
   description: string;
   brandOwner: string | null;
   dataType: string;
+  gtinUpc?: string | null;
   servingSize: number;
   servingSizeUnit: string;
   nutrients: {
@@ -34,119 +32,52 @@ export interface FDASearchResponse {
   source: 'fda' | 'fallback' | 'local';
 }
 
+function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
+  if (f.nutrients && typeof f.nutrients === 'object') return f as FDASearchResult;
+  return {
+    fdcId: f.fdcId,
+    description: f.description,
+    brandOwner: f.brandOwner ?? null,
+    dataType: f.dataType,
+    gtinUpc: f.gtinUpc ?? null,
+    servingSize: f.servingSize ?? 0,
+    servingSizeUnit: f.servingSizeUnit ?? '',
+    nutrients: {
+      calories: f.calories ?? 0,
+      totalFat: f.totalFat ?? 0,
+      saturatedFat: f.saturatedFat ?? 0,
+      transFat: f.transFat ?? 0,
+      cholesterol: f.cholesterol ?? 0,
+      sodium: f.sodium ?? 0,
+      totalCarbs: f.totalCarbs ?? 0,
+      dietaryFiber: f.dietaryFiber ?? 0,
+      totalSugars: f.totalSugars ?? 0,
+      addedSugars: f.addedSugars ?? 0,
+      protein: f.protein ?? 0,
+      vitaminD: f.vitaminD ?? 0,
+      calcium: f.calcium ?? 0,
+      iron: f.iron ?? 0,
+      potassium: f.potassium ?? 0,
+    },
+  };
+}
+
 export async function searchFDAFoods(query: string): Promise<FDASearchResponse> {
   try {
-    const localResponse = await fetch(
+    const response = await fetch(
       `/api/foods/search?query=${encodeURIComponent(query)}`
     );
-    if (localResponse.ok) {
-      const localData = await localResponse.json();
-      if (localData.foods && localData.foods.length > 0) {
-        return { foods: localData.foods, source: localData.source };
+    if (response.ok) {
+      const data = await response.json();
+      if (data.foods && data.foods.length > 0) {
+        const foods = data.foods.map(mapFoodItemToFDASearchResult);
+        return { foods, source: data.source || 'local' };
       }
     }
   } catch {
-    // Server unavailable (offline mode) - fall through to direct FDA API
+    // Server unavailable (offline mode) - fall through to fallback
   }
 
-  const apiKey = getStoredApiKey();
-
-  try {
-    const params = new URLSearchParams({
-      api_key: apiKey,
-      query: query,
-      dataType: ['Foundation', 'SR Legacy', 'Branded'].join(','),
-      pageSize: '200',
-      pageNumber: '1',
-      sortBy: 'dataType',
-      sortOrder: 'asc',
-    });
-
-    const response = await fetch(
-      `${FDA_BASE_URL}/foods/search?${params.toString()}`
-    );
-
-    if (!response.ok) {
-      console.log(
-        `FDA API returned ${response.status}, using fallback database`
-      );
-      const fallbackFoods = searchFallbackFoodsAsResult(query);
-      return { foods: fallbackFoods, source: 'fallback' };
-    }
-
-    const data = await response.json();
-
-    const foods: FDASearchResult[] = (data.foods || []).map(
-      (food: Record<string, unknown>) => {
-        const nutrients = (food.foodNutrients || []) as Array<{
-          nutrientId?: number;
-          nutrientName?: string;
-          value?: number;
-          unitName?: string;
-        }>;
-
-        const getNutrient = (nutrientId: number) => {
-          const n = nutrients.find((nt) => nt.nutrientId === nutrientId);
-          return n ? n.value || 0 : 0;
-        };
-
-        const dataType = food.dataType as string;
-        const servingSize = (food.servingSize as number) || 100;
-        const servingSizeUnit = (food.servingSizeUnit as string) || 'g';
-
-        let scale = 1;
-        if (
-          dataType === 'Branded' &&
-          servingSizeUnit === 'g' &&
-          servingSize > 0
-        ) {
-          scale = 100 / servingSize;
-        }
-
-        const scaleVal = (v: number) => Math.round(v * scale * 100) / 100;
-
-        return {
-          fdcId: food.fdcId as number,
-          description: food.description as string,
-          brandOwner: (food.brandOwner as string) || null,
-          dataType: food.dataType as string,
-          servingSize: (food.servingSize as number) || 100,
-          servingSizeUnit: (food.servingSizeUnit as string) || 'g',
-          nutrients: {
-            calories: scaleVal(getNutrient(1008)),
-            totalFat: scaleVal(getNutrient(1004)),
-            saturatedFat: scaleVal(getNutrient(1258)),
-            transFat: scaleVal(getNutrient(1257)),
-            cholesterol: scaleVal(getNutrient(1253)),
-            sodium: scaleVal(getNutrient(1093)),
-            totalCarbs: scaleVal(getNutrient(1005)),
-            dietaryFiber: scaleVal(getNutrient(1079)),
-            totalSugars: scaleVal(getNutrient(2000)),
-            addedSugars: scaleVal(getNutrient(1235)),
-            protein: scaleVal(getNutrient(1003)),
-            vitaminD: scaleVal(getNutrient(1114)),
-            calcium: scaleVal(getNutrient(1087)),
-            iron: scaleVal(getNutrient(1089)),
-            potassium: scaleVal(getNutrient(1092)),
-          },
-        };
-      }
-    );
-
-    if (foods.length > 0) {
-      try {
-        await fetch('/api/foods/cache', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ foods }),
-        });
-      } catch {}
-    }
-
-    return { foods, source: 'fda' };
-  } catch (error) {
-    console.error('FDA search error, using fallback:', error);
-    const fallbackFoods = searchFallbackFoodsAsResult(query);
-    return { foods: fallbackFoods, source: 'fallback' };
-  }
+  const fallbackFoods = searchFallbackFoodsAsResult(query);
+  return { foods: fallbackFoods, source: 'fallback' };
 }

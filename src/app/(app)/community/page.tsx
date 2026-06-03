@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { CommunitySearch, CommunityGallery } from '@/components/community/community-gallery';
 import { toast } from 'sonner';
-import { createRecipe } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Users } from 'lucide-react';
 import Link from 'next/link';
@@ -75,7 +75,7 @@ export default function CommunityPage() {
   const handleImport = useCallback(async (recipe: PublicRecipe) => {
     setImportingId(recipe.id);
     try {
-      await createRecipe(recipe.title);
+      await getApiClient().createRecipe(recipe.title);
       toast.success(`"${recipe.title}" imported to your recipes!`);
     } catch {
       toast.error('Failed to import recipe');

@@ -309,6 +309,8 @@ interface FoodLogEntryRecord {
   calcium: number;
   iron: number;
   potassium: number;
+  servingAmount?: number;
+  servingUnit?: string;
   lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -675,7 +677,36 @@ export async function updateRecipe(
 
 export async function deleteRecipe(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete('recipes', id);
+  const tx = db.transaction(
+    ['recipes', 'dayPlanEntries', 'chapterRecipes', 'recipeCategories'],
+    'readwrite'
+  );
+  await tx.objectStore('recipes').delete(id);
+  const entryStore = tx.objectStore('dayPlanEntries');
+  const entryCursor = await entryStore.openCursor();
+  while (entryCursor) {
+    if (entryCursor.value.recipeId === id) {
+      await entryCursor.delete();
+    }
+    entryCursor.continue();
+  }
+  const crStore = tx.objectStore('chapterRecipes');
+  const crCursor = await crStore.openCursor();
+  while (crCursor) {
+    if (crCursor.value.recipeId === id) {
+      await crCursor.delete();
+    }
+    crCursor.continue();
+  }
+  const rcStore = tx.objectStore('recipeCategories');
+  const rcCursor = await rcStore.openCursor();
+  while (rcCursor) {
+    if (rcCursor.value.recipeId === id) {
+      await rcCursor.delete();
+    }
+    rcCursor.continue();
+  }
+  await tx.done;
   await logChange('recipes', id, 'delete');
 }
 

@@ -1,14 +1,16 @@
 services:
-  dietledger:
+  web:
     build:
       context: .
+      args:
+        NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY: ${NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY:-false}
     image: recipetool-dietledger
     container_name: dietledger
 
-  sync-server:
+  api:
     build:
       context: ./sync-server
       args:
         BUILD_VERSION: ${APP_VERSION:-dev}
-    image: recipetool-sync-server
-    container_name: dietledger-sync
+    image: recipetool-api
+    container_name: dietledger-api
