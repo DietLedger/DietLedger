@@ -31,3 +31,4 @@ AGENTS.md
 spec.md
 docker-compose*.yml
 docker-build.bat
+src/app/api

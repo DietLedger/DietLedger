@@ -9,6 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
@@ -19,7 +26,20 @@ import {
   type GroceryChecklistRecord,
   type DayPlanEntryRecord,
 } from '@/lib/storage';
-import { aggregateIngredients, getUnitSystem, setUnitSystem, type UnitSystem } from '@/lib/unit-conversion';
+import {
+  aggregateIngredients,
+  getUnitSystem,
+  setUnitSystem,
+  type UnitSystem,
+  type AggregatedIngredient,
+  gramsToUnit,
+  formatGramsAs,
+  defaultDisplayUnit,
+  ALL_CONVERTIBLE_UNITS,
+  WEIGHT_UNITS,
+  VOLUME_UNITS,
+  COUNT_UNITS_LIST,
+} from '@/lib/unit-conversion';
 import { STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Link from 'next/link';
@@ -42,6 +62,7 @@ export default function GroceryListPage() {
   const [highlightedIngredient, setHighlightedIngredient] = useState<string | null>(null);
   const [unitSystem, setUnitSystemState] = useState<UnitSystem>('imperial');
   const [fullRecipeCache, setFullRecipeCache] = useState<Map<string, Recipe>>(new Map());
+  const [unitOverrides, setUnitOverrides] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     fetchRecipes();
@@ -167,6 +188,31 @@ export default function GroceryListPage() {
     return aggregateIngredients(allIngredients);
   }, [nonLeftoverEntries, enrichedRecipes, unitSystem]);
 
+  const getIngredientDisplay = useCallback((ing: AggregatedIngredient): string => {
+    const key = ing.name.toLowerCase().trim();
+    if (ing.totalGrams > 0) {
+      const unit = unitOverrides.get(key) || defaultDisplayUnit(ing.totalGrams, unitSystem);
+      return formatGramsAs(ing.totalGrams, unit);
+    }
+    return ing.displayAmount;
+  }, [unitOverrides, unitSystem]);
+
+  const getIngredientUnit = useCallback((ing: AggregatedIngredient): string => {
+    const key = ing.name.toLowerCase().trim();
+    if (ing.totalGrams > 0) {
+      return unitOverrides.get(key) || defaultDisplayUnit(ing.totalGrams, unitSystem);
+    }
+    return '';
+  }, [unitOverrides, unitSystem]);
+
+  const handleUnitOverride = useCallback((ingredientKey: string, newUnit: string) => {
+    setUnitOverrides(prev => {
+      const next = new Map(prev);
+      next.set(ingredientKey, newUnit);
+      return next;
+    });
+  }, []);
+
   const recipeIngredientMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
     function addIngredientEntries(
@@ -284,12 +330,13 @@ export default function GroceryListPage() {
     const newSystem = unitSystem === 'imperial' ? 'metric' : 'imperial';
     setUnitSystem(newSystem);
     setUnitSystemState(newSystem);
+    setUnitOverrides(new Map());
   }, [unitSystem]);
 
   const handleExportPdf = useCallback(async () => {
     const items: GroceryItemData[] = aggregatedIngredients.map(ing => ({
       name: ing.name,
-      displayAmount: ing.displayAmount,
+      displayAmount: getIngredientDisplay(ing),
       recipeNames: Array.from(recipeIngredientMap.get(ing.name.toLowerCase().trim()) || []).map(id => {
         const r = enrichedRecipes.find(r => r.id === id);
         return r?.name;
@@ -303,7 +350,7 @@ export default function GroceryListPage() {
     a.download = `grocery-list-${weekStart}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [aggregatedIngredients, recipeIngredientMap, enrichedRecipes, weekDate, weekStart]);
+  }, [aggregatedIngredients, getIngredientDisplay, recipeIngredientMap, enrichedRecipes, weekDate, weekStart]);
 
   return (
     <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -339,6 +386,10 @@ export default function GroceryListPage() {
           aggregatedIngredients={aggregatedIngredients}
           checklist={checklist}
           onToggle={handleToggleCheck}
+          getIngredientDisplay={getIngredientDisplay}
+          getIngredientUnit={getIngredientUnit}
+          onUnitChange={handleUnitOverride}
+          unitSystem={unitSystem}
         />
       ) : (
         <div className="grid grid-cols-3 gap-4">
@@ -392,10 +443,13 @@ export default function GroceryListPage() {
                   const isHighlighted =
                     highlightedIngredient === key ||
                     (highlightedRecipe && (ingredientRecipeMap.get(highlightedRecipe) || new Set()).has(key));
+                  const display = getIngredientDisplay(ing);
+                  const currentUnit = getIngredientUnit(ing);
+                  const hasConvertible = ing.totalGrams > 0;
                   return (
-                    <button
+                    <div
                       key={`${key}-${idx}`}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                      className={`flex items-center gap-1 px-3 py-2 rounded-md text-sm transition-colors ${
                         isHighlighted ? 'bg-amber-100' : 'hover:bg-stone-50'
                       }`}
                       onClick={() => {
@@ -403,25 +457,54 @@ export default function GroceryListPage() {
                         setHighlightedRecipe(null);
                       }}
                     >
-                      <span className="font-medium">{ing.name}</span>
-                       <span className="text-stone-400 ml-2">{ing.displayAmount}</span>
-                       {(() => {
-                         const key = ing.name.toLowerCase().trim();
-                         const loc = ingredientStorageMap.get(key);
-                         if (!loc || !STORAGE_LOCATION_META[loc as StorageLocation]) return null;
-                         const meta = STORAGE_LOCATION_META[loc as StorageLocation];
-                         return (
-                           <span className={`ml-1 text-[9px] px-1 py-0.5 rounded ${
-                             meta.color === 'amber' ? 'bg-amber-100 text-amber-700' :
-                             meta.color === 'blue' ? 'bg-blue-100 text-blue-700' :
-                             meta.color === 'cyan' ? 'bg-cyan-100 text-cyan-700' :
-                             'bg-green-100 text-green-700'
-                           }`}>
-                             {meta.icon} {loc}
-                           </span>
-                         );
-                       })()}
-                    </button>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium">{ing.name}</span>
+                        {(() => {
+                          const loc = ingredientStorageMap.get(key);
+                          if (!loc || !STORAGE_LOCATION_META[loc as StorageLocation]) return null;
+                          const meta = STORAGE_LOCATION_META[loc as StorageLocation];
+                          return (
+                            <span className={`ml-1 text-[9px] px-1 py-0.5 rounded ${
+                              meta.color === 'amber' ? 'bg-amber-100 text-amber-700' :
+                              meta.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                              meta.color === 'cyan' ? 'bg-cyan-100 text-cyan-700' :
+                              'bg-green-100 text-green-700'
+                            }`}>
+                              {meta.icon} {loc}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      {hasConvertible ? (
+                        <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          <span className="text-stone-500 text-xs">{display.replace(/\s+\S+$/, '')}</span>
+                          <Select
+                            value={currentUnit}
+                            onValueChange={(u) => handleUnitOverride(key, u)}
+                          >
+                            <SelectTrigger
+                              size="sm"
+                              className="h-6 min-w-[52px] px-1.5 py-0 text-xs border-0 shadow-none bg-stone-100 hover:bg-stone-200 rounded"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <span className="px-2 py-1 text-[10px] text-stone-400 uppercase tracking-wider">Weight</span>
+                              {WEIGHT_UNITS.map(u => (
+                                <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>
+                              ))}
+                              <Separator className="my-1" />
+                              <span className="px-2 py-1 text-[10px] text-stone-400 uppercase tracking-wider">Volume</span>
+                              {VOLUME_UNITS.map(u => (
+                                <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <span className="text-stone-400 text-xs shrink-0">{display}</span>
+                      )}
+                    </div>
                   );
                 })}
                 {aggregatedIngredients.length === 0 && (
@@ -441,6 +524,7 @@ export default function GroceryListPage() {
                   const key = ing.name.toLowerCase().trim();
                   const isChecked = checklist?.checkedItems.includes(key) ?? false;
                   const loc = ingredientStorageMap.get(key);
+                  const display = getIngredientDisplay(ing);
                   return (
                     <div key={`${key}-check-${idx}`} className="flex items-center gap-2">
                       <Checkbox
@@ -467,7 +551,7 @@ export default function GroceryListPage() {
                           </span>
                         );
                       })()}
-                      <span className="text-xs text-stone-400">{ing.displayAmount}</span>
+                      <span className="text-xs text-stone-400">{display}</span>
                     </div>
                   );
                 })}
@@ -487,10 +571,18 @@ function MobileChecklist({
   aggregatedIngredients,
   checklist,
   onToggle,
+  getIngredientDisplay,
+  getIngredientUnit,
+  onUnitChange,
+  unitSystem,
 }: {
-  aggregatedIngredients: Array<{ name: string; displayAmount: string }>;
+  aggregatedIngredients: AggregatedIngredient[];
   checklist: GroceryChecklistRecord | null;
   onToggle: (name: string) => void;
+  getIngredientDisplay: (ing: AggregatedIngredient) => string;
+  getIngredientUnit: (ing: AggregatedIngredient) => string;
+  onUnitChange: (key: string, unit: string) => void;
+  unitSystem: UnitSystem;
 }) {
   return (
     <Card>
@@ -502,6 +594,9 @@ function MobileChecklist({
           {aggregatedIngredients.map((ing, idx) => {
             const key = ing.name.toLowerCase().trim();
             const isChecked = checklist?.checkedItems.includes(key) ?? false;
+            const display = getIngredientDisplay(ing);
+            const currentUnit = getIngredientUnit(ing);
+            const hasConvertible = ing.totalGrams > 0;
             return (
               <div key={`${key}-m-${idx}`} className="flex items-center gap-2">
                 <Checkbox
@@ -515,7 +610,35 @@ function MobileChecklist({
                 >
                   {ing.name}
                 </span>
-                <span className="text-xs text-stone-400">{ing.displayAmount}</span>
+                {hasConvertible ? (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <span className="text-xs text-stone-400">{display.replace(/\s+\S+$/, '')}</span>
+                    <Select
+                      value={currentUnit}
+                      onValueChange={(u) => onUnitChange(key, u)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-6 min-w-[52px] px-1.5 py-0 text-xs border-0 shadow-none bg-stone-100 hover:bg-stone-200 rounded"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <span className="px-2 py-1 text-[10px] text-stone-400 uppercase tracking-wider">Weight</span>
+                        {WEIGHT_UNITS.map(u => (
+                          <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>
+                        ))}
+                        <Separator className="my-1" />
+                        <span className="px-2 py-1 text-[10px] text-stone-400 uppercase tracking-wider">Volume</span>
+                        {VOLUME_UNITS.map(u => (
+                          <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <span className="text-xs text-stone-400">{display}</span>
+                )}
               </div>
             );
           })}

@@ -7,6 +7,11 @@ const VOLUME_TO_ML: Record<string, number> = {
   cup: 236.588, pt: 473.176, qt: 946.353, gal: 3785.41,
 };
 
+const VOLUME_TO_GRAMS: Record<string, number> = {
+  cup: 240, tbsp: 15, tsp: 5, ml: 1, l: 1000,
+  'fl oz': 30, pt: 480, qt: 960, gal: 3840,
+};
+
 const COUNT_UNITS = new Set([
   'whole', 'slice', 'piece', 'clove', 'leaf', 'sprig', 'pinch', 'dash',
   'can', 'bag', 'bunch', 'stick',
@@ -90,85 +95,100 @@ function roundAmount(n: number): string {
   return rounded.toString();
 }
 
+export const WEIGHT_UNITS = Object.keys(WEIGHT_TO_GRAMS);
+export const VOLUME_UNITS = Object.keys(VOLUME_TO_GRAMS);
+export const COUNT_UNITS_LIST = Array.from(COUNT_UNITS);
+export const ALL_CONVERTIBLE_UNITS = [...WEIGHT_UNITS, ...VOLUME_UNITS];
+
+export function gramsToUnit(grams: number, unit: string): number {
+  const norm = normalizeUnit(unit);
+  if (norm in WEIGHT_TO_GRAMS) return grams / WEIGHT_TO_GRAMS[norm];
+  if (norm in VOLUME_TO_GRAMS) return grams / VOLUME_TO_GRAMS[norm];
+  return grams;
+}
+
+export function unitToGrams(amount: number, unit: string): number {
+  const norm = normalizeUnit(unit);
+  if (norm in WEIGHT_TO_GRAMS) return amount * WEIGHT_TO_GRAMS[norm];
+  if (norm in VOLUME_TO_GRAMS) return amount * VOLUME_TO_GRAMS[norm];
+  return 0;
+}
+
+export function defaultDisplayUnit(totalGrams: number, system: UnitSystem): string {
+  if (system === 'metric') return totalGrams >= 1000 ? 'kg' : 'g';
+  return totalGrams >= 453.592 ? 'lb' : 'oz';
+}
+
+export function formatGramsAs(grams: number, unit: string): string {
+  const amount = gramsToUnit(grams, unit);
+  return `${roundAmount(amount)} ${unit}`;
+}
+
 export interface AggregatedIngredient {
   name: string;
-  totalAmount: number;
-  type: 'weight' | 'volume' | 'count';
-  baseUnit: string;
+  totalGrams: number;
+  countParts: Array<{ unit: string; amount: number }>;
+  unknownParts: Array<{ unit: string; amount: number }>;
   displayAmount: string;
-  countItems?: { amount: number; unit: string }[];
 }
 
 export function aggregateIngredients(
   ingredients: Array<{ name: string; amount: number; unit: string }>
 ): AggregatedIngredient[] {
-  const map = new Map<string, AggregatedIngredient>();
+  const byName = new Map<string, Array<{ amount: number; unit: string }>>();
 
   for (const ing of ingredients) {
     const key = ing.name.toLowerCase().trim();
-    const converted = toBaseUnit(ing.amount, ing.unit);
-
-    if (!converted) {
-      const existing = map.get(`${key}::${normalizeUnit(ing.unit)}::count`);
-      if (existing) {
-        existing.totalAmount += ing.amount;
-        existing.countItems!.push({ amount: ing.amount, unit: ing.unit });
-      } else {
-        map.set(`${key}::${normalizeUnit(ing.unit)}::count`, {
-          name: ing.name,
-          totalAmount: ing.amount,
-          type: 'count',
-          baseUnit: normalizeUnit(ing.unit),
-          displayAmount: `${ing.amount} ${ing.unit}`,
-          countItems: [{ amount: ing.amount, unit: ing.unit }],
-        });
-      }
-      continue;
-    }
-
-    if (converted.type === 'count') {
-      const existing = map.get(`${key}::${converted.baseUnit}::count`);
-      if (existing) {
-        existing.totalAmount += converted.amount;
-        existing.countItems!.push({ amount: ing.amount, unit: ing.unit });
-      } else {
-        map.set(`${key}::${converted.baseUnit}::count`, {
-          name: ing.name,
-          totalAmount: converted.amount,
-          type: 'count',
-          baseUnit: converted.baseUnit,
-          displayAmount: '',
-          countItems: [{ amount: ing.amount, unit: ing.unit }],
-        });
-      }
-    } else {
-      const aggKey = `${key}::${converted.type}`;
-      const existing = map.get(aggKey);
-      if (existing) {
-        existing.totalAmount += converted.amount;
-      } else {
-        map.set(aggKey, {
-          name: ing.name,
-          totalAmount: converted.amount,
-          type: converted.type,
-          baseUnit: converted.baseUnit,
-          displayAmount: '',
-        });
-      }
-    }
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key)!.push({ amount: ing.amount, unit: ing.unit });
   }
 
   const system = getUnitSystem();
   const results: AggregatedIngredient[] = [];
-  for (const agg of map.values()) {
-    if (agg.type === 'count' && agg.countItems && agg.countItems.length === 1) {
-      const item = agg.countItems[0];
-      agg.displayAmount = `${roundAmount(item.amount)} ${item.unit}`;
-    } else {
-      agg.displayAmount = formatAmount(agg.totalAmount, agg.type, system, agg.baseUnit);
-    }
-    results.push(agg);
+
+  for (const [key, items] of byName) {
+    const name = items.length > 0 ? ingredients.find(i => i.name.toLowerCase().trim() === key)!.name : key;
+    const result = computeAggregation(items, system);
+    results.push({ name, ...result });
   }
 
   return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function computeAggregation(
+  items: Array<{ amount: number; unit: string }>,
+  system: UnitSystem,
+): Omit<AggregatedIngredient, 'name'> {
+  let totalGrams = 0;
+  const countMap = new Map<string, number>();
+  const unknownMap = new Map<string, number>();
+
+  for (const item of items) {
+    const norm = normalizeUnit(item.unit);
+    const converted = toBaseUnit(item.amount, item.unit);
+
+    if (converted && converted.type === 'weight') {
+      totalGrams += converted.amount;
+    } else if (norm in VOLUME_TO_GRAMS) {
+      totalGrams += item.amount * VOLUME_TO_GRAMS[norm];
+    } else if (converted && converted.type === 'count') {
+      countMap.set(converted.baseUnit, (countMap.get(converted.baseUnit) || 0) + converted.amount);
+    } else {
+      unknownMap.set(norm, (unknownMap.get(norm) || 0) + item.amount);
+    }
+  }
+
+  const countParts = Array.from(countMap.entries()).map(([unit, amount]) => ({ unit, amount }));
+  const unknownParts = Array.from(unknownMap.entries()).map(([unit, amount]) => ({ unit, amount }));
+
+  const parts: string[] = [];
+  if (totalGrams > 0) parts.push(formatAmount(totalGrams, 'weight', system));
+  for (const [unit, total] of countMap) {
+    parts.push(`${roundAmount(total)} ${unit}${total !== 1 ? 's' : ''}`);
+  }
+  for (const [unit, total] of unknownMap) {
+    parts.push(`${roundAmount(total)} ${unit}${total !== 1 ? 's' : ''}`);
+  }
+
+  return { totalGrams, countParts, unknownParts, displayAmount: parts.join(' + ') };
 }
