@@ -40,7 +40,6 @@ import CategoriesPanel from '@/components/categories-panel';
 import PantryStaplesPanel from '@/components/pantry-staples-panel';
 import LocationPanel from '@/components/location-panel';
 import CustomFoodsPanel from '@/components/custom-foods-panel';
-import SyncIndicator from '@/components/sync-indicator';
 import { LogWeightDialog } from '@/components/nutrition/log-weight-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { useAppTheme } from '@/hooks/use-app-theme';
@@ -152,8 +151,6 @@ export default function AppNav() {
             </TooltipTrigger>
             <TooltipContent>Barcode Scanner</TooltipContent>
           </Tooltip>
-
-          <SyncIndicator />
 
           <Tooltip>
             <TooltipTrigger asChild>

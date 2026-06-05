@@ -1,5 +1,3 @@
-import { writeQueue } from './write-queue';
-import { readCache, DEFAULT_TTL_LIST, DEFAULT_TTL_ITEM } from './read-cache';
 import type {
   ApiClient,
   AuthResult,
@@ -35,8 +33,6 @@ export class GoApiClient implements ApiClient {
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    writeQueue.init(this.baseUrl);
-    readCache.init();
   }
   private getToken(): string | null {
     if (typeof window === 'undefined') return null;
@@ -91,32 +87,6 @@ export class GoApiClient implements ApiClient {
     }
 
     return res.json();
-  }
-
-  private async cachedGet<T>(cacheKey: string, path: string, ttl = DEFAULT_TTL_LIST): Promise<T> {
-    try {
-      const data = await this.request<T>('GET', path);
-      readCache.set(cacheKey, data, ttl);
-      return data;
-    } catch (e: unknown) {
-      const cached = await readCache.get<T>(cacheKey);
-      if (cached !== null) return cached;
-      throw e;
-    }
-  }
-
-  private async queuedWrite(method: string, path: string, cachePrefix?: string, body?: unknown): Promise<void> {
-    try {
-      await this.request(method, path, body);
-      if (cachePrefix) readCache.invalidate(cachePrefix);
-    } catch (e: unknown) {
-      if (e instanceof TypeError || (e instanceof Error && e.message === 'Failed to fetch')) {
-        await writeQueue.enqueue(method, path, body);
-        if (cachePrefix) readCache.invalidate(cachePrefix);
-      } else {
-        throw e;
-      }
-    }
   }
 
   private async tryRefresh(): Promise<boolean> {

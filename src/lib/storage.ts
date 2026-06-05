@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { SyncServerConfig, SyncChangeLogEntry, DietaryProfileRecord, AllergenRuleRecord, SharedRecipeRecord, BrandKit } from './types';
+import type { DietaryProfileRecord, AllergenRuleRecord, SharedRecipeRecord, BrandKit } from './types';
 import { generateUUID } from './utils';
 
 interface IngredientGroup {
@@ -449,19 +449,6 @@ interface DietLedgerDB extends DBSchema {
       'by-profileId-date': [string, string];
     };
   };
-  syncServers: {
-    key: string;
-    value: SyncServerConfig;
-  };
-  syncChangeLog: {
-    key: string;
-    value: SyncChangeLogEntry;
-    indexes: {
-      'by-synced': string;
-      'by-storeName': string;
-      'by-timestamp': string;
-    };
-  };
   dietaryProfiles: {
     key: string;
     value: DietaryProfileRecord;
@@ -574,12 +561,6 @@ export function getDB(): Promise<IDBPDatabase<DietLedgerDB>> {
           weightStore.createIndex('by-profileId-date', ['profileId', 'date']);
         }
         if (oldVersion < 10) {
-          db.createObjectStore('syncServers', { keyPath: 'id' });
-
-          const changeLogStore = db.createObjectStore('syncChangeLog', { keyPath: 'id' });
-          changeLogStore.createIndex('by-synced', 'synced');
-          changeLogStore.createIndex('by-storeName', 'storeName');
-          changeLogStore.createIndex('by-timestamp', 'timestamp');
         }
         if (oldVersion < 11) {
           const dietaryProfileStore = db.createObjectStore('dietaryProfiles', { keyPath: 'id' });
@@ -2451,66 +2432,7 @@ export type {
   BmrEquation,
 };
 
-export async function logChange(storeName: string, recordId: string, action: 'upsert' | 'delete', data?: unknown): Promise<void> {
-  try {
-    const db = await getDB();
-    const entry: SyncChangeLogEntry = {
-      id: generateUUID(),
-      storeName,
-      recordId,
-      action,
-      timestamp: new Date().toISOString(),
-      synced: false,
-      data: data !== undefined ? JSON.stringify(data) : null,
-    };
-    await db.put('syncChangeLog', entry);
-  } catch {}
-}
-
-export async function getUnsyncedChanges(): Promise<SyncChangeLogEntry[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('syncChangeLog', 'by-synced', IDBKeyRange.only('0'));
-}
-
-export async function getAllUnsyncedChanges(): Promise<SyncChangeLogEntry[]> {
-  const db = await getDB();
-  const all = await db.getAll('syncChangeLog');
-  return all.filter(e => !e.synced);
-}
-
-export async function markChangesSynced(ids: string[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('syncChangeLog', 'readwrite');
-  for (const id of ids) {
-    const entry = await tx.store.get(id);
-    if (entry) {
-      entry.synced = true;
-      await tx.store.put(entry);
-    }
-  }
-  await tx.done;
-}
-
-export async function clearSyncChangeLog(): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('syncChangeLog', 'readwrite');
-  await tx.store.clear();
-  await tx.done;
-}
-
-export async function getAllSyncServers(): Promise<SyncServerConfig[]> {
-  const db = await getDB();
-  return db.getAll('syncServers');
-}
-
-export async function putSyncServer(config: SyncServerConfig): Promise<void> {
-  const db = await getDB();
-  await db.put('syncServers', config);
-}
-
-export async function deleteSyncServer(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('syncServers', id);
+export async function logChange(_storeName: string, _recordId: string, _action: 'upsert' | 'delete', _data?: unknown): Promise<void> {
 }
 
 export async function getAllStoreData(storeName: string): Promise<unknown[]> {

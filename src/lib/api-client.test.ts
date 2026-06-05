@@ -8,14 +8,6 @@ const mockGoApiClientInstance = {
 }
 
 function setupMocks() {
-  vi.doMock('./write-queue', () => ({
-    writeQueue: { init: vi.fn() },
-  }))
-  vi.doMock('./read-cache', () => ({
-    readCache: { init: vi.fn() },
-    DEFAULT_TTL_LIST: 60_000,
-    DEFAULT_TTL_ITEM: 120_000,
-  }))
   vi.doMock('./api-client-go', () => ({
     GoApiClient: class {
       constructor() { return mockGoApiClientInstance }
@@ -167,5 +159,54 @@ describe('proxy local-only guard', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(result).toBeInstanceOf(NextResponse)
+  })
+})
+
+describe('GoApiClient request error surfacing', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.doUnmock('./api-client-go')
+    vi.doUnmock('./storage')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('throws on server error responses without queueing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      })
+    ))
+
+    const { GoApiClient } = await import('./api-client-go')
+    const client = new GoApiClient('http://localhost:8080')
+
+    await expect(client.getRecipes()).rejects.toThrow('Internal Server Error')
+  })
+
+  it('throws on 4xx responses without queueing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Not Found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    ))
+
+    const { GoApiClient } = await import('./api-client-go')
+    const client = new GoApiClient('http://localhost:8080')
+
+    await expect(client.getRecipes()).rejects.toThrow('Not Found')
+  })
+
+  it('throws on network failure without queueing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const { GoApiClient } = await import('./api-client-go')
+    const client = new GoApiClient('http://localhost:8080')
+
+    await expect(client.getRecipes()).rejects.toThrow('Failed to fetch')
   })
 })
