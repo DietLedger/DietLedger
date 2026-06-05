@@ -462,13 +462,15 @@ func (s *SQLiteStore) ListRecipes(userID string, page, perPage int) ([]Recipe, i
 	var total int
 	s.db.QueryRow(`SELECT COUNT(*) FROM recipes WHERE user_id = ?`, userID).Scan(&total)
 	offset := (page - 1) * perPage
-	rows, err := s.db.Query(`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at FROM recipes WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, userID, perPage, offset)
+	rows, err := s.db.Query(`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, userID, perPage, offset)
 	if err != nil { return nil, 0, err }
 	defer rows.Close()
 	var recipes []Recipe
 	for rows.Next() {
 		var r Recipe
-		rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt)
+		var groupsJSON string
+		rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
+		r.ScanIngredientGroups(groupsJSON)
 		ings, _ := s.listIngredientsByRecipe(r.ID)
 		r.Ingredients = ings
 		recipes = append(recipes, r)
@@ -478,9 +480,11 @@ func (s *SQLiteStore) ListRecipes(userID string, page, perPage int) ([]Recipe, i
 
 func (s *SQLiteStore) GetRecipe(userID, id string) (*Recipe, error) {
 	r := &Recipe{}
-	err := s.db.QueryRow(`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at FROM recipes WHERE user_id = ? AND id = ?`, userID, id).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &r.CreatedAt, &r.UpdatedAt)
+	var groupsJSON string
+	err := s.db.QueryRow(`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = ? AND id = ?`, userID, id).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows { return nil, nil }
 	if err != nil { return nil, err }
+	r.ScanIngredientGroups(groupsJSON)
 	ings, _ := s.listIngredientsByRecipe(r.ID)
 	r.Ingredients = ings
 	return r, nil
@@ -503,8 +507,16 @@ func (s *SQLiteStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*Re
 }
 
 func (s *SQLiteStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
-	_, err := s.db.Exec(`UPDATE recipes SET name=?, servings=?, serving_name=?, instructions=?, leftover_storage=?, updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND id=?`,
-		req.Name, req.Servings, req.ServingName, req.Instructions, req.LeftoverStorage, userID, id)
+	setClauses := []string{"updated_at=CURRENT_TIMESTAMP"}
+	args := []interface{}{}
+	if req.Name != nil { setClauses = append(setClauses, "name=?"); args = append(args, *req.Name) }
+	if req.Servings != nil { setClauses = append(setClauses, "servings=?"); args = append(args, *req.Servings) }
+	if req.ServingName != nil { setClauses = append(setClauses, "serving_name=?"); args = append(args, *req.ServingName) }
+	if req.Instructions != nil { setClauses = append(setClauses, "instructions=?"); args = append(args, *req.Instructions) }
+	if req.LeftoverStorage != nil { setClauses = append(setClauses, "leftover_storage=?"); args = append(args, *req.LeftoverStorage) }
+	if req.IngredientGroups != nil { setClauses = append(setClauses, "ingredient_groups=?"); args = append(args, *req.IngredientGroups) }
+	args = append(args, userID, id)
+	_, err := s.db.Exec(`UPDATE recipes SET `+strings.Join(setClauses, ",")+` WHERE user_id=? AND id=?`, args...)
 	if err != nil { return nil, err }
 	if req.Ingredients != nil { s.ReplaceIngredients(id, *req.Ingredients) }
 	return s.GetRecipe(userID, id)
@@ -522,14 +534,14 @@ func (s *SQLiteStore) DeleteRecipe(userID, id string) error {
 }
 
 func (s *SQLiteStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, error) {
-	rows, err := s.db.Query(`SELECT id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,'') FROM ingredients WHERE recipe_id = ?`, recipeID)
+	rows, err := s.db.Query(`SELECT id, recipe_id, fdc_id, name, amount, unit, COALESCE(description,''), calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,''), group_id, linked_recipe_id FROM ingredients WHERE recipe_id = ?`, recipeID)
 	if err != nil { return nil, err }
 	defer rows.Close()
 	var ings []Ingredient
 	for rows.Next() {
 		var i Ingredient
 		var prepJSON string
-		rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation)
+		rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID)
 		i.ScanPrepInstructions(prepJSON)
 		ings = append(ings, i)
 	}
@@ -539,17 +551,17 @@ func (s *SQLiteStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, er
 func (s *SQLiteStore) CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error) {
 	id := uuid.New().String()
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
-	_, err := s.db.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation)
+	_, err := s.db.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID)
 	if err != nil { return nil, err }
-	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
 }
 
 func (s *SQLiteStore) UpdateIngredient(id string, ing *CreateIngredientReq) (*Ingredient, error) {
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
-	s.db.Exec(`UPDATE ingredients SET fdc_id=?, name=?, amount=?, unit=?, calories=?, total_fat=?, saturated_fat=?, trans_fat=?, cholesterol=?, sodium=?, total_carbs=?, dietary_fiber=?, total_sugars=?, added_sugars=?, protein=?, vitamin_d=?, calcium=?, iron=?, potassium=?, prep_instructions=?, storage_location=? WHERE id=?`,
-		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, id)
-	return &Ingredient{ID: id, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+	s.db.Exec(`UPDATE ingredients SET fdc_id=?, name=?, amount=?, unit=?, description=?, calories=?, total_fat=?, saturated_fat=?, trans_fat=?, cholesterol=?, sodium=?, total_carbs=?, dietary_fiber=?, total_sugars=?, added_sugars=?, protein=?, vitamin_d=?, calcium=?, iron=?, potassium=?, prep_instructions=?, storage_location=?, group_id=?, linked_recipe_id=? WHERE id=?`,
+		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, id)
+	return &Ingredient{ID: id, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
 }
 
 func (s *SQLiteStore) DeleteIngredient(id string) error { _, err := s.db.Exec(`DELETE FROM ingredients WHERE id = ?`, id); return err }
@@ -560,8 +572,8 @@ func (s *SQLiteStore) ReplaceIngredients(recipeID string, ingredients []CreateIn
 	for _, ing := range ingredients {
 		id := uuid.New().String()
 		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
-		tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation)
+		tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID)
 	}
 	return tx.Commit()
 }

@@ -32,33 +32,46 @@ type Recipe struct {
 	ServingName     string       `json:"servingName"`
 	Instructions    *string      `json:"instructions,omitempty"`
 	LeftoverStorage *string      `json:"leftoverStorage,omitempty"`
+	IngredientGroupsJSON string  `json:"ingredientGroups,omitempty"`
 	CreatedAt       time.Time    `json:"createdAt"`
 	UpdatedAt       time.Time    `json:"updatedAt"`
 	Ingredients     []Ingredient `json:"ingredients,omitempty"`
 }
 
+func (r *Recipe) ScanIngredientGroups(v string) {
+	r.IngredientGroupsJSON = v
+}
+
+type IngredientGroupJSON struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
 type Ingredient struct {
-	ID               string  `json:"id"`
-	RecipeID         string  `json:"recipeId"`
-	FdcID            int     `json:"fdcId"`
-	Name             string  `json:"name"`
-	Amount           float64 `json:"amount"`
-	Unit             string  `json:"unit"`
-	Calories         float64 `json:"calories"`
-	TotalFat         float64 `json:"totalFat"`
-	SaturatedFat     float64 `json:"saturatedFat"`
-	TransFat         float64 `json:"transFat"`
-	Cholesterol      float64 `json:"cholesterol"`
-	Sodium           float64 `json:"sodium"`
-	TotalCarbs       float64 `json:"totalCarbs"`
-	DietaryFiber     float64 `json:"dietaryFiber"`
-	TotalSugars      float64 `json:"totalSugars"`
-	AddedSugars      float64 `json:"addedSugars"`
-	Protein          float64 `json:"protein"`
-	VitaminD         float64 `json:"vitaminD"`
-	Calcium          float64 `json:"calcium"`
-	Iron             float64 `json:"iron"`
+	ID               string   `json:"id"`
+	RecipeID         string   `json:"recipeId"`
+	FdcID            int      `json:"fdcId"`
+	Name             string   `json:"name"`
+	Amount           float64  `json:"amount"`
+	Unit             string   `json:"unit"`
+	Description      string   `json:"description"`
+	Calories         float64  `json:"calories"`
+	TotalFat         float64  `json:"totalFat"`
+	SaturatedFat     float64  `json:"saturatedFat"`
+	TransFat         float64  `json:"transFat"`
+	Cholesterol      float64  `json:"cholesterol"`
+	Sodium           float64  `json:"sodium"`
+	TotalCarbs       float64  `json:"totalCarbs"`
+	DietaryFiber     float64  `json:"dietaryFiber"`
+	TotalSugars      float64  `json:"totalSugars"`
+	AddedSugars      float64  `json:"addedSugars"`
+	Protein          float64  `json:"protein"`
+	VitaminD         float64  `json:"vitaminD"`
+	Calcium          float64  `json:"calcium"`
+	Iron             float64  `json:"iron"`
 	Potassium        float64  `json:"potassium"`
+	GroupID          *string  `json:"groupId"`
+	LinkedRecipeID   *string  `json:"linkedRecipeId"`
 	PrepInstructions []string `json:"prepInstructions"`
 	StorageLocation  string   `json:"storageLocation"`
 }
@@ -418,34 +431,38 @@ type CreateRecipeRequest struct {
 }
 
 type UpdateRecipeRequest struct {
-	Name            *string                `json:"name,omitempty"`
-	Servings        *int                   `json:"servings,omitempty"`
-	ServingName     *string                `json:"servingName,omitempty"`
-	Instructions    *string                `json:"instructions"`
-	LeftoverStorage *string                `json:"leftoverStorage"`
-	Ingredients     *[]CreateIngredientReq `json:"ingredients,omitempty"`
+	Name             *string                `json:"name,omitempty"`
+	Servings         *int                   `json:"servings,omitempty"`
+	ServingName      *string                `json:"servingName,omitempty"`
+	Instructions     *string                `json:"instructions"`
+	LeftoverStorage  *string                `json:"leftoverStorage"`
+	Ingredients      *[]CreateIngredientReq `json:"ingredients,omitempty"`
+	IngredientGroups *string                `json:"ingredientGroups,omitempty"`
 }
 
 type CreateIngredientReq struct {
-	FdcID            int     `json:"fdcId"`
-	Name             string  `json:"name"`
-	Amount           float64 `json:"amount"`
-	Unit             string  `json:"unit"`
-	Calories         float64 `json:"calories"`
-	TotalFat         float64 `json:"totalFat"`
-	SaturatedFat     float64 `json:"saturatedFat"`
-	TransFat         float64 `json:"transFat"`
-	Cholesterol      float64 `json:"cholesterol"`
-	Sodium           float64 `json:"sodium"`
-	TotalCarbs       float64 `json:"totalCarbs"`
-	DietaryFiber     float64 `json:"dietaryFiber"`
-	TotalSugars      float64 `json:"totalSugars"`
-	AddedSugars      float64 `json:"addedSugars"`
-	Protein          float64 `json:"protein"`
-	VitaminD         float64 `json:"vitaminD"`
-	Calcium          float64 `json:"calcium"`
-	Iron             float64 `json:"iron"`
+	FdcID            int      `json:"fdcId"`
+	Name             string   `json:"name"`
+	Amount           float64  `json:"amount"`
+	Unit             string   `json:"unit"`
+	Description      string   `json:"description"`
+	Calories         float64  `json:"calories"`
+	TotalFat         float64  `json:"totalFat"`
+	SaturatedFat     float64  `json:"saturatedFat"`
+	TransFat         float64  `json:"transFat"`
+	Cholesterol      float64  `json:"cholesterol"`
+	Sodium           float64  `json:"sodium"`
+	TotalCarbs       float64  `json:"totalCarbs"`
+	DietaryFiber     float64  `json:"dietaryFiber"`
+	TotalSugars      float64  `json:"totalSugars"`
+	AddedSugars      float64  `json:"addedSugars"`
+	Protein          float64  `json:"protein"`
+	VitaminD         float64  `json:"vitaminD"`
+	Calcium          float64  `json:"calcium"`
+	Iron             float64  `json:"iron"`
 	Potassium        float64  `json:"potassium"`
+	GroupID          *string  `json:"groupId"`
+	LinkedRecipeID   *string  `json:"linkedRecipeId"`
 	PrepInstructions []string `json:"prepInstructions"`
 	StorageLocation  string   `json:"storageLocation"`
 }

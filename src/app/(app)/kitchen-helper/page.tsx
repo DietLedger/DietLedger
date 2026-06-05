@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ChefHat, Flame, Utensils, Check, ChevronRight, Play, ChevronLeft, X, CalendarDays } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,6 +131,7 @@ function KitchenHelperContent() {
   const [playMode, setPlayMode] = useState(false);
   const [playStepIndex, setPlayStepIndex] = useState(0);
   const [completedRecipeMap, setCompletedRecipeMap] = useState<Record<string, string>>({});
+  const [startWithPrep, setStartWithPrep] = useState(false);
 
   useEffect(() => {
     fetchRecipes();
@@ -439,10 +441,19 @@ function KitchenHelperContent() {
     return items;
   }, [mode, selectedRecipeId, selectedGroupId, recipes, mealGroups, mealEntries, todayEntries]);
 
-  const allSteps = [
-    ...steps.prepSteps.map((s) => ({ ...s, type: 'prep' as const })),
-    ...steps.cookSteps.map((s) => ({ ...s, type: 'cook' as const })),
-  ];
+  const allSteps = useMemo(() => {
+    const result: Array<(PrepStep | CookStep) & { type: 'prep' | 'cook'; globalStepNumber: number }> = [];
+    let num = 1;
+    if (startWithPrep) {
+      for (const s of steps.prepSteps) {
+        result.push({ ...s, type: 'prep', globalStepNumber: num++ });
+      }
+    }
+    for (const s of steps.cookSteps) {
+      result.push({ ...s, type: 'cook', globalStepNumber: num++ });
+    }
+    return result;
+  }, [startWithPrep, steps.prepSteps, steps.cookSteps]);
 
   const completedCount = allSteps.filter((s) => completedSteps.has(s.id)).length;
   const totalCount = allSteps.length;
@@ -488,6 +499,17 @@ function KitchenHelperContent() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
+
+          <div className="flex items-center gap-3 mb-4 p-3 rounded-lg border border-stone-200 bg-stone-50">
+            <Checkbox
+              id="start-with-prep"
+              checked={startWithPrep}
+              onCheckedChange={(checked) => setStartWithPrep(checked === true)}
+            />
+            <label htmlFor="start-with-prep" className="text-sm text-stone-700 cursor-pointer select-none">
+              Start with ingredient prep
+            </label>
+          </div>
 
           {mode === 'today' ? (
             <div className="space-y-6 max-h-[60vh] overflow-y-auto">
@@ -737,16 +759,16 @@ function KitchenHelperContent() {
                 </div>
               )}
 
-              {steps.prepSteps.length > 0 && (
+              {startWithPrep && steps.prepSteps.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center gap-2 mb-3">
                     <Utensils className="w-4 h-4 text-amber-600" />
                     <h3 className="text-sm font-semibold text-amber-700 uppercase tracking-wider">
-                      Prep Steps
+                      Ingredient Prep
                     </h3>
                   </div>
                   <div className="space-y-2">
-                    {steps.prepSteps.map((step) => {
+                    {steps.prepSteps.map((step, idx) => {
                       const isDone = completedSteps.has(step.id);
                       return (
                         <button
@@ -760,18 +782,28 @@ function KitchenHelperContent() {
                         >
                           <div className="flex items-start gap-3">
                             <div
-                              className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                isDone ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-600'
+                              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold ${
+                                isDone ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-700'
                               }`}
                             >
-                              {isDone ? <Check className="w-3.5 h-3.5" /> : <Utensils className="w-3 h-3" />}
+                              {isDone ? <Check className="w-3.5 h-3.5" /> : idx + 1}
                             </div>
-                            <div className="flex-1">
-                              <p className={`text-base ${isDone ? 'line-through text-stone-400' : 'text-stone-700'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-semibold ${isDone ? 'line-through text-stone-400' : 'text-stone-800'}`}>
+                                {step.ingredientName}
+                              </p>
+                              {step.groupName && (
+                                <p className={`text-xs font-medium uppercase tracking-wider mt-0.5 mb-0.5 ${isDone ? 'text-stone-300' : 'text-amber-400'}`}>
+                                  {step.groupName}
+                                </p>
+                              )}
+                              <p className={`text-base mt-1 ${isDone ? 'line-through text-stone-400' : 'text-stone-600'}`}>
                                 {step.text}
                               </p>
                               {mode !== 'recipe' && (
-                                <p className="text-xs text-amber-500 mt-1">{step.recipeName}</p>
+                                <p className={`text-xs mt-1 ${isDone ? 'text-stone-300' : 'text-amber-500'}`}>
+                                  {step.recipeName}
+                                </p>
                               )}
                             </div>
                           </div>
@@ -857,8 +889,11 @@ function KitchenHelperContent() {
                     }`}>
                       <span className="text-2xl font-bold">{playStepIndex + 1}</span>
                     </div>
+                    {currentPlayStep.type === 'prep' && 'ingredientName' in currentPlayStep && (
+                      <p className="text-sm font-semibold text-stone-700 mb-1">{currentPlayStep.ingredientName}</p>
+                    )}
                     {currentPlayStep.groupName && (
-                      <p className="text-sm italic text-stone-500 mb-2">{currentPlayStep.groupName}</p>
+                      <p className="text-xs font-medium uppercase tracking-wider text-stone-400 mb-2">{currentPlayStep.groupName}</p>
                     )}
                     {mode !== 'recipe' && (
                       <p className="text-sm text-stone-400 mb-2">{currentPlayStep.recipeName}</p>

@@ -230,6 +230,7 @@ export class GoApiClient implements ApiClient {
         name: ing.name,
         amount: ing.amount,
         unit: ing.unit,
+        description: ing.description,
         calories: ing.calories,
         totalFat: ing.totalFat,
         saturatedFat: ing.saturatedFat,
@@ -245,7 +246,14 @@ export class GoApiClient implements ApiClient {
         calcium: ing.calcium,
         iron: ing.iron,
         potassium: ing.potassium,
+        groupId: ing.groupId || null,
+        linkedRecipeId: ing.linkedRecipeId || null,
+        prepInstructions: ing.prepInstructions || [],
+        storageLocation: ing.storageLocation || '',
       }));
+    }
+    if (data.ingredientGroups) {
+      payload.ingredientGroups = JSON.stringify(data.ingredientGroups);
     }
     const resp = await this.request<{ ok: boolean; data: RecipeRecord }>('PUT', `/api/recipes/${id}`, payload);
     return this.unwrap(resp);
@@ -269,6 +277,7 @@ export class GoApiClient implements ApiClient {
         name: ingredient.name,
         amount: ingredient.amount,
         unit: ingredient.unit,
+        description: ingredient.description,
         calories: ingredient.calories,
         totalFat: ingredient.totalFat,
         saturatedFat: ingredient.saturatedFat,
@@ -284,6 +293,10 @@ export class GoApiClient implements ApiClient {
         calcium: ingredient.calcium,
         iron: ingredient.iron,
         potassium: ingredient.potassium,
+        groupId: ingredient.groupId || null,
+        linkedRecipeId: ingredient.linkedRecipeId || null,
+        prepInstructions: ingredient.prepInstructions || [],
+        storageLocation: ingredient.storageLocation || '',
       }
     );
     return this.unwrap(resp);

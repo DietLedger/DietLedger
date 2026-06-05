@@ -125,11 +125,15 @@ interface FDAFood {
 
 export function toPublicRecipe(r: RecipeRecord): Recipe {
   const instr = parseInstructions(r.instructions);
+  let ingredientGroups = r.ingredientGroups || [];
+  if (typeof ingredientGroups === 'string') {
+    try { ingredientGroups = JSON.parse(ingredientGroups); } catch { ingredientGroups = []; }
+  }
   return {
     ...r,
     instructionSteps: instr.steps,
     instructionGroups: instr.groups,
-    ingredientGroups: r.ingredientGroups || [],
+    ingredientGroups,
     ingredients: (r.ingredients || []).map((i) => ({
       ...i,
       groupId: i.groupId || null,

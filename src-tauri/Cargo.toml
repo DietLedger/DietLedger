@@ -1,6 +1,6 @@
 [package]
 name = "nutrilabel"
-version = "1.0.0-beta.59"
+version = "1.0.0-beta.65"
 description = "NutriLabel - Recipe Storage with FDA Nutrition Labels"
 authors = ["NutriLabel"]
 edition = "2021"
