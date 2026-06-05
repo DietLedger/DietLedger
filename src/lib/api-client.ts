@@ -266,7 +266,7 @@ export interface ApiClient {
   getFoodByFdcId(fdcId: number): Promise<FDAFood | null>;
   getFoodByUPC(upc: string): Promise<FDAFood | null>;
 
-  // Templates (client-only — stored in IndexedDB)
+  // Templates (server-persisted)
   getTemplates(): Promise<TemplateRecord[]>;
   getTemplatesByType(type: TemplateRecord['type']): Promise<TemplateRecord[]>;
   getTemplate(id: string): Promise<TemplateRecord | null>;
@@ -274,7 +274,7 @@ export interface ApiClient {
   updateTemplate(id: string, data: Partial<Omit<TemplateRecord, 'id' | 'createdAt'>>): Promise<TemplateRecord>;
   deleteTemplate(id: string): Promise<void>;
 
-  // Dietary Profiles (client-only — stored in IndexedDB)
+  // Dietary Profiles (server-persisted)
   getDietaryProfiles(): Promise<DietaryProfileRecord[]>;
   createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord>;
   updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord>;
@@ -283,6 +283,35 @@ export interface ApiClient {
   createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord>;
   updateAllergenRule(id: string, data: Partial<Omit<AllergenRuleRecord, 'id' | 'createdAt'>>): Promise<AllergenRuleRecord>;
   deleteAllergenRule(id: string): Promise<void>;
+
+  // Settings
+  getSettings(): Promise<Record<string, unknown>>;
+  updateSettings(settings: Record<string, unknown>): Promise<void>;
+
+  // Brand Kits
+  getBrandKits(): Promise<import('./types').BrandKit[]>;
+  getBrandKit(id: string): Promise<import('./types').BrandKit | null>;
+  createBrandKit(data: Omit<import('./types').BrandKit, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('./types').BrandKit>;
+  updateBrandKit(id: string, data: Partial<Omit<import('./types').BrandKit, 'id' | 'createdAt'>>): Promise<import('./types').BrandKit>;
+  deleteBrandKit(id: string): Promise<void>;
+
+  // Pantry Staples
+  getPantryStaples(): Promise<string[]>;
+  addPantryStaple(name: string): Promise<void>;
+  removePantryStaple(name: string): Promise<void>;
+
+  // User Location
+  getLocation(): Promise<{ country: string; region: string } | null>;
+  updateLocation(country: string, region: string): Promise<void>;
+
+  // Seasonal Foods
+  getSeasonalFoods(country: string, region: string, month: number): Promise<string[]>;
+
+  // User Secrets
+  getSecrets(): Promise<{ id: string; keyName: string }[]>;
+  createSecret(keyName: string, value: string): Promise<{ id: string; keyName: string }>;
+  getSecretValue(id: string): Promise<string>;
+  deleteSecret(id: string): Promise<void>;
 }
 
 import { GoApiClient } from './api-client-go';

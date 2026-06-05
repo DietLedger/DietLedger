@@ -673,6 +673,167 @@ type FoodSourceCount struct {
 	Count  int    `json:"count"`
 }
 
+type UserSettings struct {
+	ID           string    `json:"id"`
+	UserID       string    `json:"userId"`
+	SettingsJSON string    `json:"settings"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+type Template struct {
+	ID         string    `json:"id"`
+	UserID     *string   `json:"userId,omitempty"`
+	Name       string    `json:"name"`
+	Type       string    `json:"type"`
+	IsDefault  bool      `json:"isDefault"`
+	LayoutJSON string    `json:"layout"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+type DietaryProfile struct {
+	ID                      string    `json:"id"`
+	UserID                  string    `json:"userId"`
+	Name                    string    `json:"name"`
+	AllergensJSON           string    `json:"allergens"`
+	DietaryTagsJSON         string    `json:"dietaryTags"`
+	NutrientThresholdsJSON  string    `json:"nutrientThresholds"`
+	IsActive                bool      `json:"isActive"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+type AllergenRule struct {
+	ID                 string    `json:"id"`
+	UserID             string    `json:"userId"`
+	ProfileID          string    `json:"profileId"`
+	Allergen           string    `json:"allergen"`
+	Severity           string    `json:"severity"`
+	CustomKeywordsJSON string    `json:"customKeywords"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+type BrandKit struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"userId"`
+	Name          string    `json:"name"`
+	LogoDataURL   *string   `json:"logoDataUrl,omitempty"`
+	PrimaryColor  string    `json:"primaryColor"`
+	SecondaryColor string   `json:"secondaryColor"`
+	FontFamily    string    `json:"fontFamily"`
+	Tagline       *string   `json:"tagline,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+type PantryStaple struct {
+	ID     string `json:"id"`
+	UserID string `json:"userId"`
+	Name   string `json:"name"`
+}
+
+type UserLocation struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	Country   string    `json:"country"`
+	Region    string    `json:"region"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type SeasonalFood struct {
+	ID        string `json:"id"`
+	Country   string `json:"country"`
+	Region    string `json:"region"`
+	Month     int    `json:"month"`
+	FoodsJSON string `json:"foods"`
+}
+
+type UserSecret struct {
+	ID             string    `json:"id"`
+	UserID         string    `json:"userId"`
+	KeyName        string    `json:"keyName"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+type UpdateSettingsRequest struct {
+	Settings string `json:"settings"`
+}
+
+type CreateTemplateRequest struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	IsDefault bool   `json:"isDefault"`
+	Layout    string `json:"layout"`
+}
+
+type UpdateTemplateRequest struct {
+	Name     *string `json:"name,omitempty"`
+	Layout   *string `json:"layout,omitempty"`
+	IsDefault *bool  `json:"isDefault,omitempty"`
+}
+
+type CreateDietaryProfileRequest struct {
+	Name                string `json:"name"`
+	Allergens           string `json:"allergens"`
+	DietaryTags         string `json:"dietaryTags"`
+	NutrientThresholds  string `json:"nutrientThresholds"`
+	IsActive            bool   `json:"isActive"`
+}
+
+type UpdateDietaryProfileRequest struct {
+	Name               *string `json:"name,omitempty"`
+	Allergens          *string `json:"allergens,omitempty"`
+	DietaryTags        *string `json:"dietaryTags,omitempty"`
+	NutrientThresholds *string `json:"nutrientThresholds,omitempty"`
+	IsActive           *bool   `json:"isActive,omitempty"`
+}
+
+type CreateAllergenRuleRequest struct {
+	Allergen      string `json:"allergen"`
+	Severity      string `json:"severity"`
+	CustomKeywords string `json:"customKeywords"`
+}
+
+type UpdateAllergenRuleRequest struct {
+	Allergen       *string `json:"allergen,omitempty"`
+	Severity       *string `json:"severity,omitempty"`
+	CustomKeywords *string `json:"customKeywords,omitempty"`
+}
+
+type CreateBrandKitRequest struct {
+	Name           string  `json:"name"`
+	LogoDataURL    *string `json:"logoDataUrl,omitempty"`
+	PrimaryColor   string  `json:"primaryColor"`
+	SecondaryColor string  `json:"secondaryColor"`
+	FontFamily     string  `json:"fontFamily"`
+	Tagline        *string `json:"tagline,omitempty"`
+}
+
+type UpdateBrandKitRequest struct {
+	Name           *string `json:"name,omitempty"`
+	LogoDataURL    *string `json:"logoDataUrl"`
+	PrimaryColor   *string `json:"primaryColor,omitempty"`
+	SecondaryColor *string `json:"secondaryColor,omitempty"`
+	FontFamily     *string `json:"fontFamily,omitempty"`
+	Tagline        *string `json:"tagline"`
+}
+
+type CreatePantryStapleRequest struct {
+	Name string `json:"name"`
+}
+
+type UpdateLocationRequest struct {
+	Country string `json:"country"`
+	Region  string `json:"region"`
+}
+
+type CreateSecretRequest struct {
+	KeyName string `json:"keyName"`
+	Value   string `json:"value"`
+}
+
 type APIResponse struct {
 	OK    bool        `json:"ok"`
 	Data  interface{} `json:"data,omitempty"`

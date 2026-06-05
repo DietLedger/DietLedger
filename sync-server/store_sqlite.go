@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -383,6 +384,102 @@ func (s *SQLiteStore) InitDB() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_rt_user_id ON refresh_tokens(user_id);
+	CREATE TABLE IF NOT EXISTS user_settings (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL UNIQUE,
+		settings_json TEXT NOT NULL DEFAULT '{}',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE TABLE IF NOT EXISTS templates (
+		id TEXT PRIMARY KEY,
+		user_id TEXT,
+		name TEXT NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('recipe','book-page','book-recipe')),
+		is_default INT NOT NULL DEFAULT 0,
+		layout_json TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_templates_user_id ON templates(user_id);
+	CREATE INDEX IF NOT EXISTS idx_templates_type ON templates(type);
+	CREATE TABLE IF NOT EXISTS dietary_profiles (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		allergens_json TEXT NOT NULL DEFAULT '[]',
+		dietary_tags_json TEXT NOT NULL DEFAULT '[]',
+		nutrient_thresholds_json TEXT NOT NULL DEFAULT '[]',
+		is_active INT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_dietary_profiles_user_id ON dietary_profiles(user_id);
+	CREATE TABLE IF NOT EXISTS allergen_rules (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		profile_id TEXT NOT NULL,
+		allergen TEXT NOT NULL,
+		severity TEXT NOT NULL CHECK(severity IN ('avoid','caution')),
+		custom_keywords_json TEXT NOT NULL DEFAULT '[]',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (profile_id) REFERENCES dietary_profiles(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_allergen_rules_profile_id ON allergen_rules(profile_id);
+	CREATE INDEX IF NOT EXISTS idx_allergen_rules_user_id ON allergen_rules(user_id);
+	CREATE TABLE IF NOT EXISTS brand_kits (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		logo_data_url TEXT,
+		primary_color TEXT NOT NULL DEFAULT '#000000',
+		secondary_color TEXT NOT NULL DEFAULT '#333333',
+		font_family TEXT NOT NULL DEFAULT 'sans-serif',
+		tagline TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_brand_kits_user_id ON brand_kits(user_id);
+	CREATE TABLE IF NOT EXISTS pantry_staples (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		UNIQUE(user_id, name),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_pantry_staples_user_id ON pantry_staples(user_id);
+	CREATE TABLE IF NOT EXISTS user_locations (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL UNIQUE,
+		country TEXT NOT NULL,
+		region TEXT NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE TABLE IF NOT EXISTS seasonal_foods (
+		id TEXT PRIMARY KEY,
+		country TEXT NOT NULL,
+		region TEXT NOT NULL,
+		month INT NOT NULL CHECK(month BETWEEN 1 AND 12),
+		foods_json TEXT NOT NULL DEFAULT '[]',
+		UNIQUE(country, region, month)
+	);
+	CREATE TABLE IF NOT EXISTS user_secrets (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		key_name TEXT NOT NULL,
+		encrypted_value BLOB NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(user_id, key_name),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_secrets_user_id ON user_secrets(user_id);
 	`
 	_, err := s.db.Exec(schema)
 	return err
@@ -1283,3 +1380,494 @@ func (s *SQLiteStore) SeedCategories() error {
 }
 
 func init() { log.Println("[SQLiteStore] Registered") }
+
+// ── User Settings ────────────────────────────────────────────────────
+
+func (s *SQLiteStore) GetSettings(userID string) (*UserSettings, error) {
+	var us UserSettings
+	err := s.db.QueryRow(`SELECT id, user_id, settings_json, updated_at FROM user_settings WHERE user_id = ?`, userID).Scan(&us.ID, &us.UserID, &us.SettingsJSON, &us.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &us, nil
+}
+
+func (s *SQLiteStore) UpsertSettings(userID string, settingsJSON string) (*UserSettings, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO user_settings (id, user_id, settings_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json, updated_at=excluded.updated_at`, id, userID, settingsJSON, now)
+	if err != nil {
+		return nil, err
+	}
+	return &UserSettings{ID: id, UserID: userID, SettingsJSON: settingsJSON, UpdatedAt: now}, nil
+}
+
+// ── Templates ────────────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListTemplates(userID string) ([]Template, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE user_id = ? OR is_default = 1 ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return s.scanTemplates(rows)
+}
+
+func (s *SQLiteStore) ListTemplatesByType(userID, tmplType string) ([]Template, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE (user_id = ? OR is_default = 1) AND type = ? ORDER BY name`, userID, tmplType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return s.scanTemplates(rows)
+}
+
+func (s *SQLiteStore) scanTemplates(rows *sql.Rows) ([]Template, error) {
+	var templates []Template
+	for rows.Next() {
+		var t Template
+		var isDefault int
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &isDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		t.IsDefault = isDefault == 1
+		templates = append(templates, t)
+	}
+	return templates, nil
+}
+
+func (s *SQLiteStore) GetTemplate(userID, id string) (*Template, error) {
+	var t Template
+	var isDefault int
+	err := s.db.QueryRow(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE id = ? AND (user_id = ? OR is_default = 1)`, id, userID).Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &isDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	t.IsDefault = isDefault == 1
+	return &t, nil
+}
+
+func (s *SQLiteStore) CreateTemplate(userID string, req *CreateTemplateRequest) (*Template, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	isDef := 0
+	if req.IsDefault {
+		isDef = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, userID, req.Name, req.Type, isDef, req.Layout, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &Template{ID: id, UserID: &userID, Name: req.Name, Type: req.Type, IsDefault: req.IsDefault, LayoutJSON: req.Layout, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *SQLiteStore) UpdateTemplate(userID, id string, req *UpdateTemplateRequest) (*Template, error) {
+	existing, err := s.GetTemplate(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("template not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	layout := existing.LayoutJSON
+	if req.Layout != nil {
+		layout = *req.Layout
+	}
+	isDefault := existing.IsDefault
+	if req.IsDefault != nil {
+		isDefault = *req.IsDefault
+	}
+	isDef := 0
+	if isDefault {
+		isDef = 1
+	}
+	_, err = s.db.Exec(`UPDATE templates SET name=?, layout_json=?, is_default=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND (user_id=? OR is_default=1)`, name, layout, isDef, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &Template{ID: id, UserID: existing.UserID, Name: name, Type: existing.Type, IsDefault: isDefault, LayoutJSON: layout, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *SQLiteStore) DeleteTemplate(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM templates WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// ── Dietary Profiles ─────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListDietaryProfiles(userID string) ([]DietaryProfile, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at FROM dietary_profiles WHERE user_id = ? ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return s.scanDietaryProfiles(rows)
+}
+
+func (s *SQLiteStore) scanDietaryProfiles(rows *sql.Rows) ([]DietaryProfile, error) {
+	var profiles []DietaryProfile
+	for rows.Next() {
+		var p DietaryProfile
+		var isActive int
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.AllergensJSON, &p.DietaryTagsJSON, &p.NutrientThresholdsJSON, &isActive, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		p.IsActive = isActive == 1
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
+}
+
+func (s *SQLiteStore) GetDietaryProfile(userID, id string) (*DietaryProfile, error) {
+	var p DietaryProfile
+	var isActive int
+	err := s.db.QueryRow(`SELECT id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at FROM dietary_profiles WHERE id = ? AND user_id = ?`, id, userID).Scan(&p.ID, &p.UserID, &p.Name, &p.AllergensJSON, &p.DietaryTagsJSON, &p.NutrientThresholdsJSON, &isActive, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.IsActive = isActive == 1
+	return &p, nil
+}
+
+func (s *SQLiteStore) CreateDietaryProfile(userID string, req *CreateDietaryProfileRequest) (*DietaryProfile, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	isActive := 0
+	if req.IsActive {
+		isActive = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO dietary_profiles (id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`, id, userID, req.Name, req.Allergens, req.DietaryTags, req.NutrientThresholds, isActive, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &DietaryProfile{ID: id, UserID: userID, Name: req.Name, AllergensJSON: req.Allergens, DietaryTagsJSON: req.DietaryTags, NutrientThresholdsJSON: req.NutrientThresholds, IsActive: req.IsActive, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *SQLiteStore) UpdateDietaryProfile(userID, id string, req *UpdateDietaryProfileRequest) (*DietaryProfile, error) {
+	existing, err := s.GetDietaryProfile(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("dietary profile not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	allergens := existing.AllergensJSON
+	if req.Allergens != nil {
+		allergens = *req.Allergens
+	}
+	tags := existing.DietaryTagsJSON
+	if req.DietaryTags != nil {
+		tags = *req.DietaryTags
+	}
+	thresholds := existing.NutrientThresholdsJSON
+	if req.NutrientThresholds != nil {
+		thresholds = *req.NutrientThresholds
+	}
+	active := existing.IsActive
+	if req.IsActive != nil {
+		active = *req.IsActive
+	}
+	isActive := 0
+	if active {
+		isActive = 1
+	}
+	_, err = s.db.Exec(`UPDATE dietary_profiles SET name=?, allergens_json=?, dietary_tags_json=?, nutrient_thresholds_json=?, is_active=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, name, allergens, tags, thresholds, isActive, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &DietaryProfile{ID: id, UserID: userID, Name: name, AllergensJSON: allergens, DietaryTagsJSON: tags, NutrientThresholdsJSON: thresholds, IsActive: active, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *SQLiteStore) DeleteDietaryProfile(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM dietary_profiles WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// ── Allergen Rules ───────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListAllergenRules(userID, profileID string) ([]AllergenRule, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at FROM allergen_rules WHERE user_id = ? AND profile_id = ? ORDER BY allergen`, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rules []AllergenRule
+	for rows.Next() {
+		var r AllergenRule
+		if err := rows.Scan(&r.ID, &r.UserID, &r.ProfileID, &r.Allergen, &r.Severity, &r.CustomKeywordsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+func (s *SQLiteStore) CreateAllergenRule(userID, profileID string, req *CreateAllergenRuleRequest) (*AllergenRule, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO allergen_rules (id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`, id, userID, profileID, req.Allergen, req.Severity, req.CustomKeywords, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &AllergenRule{ID: id, UserID: userID, ProfileID: profileID, Allergen: req.Allergen, Severity: req.Severity, CustomKeywordsJSON: req.CustomKeywords, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *SQLiteStore) UpdateAllergenRule(userID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error) {
+	var existing AllergenRule
+	err := s.db.QueryRow(`SELECT id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at FROM allergen_rules WHERE id = ? AND user_id = ?`, id, userID).Scan(&existing.ID, &existing.UserID, &existing.ProfileID, &existing.Allergen, &existing.Severity, &existing.CustomKeywordsJSON, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("allergen rule not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	allergen := existing.Allergen
+	if req.Allergen != nil {
+		allergen = *req.Allergen
+	}
+	severity := existing.Severity
+	if req.Severity != nil {
+		severity = *req.Severity
+	}
+	keywords := existing.CustomKeywordsJSON
+	if req.CustomKeywords != nil {
+		keywords = *req.CustomKeywords
+	}
+	_, err = s.db.Exec(`UPDATE allergen_rules SET allergen=?, severity=?, custom_keywords_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, allergen, severity, keywords, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &AllergenRule{ID: id, UserID: userID, ProfileID: existing.ProfileID, Allergen: allergen, Severity: severity, CustomKeywordsJSON: keywords, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *SQLiteStore) DeleteAllergenRule(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM allergen_rules WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// ── Brand Kits ───────────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListBrandKits(userID string) ([]BrandKit, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at FROM brand_kits WHERE user_id = ? ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var kits []BrandKit
+	for rows.Next() {
+		var k BrandKit
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.LogoDataURL, &k.PrimaryColor, &k.SecondaryColor, &k.FontFamily, &k.Tagline, &k.CreatedAt, &k.UpdatedAt); err != nil {
+			return nil, err
+		}
+		kits = append(kits, k)
+	}
+	return kits, nil
+}
+
+func (s *SQLiteStore) GetBrandKit(userID, id string) (*BrandKit, error) {
+	var k BrandKit
+	err := s.db.QueryRow(`SELECT id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at FROM brand_kits WHERE id = ? AND user_id = ?`, id, userID).Scan(&k.ID, &k.UserID, &k.Name, &k.LogoDataURL, &k.PrimaryColor, &k.SecondaryColor, &k.FontFamily, &k.Tagline, &k.CreatedAt, &k.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+func (s *SQLiteStore) CreateBrandKit(userID string, req *CreateBrandKitRequest) (*BrandKit, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO brand_kits (id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, id, userID, req.Name, req.LogoDataURL, req.PrimaryColor, req.SecondaryColor, req.FontFamily, req.Tagline, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &BrandKit{ID: id, UserID: userID, Name: req.Name, LogoDataURL: req.LogoDataURL, PrimaryColor: req.PrimaryColor, SecondaryColor: req.SecondaryColor, FontFamily: req.FontFamily, Tagline: req.Tagline, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *SQLiteStore) UpdateBrandKit(userID, id string, req *UpdateBrandKitRequest) (*BrandKit, error) {
+	existing, err := s.GetBrandKit(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("brand kit not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	logo := existing.LogoDataURL
+	if req.LogoDataURL != nil {
+		logo = req.LogoDataURL
+	}
+	primary := existing.PrimaryColor
+	if req.PrimaryColor != nil {
+		primary = *req.PrimaryColor
+	}
+	secondary := existing.SecondaryColor
+	if req.SecondaryColor != nil {
+		secondary = *req.SecondaryColor
+	}
+	font := existing.FontFamily
+	if req.FontFamily != nil {
+		font = *req.FontFamily
+	}
+	tagline := existing.Tagline
+	if req.Tagline != nil {
+		tagline = req.Tagline
+	}
+	_, err = s.db.Exec(`UPDATE brand_kits SET name=?, logo_data_url=?, primary_color=?, secondary_color=?, font_family=?, tagline=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, name, logo, primary, secondary, font, tagline, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &BrandKit{ID: id, UserID: userID, Name: name, LogoDataURL: logo, PrimaryColor: primary, SecondaryColor: secondary, FontFamily: font, Tagline: tagline, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *SQLiteStore) DeleteBrandKit(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM brand_kits WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// ── Pantry Staples ───────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListPantryStaples(userID string) ([]PantryStaple, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name FROM pantry_staples WHERE user_id = ? ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var staples []PantryStaple
+	for rows.Next() {
+		var ps PantryStaple
+		if err := rows.Scan(&ps.ID, &ps.UserID, &ps.Name); err != nil {
+			return nil, err
+		}
+		staples = append(staples, ps)
+	}
+	return staples, nil
+}
+
+func (s *SQLiteStore) AddPantryStaple(userID, name string) (*PantryStaple, error) {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO pantry_staples (id, user_id, name) VALUES (?, ?, ?)`, id, userID, name)
+	if err != nil {
+		return nil, err
+	}
+	return &PantryStaple{ID: id, UserID: userID, Name: name}, nil
+}
+
+func (s *SQLiteStore) RemovePantryStaple(userID, name string) error {
+	_, err := s.db.Exec(`DELETE FROM pantry_staples WHERE user_id = ? AND LOWER(name) = LOWER(?)`, userID, name)
+	return err
+}
+
+// ── User Location ────────────────────────────────────────────────────
+
+func (s *SQLiteStore) GetLocation(userID string) (*UserLocation, error) {
+	var loc UserLocation
+	err := s.db.QueryRow(`SELECT id, user_id, country, region, updated_at FROM user_locations WHERE user_id = ?`, userID).Scan(&loc.ID, &loc.UserID, &loc.Country, &loc.Region, &loc.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &loc, nil
+}
+
+func (s *SQLiteStore) UpsertLocation(userID string, req *UpdateLocationRequest) (*UserLocation, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO user_locations (id, user_id, country, region, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET country=excluded.country, region=excluded.region, updated_at=excluded.updated_at`, id, userID, req.Country, req.Region, now)
+	if err != nil {
+		return nil, err
+	}
+	return &UserLocation{ID: id, UserID: userID, Country: req.Country, Region: req.Region, UpdatedAt: now}, nil
+}
+
+// ── Seasonal Foods ───────────────────────────────────────────────────
+
+func (s *SQLiteStore) GetSeasonalFoods(country, region string, month int) ([]string, error) {
+	var foodsJSON string
+	err := s.db.QueryRow(`SELECT foods_json FROM seasonal_foods WHERE country = ? AND region = ? AND month = ?`, country, region, month).Scan(&foodsJSON)
+	if err == sql.ErrNoRows {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var foods []string
+	json.Unmarshal([]byte(foodsJSON), &foods)
+	return foods, nil
+}
+
+func (s *SQLiteStore) SetSeasonalFoods(country, region string, month int, foods string) error {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT INTO seasonal_foods (id, country, region, month, foods_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(country, region, month) DO UPDATE SET foods_json=excluded.foods_json`, id, country, region, month, foods)
+	return err
+}
+
+// ── User Secrets ─────────────────────────────────────────────────────
+
+func (s *SQLiteStore) ListSecrets(userID string) ([]UserSecret, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, key_name, created_at, updated_at FROM user_secrets WHERE user_id = ? ORDER BY key_name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var secrets []UserSecret
+	for rows.Next() {
+		var sec UserSecret
+		if err := rows.Scan(&sec.ID, &sec.UserID, &sec.KeyName, &sec.CreatedAt, &sec.UpdatedAt); err != nil {
+			return nil, err
+		}
+		secrets = append(secrets, sec)
+	}
+	return secrets, nil
+}
+
+func (s *SQLiteStore) CreateSecret(userID string, req *CreateSecretRequest, encryptedValue []byte) (*UserSecret, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO user_secrets (id, user_id, key_name, encrypted_value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, key_name) DO UPDATE SET encrypted_value=excluded.encrypted_value, updated_at=excluded.updated_at`, id, userID, req.KeyName, encryptedValue, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &UserSecret{ID: id, UserID: userID, KeyName: req.KeyName, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *SQLiteStore) GetSecret(userID, keyName string) ([]byte, error) {
+	var val []byte
+	err := s.db.QueryRow(`SELECT encrypted_value FROM user_secrets WHERE user_id = ? AND key_name = ?`, userID, keyName).Scan(&val)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
+}
+
+func (s *SQLiteStore) DeleteSecret(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM user_secrets WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}

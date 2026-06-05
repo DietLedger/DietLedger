@@ -1,12 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  getAllBrandKits,
-  createBrandKit as dbCreateKit,
-  updateBrandKit as dbUpdateKit,
-  deleteBrandKit as dbDeleteKit,
-} from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import type { BrandKit } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,9 +59,9 @@ function BrandKitForm({ kit, onClose, onSaved }: BrandKitEditorProps) {
         tagline: tagline.trim() || undefined,
       };
       if (kit) {
-        await dbUpdateKit(kit.id, data);
+        await getApiClient().updateBrandKit(kit.id, data);
       } else {
-        await dbCreateKit(data);
+        await getApiClient().createBrandKit(data);
       }
       onSaved?.();
       onClose();
@@ -153,14 +148,14 @@ export function BrandKitEditor() {
   const [creating, setCreating] = useState(false);
 
   const loadKits = useCallback(async () => {
-    const all = await getAllBrandKits();
+    const all = await getApiClient().getBrandKits();
     setKits(all);
   }, []);
 
   useEffect(() => { loadKits(); }, [loadKits]);
 
   const handleDelete = async (id: string) => {
-    await dbDeleteKit(id);
+    await getApiClient().deleteBrandKit(id);
     loadKits();
   };
 

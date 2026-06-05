@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -1592,4 +1593,487 @@ func (s *PostgresStore) SeedCategories() error {
 
 func init() {
 	log.Println("[PostgresStore] Registering pgx driver")
+}
+
+// ── User Settings ────────────────────────────────────────────────────
+
+func (s *PostgresStore) GetSettings(userID string) (*UserSettings, error) {
+	var us UserSettings
+	err := s.db.QueryRow(`SELECT id, user_id, settings_json, updated_at FROM user_settings WHERE user_id = $1`, userID).Scan(&us.ID, &us.UserID, &us.SettingsJSON, &us.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &us, nil
+}
+
+func (s *PostgresStore) UpsertSettings(userID string, settingsJSON string) (*UserSettings, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	var us UserSettings
+	err := s.db.QueryRow(`
+		INSERT INTO user_settings (id, user_id, settings_json, updated_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id) DO UPDATE SET settings_json = $3, updated_at = $4
+		RETURNING id, user_id, settings_json, updated_at`,
+		id, userID, settingsJSON, now,
+	).Scan(&us.ID, &us.UserID, &us.SettingsJSON, &us.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &us, nil
+}
+
+// ── Templates ────────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListTemplates(userID string) ([]Template, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE user_id = $1 OR is_default = TRUE ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var templates []Template
+	for rows.Next() {
+		var t Template
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &t.IsDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		templates = append(templates, t)
+	}
+	return templates, nil
+}
+
+func (s *PostgresStore) ListTemplatesByType(userID, tmplType string) ([]Template, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE (user_id = $1 OR is_default = TRUE) AND type = $2 ORDER BY name`, userID, tmplType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var templates []Template
+	for rows.Next() {
+		var t Template
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &t.IsDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		templates = append(templates, t)
+	}
+	return templates, nil
+}
+
+func (s *PostgresStore) GetTemplate(userID, id string) (*Template, error) {
+	var t Template
+	err := s.db.QueryRow(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE id = $1 AND (user_id = $2 OR is_default = TRUE)`, id, userID).Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &t.IsDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *PostgresStore) CreateTemplate(userID string, req *CreateTemplateRequest) (*Template, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, id, userID, req.Name, req.Type, req.IsDefault, req.Layout, now)
+	if err != nil {
+		return nil, err
+	}
+	return &Template{ID: id, UserID: &userID, Name: req.Name, Type: req.Type, IsDefault: req.IsDefault, LayoutJSON: req.Layout, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateTemplate(userID, id string, req *UpdateTemplateRequest) (*Template, error) {
+	existing, err := s.GetTemplate(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("template not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	layout := existing.LayoutJSON
+	if req.Layout != nil {
+		layout = *req.Layout
+	}
+	isDefault := existing.IsDefault
+	if req.IsDefault != nil {
+		isDefault = *req.IsDefault
+	}
+	_, err = s.db.Exec(`UPDATE templates SET name=$1, layout_json=$2, is_default=$3, updated_at=NOW() WHERE id=$4 AND (user_id=$5 OR is_default=TRUE)`, name, layout, isDefault, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &Template{ID: id, UserID: existing.UserID, Name: name, Type: existing.Type, IsDefault: isDefault, LayoutJSON: layout, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *PostgresStore) DeleteTemplate(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM templates WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// ── Dietary Profiles ─────────────────────────────────────────────────
+
+func (s *PostgresStore) ListDietaryProfiles(userID string) ([]DietaryProfile, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at FROM dietary_profiles WHERE user_id = $1 ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var profiles []DietaryProfile
+	for rows.Next() {
+		var p DietaryProfile
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.AllergensJSON, &p.DietaryTagsJSON, &p.NutrientThresholdsJSON, &p.IsActive, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
+}
+
+func (s *PostgresStore) GetDietaryProfile(userID, id string) (*DietaryProfile, error) {
+	var p DietaryProfile
+	err := s.db.QueryRow(`SELECT id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at FROM dietary_profiles WHERE id = $1 AND user_id = $2`, id, userID).Scan(&p.ID, &p.UserID, &p.Name, &p.AllergensJSON, &p.DietaryTagsJSON, &p.NutrientThresholdsJSON, &p.IsActive, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *PostgresStore) CreateDietaryProfile(userID string, req *CreateDietaryProfileRequest) (*DietaryProfile, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO dietary_profiles (id, user_id, name, allergens_json, dietary_tags_json, nutrient_thresholds_json, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`, id, userID, req.Name, req.Allergens, req.DietaryTags, req.NutrientThresholds, req.IsActive, now)
+	if err != nil {
+		return nil, err
+	}
+	return &DietaryProfile{ID: id, UserID: userID, Name: req.Name, AllergensJSON: req.Allergens, DietaryTagsJSON: req.DietaryTags, NutrientThresholdsJSON: req.NutrientThresholds, IsActive: req.IsActive, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateDietaryProfile(userID, id string, req *UpdateDietaryProfileRequest) (*DietaryProfile, error) {
+	existing, err := s.GetDietaryProfile(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("dietary profile not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	allergens := existing.AllergensJSON
+	if req.Allergens != nil {
+		allergens = *req.Allergens
+	}
+	tags := existing.DietaryTagsJSON
+	if req.DietaryTags != nil {
+		tags = *req.DietaryTags
+	}
+	thresholds := existing.NutrientThresholdsJSON
+	if req.NutrientThresholds != nil {
+		thresholds = *req.NutrientThresholds
+	}
+	active := existing.IsActive
+	if req.IsActive != nil {
+		active = *req.IsActive
+	}
+	_, err = s.db.Exec(`UPDATE dietary_profiles SET name=$1, allergens_json=$2, dietary_tags_json=$3, nutrient_thresholds_json=$4, is_active=$5, updated_at=NOW() WHERE id=$6 AND user_id=$7`, name, allergens, tags, thresholds, active, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &DietaryProfile{ID: id, UserID: userID, Name: name, AllergensJSON: allergens, DietaryTagsJSON: tags, NutrientThresholdsJSON: thresholds, IsActive: active, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *PostgresStore) DeleteDietaryProfile(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM dietary_profiles WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// ── Allergen Rules ───────────────────────────────────────────────────
+
+func (s *PostgresStore) ListAllergenRules(userID, profileID string) ([]AllergenRule, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at FROM allergen_rules WHERE user_id = $1 AND profile_id = $2 ORDER BY allergen`, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rules []AllergenRule
+	for rows.Next() {
+		var r AllergenRule
+		if err := rows.Scan(&r.ID, &r.UserID, &r.ProfileID, &r.Allergen, &r.Severity, &r.CustomKeywordsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+func (s *PostgresStore) CreateAllergenRule(userID, profileID string, req *CreateAllergenRuleRequest) (*AllergenRule, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO allergen_rules (id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, userID, profileID, req.Allergen, req.Severity, req.CustomKeywords, now)
+	if err != nil {
+		return nil, err
+	}
+	return &AllergenRule{ID: id, UserID: userID, ProfileID: profileID, Allergen: req.Allergen, Severity: req.Severity, CustomKeywordsJSON: req.CustomKeywords, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateAllergenRule(userID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error) {
+	var existing AllergenRule
+	err := s.db.QueryRow(`SELECT id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at FROM allergen_rules WHERE id = $1 AND user_id = $2`, id, userID).Scan(&existing.ID, &existing.UserID, &existing.ProfileID, &existing.Allergen, &existing.Severity, &existing.CustomKeywordsJSON, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("allergen rule not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	allergen := existing.Allergen
+	if req.Allergen != nil {
+		allergen = *req.Allergen
+	}
+	severity := existing.Severity
+	if req.Severity != nil {
+		severity = *req.Severity
+	}
+	keywords := existing.CustomKeywordsJSON
+	if req.CustomKeywords != nil {
+		keywords = *req.CustomKeywords
+	}
+	_, err = s.db.Exec(`UPDATE allergen_rules SET allergen=$1, severity=$2, custom_keywords_json=$3, updated_at=NOW() WHERE id=$4 AND user_id=$5`, allergen, severity, keywords, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &AllergenRule{ID: id, UserID: userID, ProfileID: existing.ProfileID, Allergen: allergen, Severity: severity, CustomKeywordsJSON: keywords, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *PostgresStore) DeleteAllergenRule(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM allergen_rules WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// ── Brand Kits ───────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListBrandKits(userID string) ([]BrandKit, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at FROM brand_kits WHERE user_id = $1 ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var kits []BrandKit
+	for rows.Next() {
+		var k BrandKit
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.LogoDataURL, &k.PrimaryColor, &k.SecondaryColor, &k.FontFamily, &k.Tagline, &k.CreatedAt, &k.UpdatedAt); err != nil {
+			return nil, err
+		}
+		kits = append(kits, k)
+	}
+	return kits, nil
+}
+
+func (s *PostgresStore) GetBrandKit(userID, id string) (*BrandKit, error) {
+	var k BrandKit
+	err := s.db.QueryRow(`SELECT id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at FROM brand_kits WHERE id = $1 AND user_id = $2`, id, userID).Scan(&k.ID, &k.UserID, &k.Name, &k.LogoDataURL, &k.PrimaryColor, &k.SecondaryColor, &k.FontFamily, &k.Tagline, &k.CreatedAt, &k.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+func (s *PostgresStore) CreateBrandKit(userID string, req *CreateBrandKitRequest) (*BrandKit, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO brand_kits (id, user_id, name, logo_data_url, primary_color, secondary_color, font_family, tagline, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`, id, userID, req.Name, req.LogoDataURL, req.PrimaryColor, req.SecondaryColor, req.FontFamily, req.Tagline, now)
+	if err != nil {
+		return nil, err
+	}
+	return &BrandKit{ID: id, UserID: userID, Name: req.Name, LogoDataURL: req.LogoDataURL, PrimaryColor: req.PrimaryColor, SecondaryColor: req.SecondaryColor, FontFamily: req.FontFamily, Tagline: req.Tagline, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) UpdateBrandKit(userID, id string, req *UpdateBrandKitRequest) (*BrandKit, error) {
+	existing, err := s.GetBrandKit(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("brand kit not found")
+	}
+	name := existing.Name
+	if req.Name != nil {
+		name = *req.Name
+	}
+	logo := existing.LogoDataURL
+	if req.LogoDataURL != nil {
+		logo = req.LogoDataURL
+	}
+	primary := existing.PrimaryColor
+	if req.PrimaryColor != nil {
+		primary = *req.PrimaryColor
+	}
+	secondary := existing.SecondaryColor
+	if req.SecondaryColor != nil {
+		secondary = *req.SecondaryColor
+	}
+	font := existing.FontFamily
+	if req.FontFamily != nil {
+		font = *req.FontFamily
+	}
+	tagline := existing.Tagline
+	if req.Tagline != nil {
+		tagline = req.Tagline
+	}
+	_, err = s.db.Exec(`UPDATE brand_kits SET name=$1, logo_data_url=$2, primary_color=$3, secondary_color=$4, font_family=$5, tagline=$6, updated_at=NOW() WHERE id=$7 AND user_id=$8`, name, logo, primary, secondary, font, tagline, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &BrandKit{ID: id, UserID: userID, Name: name, LogoDataURL: logo, PrimaryColor: primary, SecondaryColor: secondary, FontFamily: font, Tagline: tagline, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (s *PostgresStore) DeleteBrandKit(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM brand_kits WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// ── Pantry Staples ───────────────────────────────────────────────────
+
+func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, name FROM pantry_staples WHERE user_id = $1 ORDER BY name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var staples []PantryStaple
+	for rows.Next() {
+		var ps PantryStaple
+		if err := rows.Scan(&ps.ID, &ps.UserID, &ps.Name); err != nil {
+			return nil, err
+		}
+		staples = append(staples, ps)
+	}
+	return staples, nil
+}
+
+func (s *PostgresStore) AddPantryStaple(userID, name string) (*PantryStaple, error) {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`INSERT INTO pantry_staples (id, user_id, name) VALUES ($1, $2, $3) ON CONFLICT (user_id, name) DO NOTHING`, id, userID, name)
+	if err != nil {
+		return nil, err
+	}
+	return &PantryStaple{ID: id, UserID: userID, Name: name}, nil
+}
+
+func (s *PostgresStore) RemovePantryStaple(userID, name string) error {
+	_, err := s.db.Exec(`DELETE FROM pantry_staples WHERE user_id = $1 AND LOWER(name) = LOWER($2)`, userID, name)
+	return err
+}
+
+// ── User Location ────────────────────────────────────────────────────
+
+func (s *PostgresStore) GetLocation(userID string) (*UserLocation, error) {
+	var loc UserLocation
+	err := s.db.QueryRow(`SELECT id, user_id, country, region, updated_at FROM user_locations WHERE user_id = $1`, userID).Scan(&loc.ID, &loc.UserID, &loc.Country, &loc.Region, &loc.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &loc, nil
+}
+
+func (s *PostgresStore) UpsertLocation(userID string, req *UpdateLocationRequest) (*UserLocation, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	var loc UserLocation
+	err := s.db.QueryRow(`
+		INSERT INTO user_locations (id, user_id, country, region, updated_at) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id) DO UPDATE SET country = $3, region = $4, updated_at = $5
+		RETURNING id, user_id, country, region, updated_at`,
+		id, userID, req.Country, req.Region, now,
+	).Scan(&loc.ID, &loc.UserID, &loc.Country, &loc.Region, &loc.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &loc, nil
+}
+
+// ── Seasonal Foods ───────────────────────────────────────────────────
+
+func (s *PostgresStore) GetSeasonalFoods(country, region string, month int) ([]string, error) {
+	var foodsJSON string
+	err := s.db.QueryRow(`SELECT foods_json FROM seasonal_foods WHERE country = $1 AND region = $2 AND month = $3`, country, region, month).Scan(&foodsJSON)
+	if err == sql.ErrNoRows {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var foods []string
+	json.Unmarshal([]byte(foodsJSON), &foods)
+	return foods, nil
+}
+
+func (s *PostgresStore) SetSeasonalFoods(country, region string, month int, foods string) error {
+	id := uuid.New().String()
+	_, err := s.db.Exec(`
+		INSERT INTO seasonal_foods (id, country, region, month, foods_json) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (country, region, month) DO UPDATE SET foods_json = $5`,
+		id, country, region, month, foods,
+	)
+	return err
+}
+
+// ── User Secrets ─────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListSecrets(userID string) ([]UserSecret, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, key_name, created_at, updated_at FROM user_secrets WHERE user_id = $1 ORDER BY key_name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var secrets []UserSecret
+	for rows.Next() {
+		var sec UserSecret
+		if err := rows.Scan(&sec.ID, &sec.UserID, &sec.KeyName, &sec.CreatedAt, &sec.UpdatedAt); err != nil {
+			return nil, err
+		}
+		secrets = append(secrets, sec)
+	}
+	return secrets, nil
+}
+
+func (s *PostgresStore) CreateSecret(userID string, req *CreateSecretRequest, encryptedValue []byte) (*UserSecret, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO user_secrets (id, user_id, key_name, encrypted_value, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (user_id, key_name) DO UPDATE SET encrypted_value = $4, updated_at = $5`, id, userID, req.KeyName, encryptedValue, now)
+	if err != nil {
+		return nil, err
+	}
+	return &UserSecret{ID: id, UserID: userID, KeyName: req.KeyName, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) GetSecret(userID, keyName string) ([]byte, error) {
+	var val []byte
+	err := s.db.QueryRow(`SELECT encrypted_value FROM user_secrets WHERE user_id = $1 AND key_name = $2`, userID, keyName).Scan(&val)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
+}
+
+func (s *PostgresStore) DeleteSecret(userID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM user_secrets WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
 }

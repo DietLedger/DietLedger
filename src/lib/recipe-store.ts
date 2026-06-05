@@ -1,8 +1,4 @@
 import { create } from "zustand";
-import {
-  getStoredApiKey,
-  setStoredApiKey as dbSetApiKey,
-} from "@/lib/storage";
 import { getApiClient } from "@/lib/api-client";
 import type { RecipeRecord, IngredientGroup } from "@/lib/api-client";
 import { searchFDAFoods, type FDASearchResult } from "@/lib/fda-client";
@@ -246,12 +242,23 @@ export const useRecipeStore = create<RecipeState>((set, get) => ({
   error: null,
   apiKey: 'DEMO_KEY',
 
-  loadApiKey: () => {
-    set({ apiKey: getStoredApiKey() });
+  loadApiKey: async () => {
+    try {
+      const secrets = await getApiClient().getSecrets();
+      const fdaSecret = secrets.find(s => s.keyName === 'fda-api-key');
+      if (fdaSecret) {
+        const value = await getApiClient().getSecretValue(fdaSecret.id);
+        set({ apiKey: value || 'DEMO_KEY' });
+      }
+    } catch {
+      set({ apiKey: 'DEMO_KEY' });
+    }
   },
 
-  setApiKey: (key: string) => {
-    dbSetApiKey(key);
+  setApiKey: async (key: string) => {
+    try {
+      await getApiClient().createSecret('fda-api-key', key);
+    } catch {}
     set({ apiKey: key || 'DEMO_KEY' });
   },
 

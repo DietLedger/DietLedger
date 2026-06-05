@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { toCanvas } from 'html-to-image';
 import type { CookbookExportOptions, BrandKit, TemplateTheme } from '@/lib/types';
-import { getRecipe, getBook, getChaptersByBook, getChapterRecipes, getBrandKit, getTemplate } from '@/lib/storage';
+import { getRecipe, getBook, getChaptersByBook, getChapterRecipes } from '@/lib/storage';
 import { getApiClient } from '@/lib/api-client';
 
 interface RecipeData {
@@ -373,9 +373,9 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
   const book = await api.getBook(bookId);
   if (!book) throw new Error('Book not found');
 
-  const brandKit = options.brandKitId ? await getBrandKit(options.brandKitId) : undefined;
+  const brandKit = options.brandKitId ? await api.getBrandKit(options.brandKitId) : undefined;
 
-  const template = options.templateId ? await getTemplate(options.templateId) : undefined;
+  const template = options.templateId ? await api.getTemplate(options.templateId) : undefined;
   const theme = template?.layout?.theme;
 
   const { recipes, chapterMap } = await collectRecipes(bookId);

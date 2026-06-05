@@ -75,6 +75,26 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/community", s.communitySearch)
 	mux.HandleFunc("/api/community/categories", s.communityCategories)
 
+	mux.HandleFunc("/api/settings", s.requireAuth(s.settingsRouter))
+	mux.HandleFunc("/api/settings/location", s.requireAuth(s.locationRouter))
+	mux.HandleFunc("/api/settings/seasonal-foods", s.seasonalFoodsRouter)
+
+	mux.HandleFunc("/api/templates/", s.requireAuth(s.templateRoutes))
+	mux.HandleFunc("/api/templates", s.requireAuth(s.templatesRouter))
+
+	mux.HandleFunc("/api/dietary-profiles/", s.requireAuth(s.dietaryProfileRoutes))
+	mux.HandleFunc("/api/dietary-profiles", s.requireAuth(s.dietaryProfilesRouter))
+
+	mux.HandleFunc("/api/allergen-rules/", s.requireAuth(s.allergenRuleRoutes))
+
+	mux.HandleFunc("/api/brand-kits/", s.requireAuth(s.brandKitRoutes))
+	mux.HandleFunc("/api/brand-kits", s.requireAuth(s.brandKitsRouter))
+
+	mux.HandleFunc("/api/pantry-staples", s.requireAuth(s.pantryStaplesRouter))
+
+	mux.HandleFunc("/api/secrets/", s.requireAuth(s.secretRoutes))
+	mux.HandleFunc("/api/secrets", s.requireAuth(s.secretsRouter))
+
 	var handler http.Handler = mux
 	if s.rateLimiter != nil {
 		handler = s.rateLimiter.Middleware(handler)
@@ -213,6 +233,54 @@ func (s *Server) customFoodRoutes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiKeyRoutes(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/keys/")
 	s.apiKeyItemRouter(w, r, id)
+}
+
+func (s *Server) templateRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/templates/")
+	if id == "" {
+		s.templatesRouter(w, r)
+		return
+	}
+	s.templateItemRouter(w, r, id)
+}
+
+func (s *Server) dietaryProfileRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/dietary-profiles/")
+	if path == "" {
+		s.dietaryProfilesRouter(w, r)
+		return
+	}
+	parts := strings.SplitN(path, "/", 3)
+	profileID := parts[0]
+	if len(parts) >= 2 && parts[1] == "allergen-rules" {
+		ruleID := ""
+		if len(parts) >= 3 {
+			ruleID = parts[2]
+		}
+		if ruleID != "" {
+			s.allergenRuleItemRouter(w, r, ruleID)
+			return
+		}
+		user := getUserFromContext(r)
+		s.allergenRulesRouter(w, r, user, profileID)
+		return
+	}
+	s.dietaryProfileItemRouter(w, r, profileID)
+}
+
+func (s *Server) allergenRuleRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/allergen-rules/")
+	s.allergenRuleItemRouter(w, r, id)
+}
+
+func (s *Server) brandKitRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/brand-kits/")
+	s.brandKitItemRouter(w, r, id)
+}
+
+func (s *Server) secretRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/secrets/")
+	s.secretItemRouter(w, r, id)
 }
 
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {

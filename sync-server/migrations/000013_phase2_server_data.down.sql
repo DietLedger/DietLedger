@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS user_secrets;
+DROP TABLE IF EXISTS seasonal_foods;
+DROP TABLE IF EXISTS user_locations;
+DROP TABLE IF EXISTS pantry_staples;
+DROP TABLE IF EXISTS brand_kits;
+DROP TABLE IF EXISTS allergen_rules;
+DROP TABLE IF EXISTS dietary_profiles;
+DROP TABLE IF EXISTS templates;
+DROP TABLE IF EXISTS user_settings;

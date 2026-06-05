@@ -2,11 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  getUserLocation,
-  setUserLocation as dbSetUserLocation,
-  seedSeasonalFoodsIfNeeded,
-} from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { USA_REGIONS } from '@/data/seasonal-produce';
 import { MapPin } from 'lucide-react';
 
@@ -22,7 +18,7 @@ export default function LocationPanel() {
 
   useEffect(() => {
     (async () => {
-      const loc = await getUserLocation();
+      const loc = await getApiClient().getLocation();
       if (loc) {
         setCountry(loc.country);
         setRegion(loc.region);
@@ -33,8 +29,7 @@ export default function LocationPanel() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    await dbSetUserLocation(country, region);
-    await seedSeasonalFoodsIfNeeded(country, region);
+    await getApiClient().updateLocation(country, region);
     setSavedLocation({ country, region });
   }, [country, region]);
 

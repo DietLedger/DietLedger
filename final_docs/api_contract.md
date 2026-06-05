@@ -628,71 +628,229 @@ Server: `sync-server/` Go API server
 
 ---
 
-## Missing Resource Areas (TBD)
+## User Settings
 
-The following resource areas are required by `system_requirements.md` section 16 but have no API endpoints yet. They are currently stored client-side in IndexedDB.
+### GET /api/settings
 
-### Dietary Profiles
+- Auth: Required
+- Response: `{ "ok": true, "data": { "id": "uuid", "userId": "uuid", "settings": "JSON string", "updatedAt": "ISO8601" } }`
+- Ownership: Private (user-scoped)
+- Notes: `settings` is a JSON string containing all user preferences (meal slot times, unit system, theme, etc.)
 
-- Endpoints: TBD
-- Required: CRUD for dietary profiles (dietary tags, nutrient thresholds, compliance rules)
-- Currently stored: IndexedDB via `LocalApiClient`
+### PUT /api/settings
+
+- Auth: Required
+- Request: `{ "settings": "JSON string" }`
+- Response: `{ "ok": true, "data": { ... } }`
+- Ownership: Private (user-scoped)
+- Notes: Upserts settings for the authenticated user
+
+### GET /api/settings/location
+
+- Auth: Required
+- Response: `{ "ok": true, "data": { "id": "uuid", "userId": "uuid", "country": "string", "region": "string", "updatedAt": "ISO8601" } }` or `{ "ok": true, "data": null }`
 - Ownership: Private (user-scoped)
 
-### Allergen Rules
+### PUT /api/settings/location
 
-- Endpoints: TBD
-- Required: CRUD for allergen rules per dietary profile
-- Currently stored: IndexedDB via `LocalApiClient`
-- Ownership: Private (profile-scoped)
+- Auth: Required
+- Request: `{ "country": "string", "region": "string" }`
+- Response: `{ "ok": true, "data": { ... } }`
+- Ownership: Private (user-scoped)
+- Notes: Upserts user location (one per user)
 
-### Templates
+### GET /api/settings/seasonal-foods
 
-- Endpoints: TBD
-- Required: CRUD for recipe, cookbook, print, and export templates
-- Currently stored: IndexedDB via `LocalApiClient`
+- Auth: Required
+- Query: `country`, `region`, `month` (1-12)
+- Response: `{ "ok": true, "data": ["food1", "food2", ...] }`
+- Ownership: Public (shared reference data)
+
+## Templates
+
+### GET /api/templates
+
+- Auth: Required
+- Query: `type` (optional, one of `recipe`, `book-page`, `book-recipe`)
+- Response: `{ "ok": true, "data": [Template, ...] }`
+- Ownership: Private user templates + public default templates
+- Notes: Returns both user-owned templates and system defaults. Filter by type with query param.
+
+### POST /api/templates
+
+- Auth: Required
+- Request: `{ "name": "string", "type": "recipe|book-page|book-recipe", "isDefault": false, "layout": "JSON string" }`
+- Response: `{ "ok": true, "data": Template }` (201)
 - Ownership: Private (user-scoped)
 
-### Brand Kits
+### GET /api/templates/{id}
 
-- Endpoints: TBD
-- Required: CRUD for brand kits (export styling, colors, fonts)
-- Currently stored: IndexedDB via `storage.ts`
+- Auth: Required
+- Response: `{ "ok": true, "data": Template }` or 404
+- Ownership: User-owned or system default
+
+### PUT /api/templates/{id}
+
+- Auth: Required
+- Request: `{ "name"?: "string", "layout"?: "JSON string", "isDefault"?: boolean }`
+- Response: `{ "ok": true, "data": Template }`
+- Ownership: Private (user-scoped, cannot edit system defaults)
+
+### DELETE /api/templates/{id}
+
+- Auth: Required
+- Response: `{ "ok": true }` or 404
+- Ownership: Private (user-scoped, cannot delete system defaults)
+
+## Dietary Profiles
+
+### GET /api/dietary-profiles
+
+- Auth: Required
+- Response: `{ "ok": true, "data": [DietaryProfile, ...] }`
 - Ownership: Private (user-scoped)
 
-### Pantry Staples
+### POST /api/dietary-profiles
 
-- Endpoints: TBD
-- Required: CRUD for pantry staple list per user
-- Currently stored: IndexedDB via `storage.ts`
+- Auth: Required
+- Request: `{ "name": "string", "allergens": "JSON array string", "dietaryTags": "JSON array string", "nutrientThresholds": "JSON array string", "isActive": boolean }`
+- Response: `{ "ok": true, "data": DietaryProfile }` (201)
 - Ownership: Private (user-scoped)
 
-### User Location
+### GET /api/dietary-profiles/{id}
 
-- Endpoints: TBD
-- Required: Read and update user location (for seasonal food features)
-- Currently stored: IndexedDB via `storage.ts`
+- Auth: Required
+- Response: `{ "ok": true, "data": DietaryProfile }` or 404
 - Ownership: Private (user-scoped)
 
-### App Settings
+### PUT /api/dietary-profiles/{id}
 
-- Endpoints: TBD (may be part of account settings)
-- Required: Per-account application settings (meal slot times, preferences)
-- Currently stored: IndexedDB via `storage.ts`
+- Auth: Required
+- Request: `{ "name"?: "string", "allergens"?: "JSON", "dietaryTags"?: "JSON", "nutrientThresholds"?: "JSON", "isActive"?: boolean }`
+- Response: `{ "ok": true, "data": DietaryProfile }`
 - Ownership: Private (user-scoped)
 
-### Encrypted Secrets
+### DELETE /api/dietary-profiles/{id}
 
-- Endpoints: TBD
-- Required: Server-side encrypted storage for user-provided API keys and secrets (e.g., FDA API key)
-- Currently stored: `localStorage` (unencrypted)
-- Ownership: Private (user-scoped, encrypted at rest)
+- Auth: Required
+- Response: `{ "ok": true }` or 404
+- Ownership: Private (user-scoped)
 
-### Logout
+## Allergen Rules
 
-- Endpoint: TBD
-- Required: Invalidate refresh token on logout
-- Ownership: Private (own session)
+### GET /api/dietary-profiles/{profileId}/allergen-rules
+
+- Auth: Required
+- Response: `{ "ok": true, "data": [AllergenRule, ...] }`
+- Ownership: Private (user-scoped, profile-scoped)
+
+### POST /api/dietary-profiles/{profileId}/allergen-rules
+
+- Auth: Required
+- Request: `{ "allergen": "string", "severity": "avoid|caution", "customKeywords": "JSON array string" }`
+- Response: `{ "ok": true, "data": AllergenRule }` (201)
+- Ownership: Private (user-scoped)
+
+### PUT /api/allergen-rules/{id}
+
+- Auth: Required
+- Request: `{ "allergen"?: "string", "severity"?: "avoid|caution", "customKeywords"?: "JSON" }`
+- Response: `{ "ok": true, "data": AllergenRule }`
+- Ownership: Private (user-scoped)
+
+### DELETE /api/allergen-rules/{id}
+
+- Auth: Required
+- Response: `{ "ok": true }`
+- Ownership: Private (user-scoped)
+
+## Brand Kits
+
+### GET /api/brand-kits
+
+- Auth: Required
+- Response: `{ "ok": true, "data": [BrandKit, ...] }`
+- Ownership: Private (user-scoped)
+
+### POST /api/brand-kits
+
+- Auth: Required
+- Request: `{ "name": "string", "primaryColor": "string", "secondaryColor": "string", "fontFamily": "string", "logoDataUrl"?: "string", "tagline"?: "string" }`
+- Response: `{ "ok": true, "data": BrandKit }` (201)
+- Ownership: Private (user-scoped)
+
+### GET /api/brand-kits/{id}
+
+- Auth: Required
+- Response: `{ "ok": true, "data": BrandKit }` or 404
+- Ownership: Private (user-scoped)
+
+### PUT /api/brand-kits/{id}
+
+- Auth: Required
+- Request: `{ "name"?: "string", "primaryColor"?: "string", "secondaryColor"?: "string", "fontFamily"?: "string", "logoDataUrl"?: "string|null", "tagline"?: "string|null" }`
+- Response: `{ "ok": true, "data": BrandKit }`
+- Ownership: Private (user-scoped)
+
+### DELETE /api/brand-kits/{id}
+
+- Auth: Required
+- Response: `{ "ok": true }` or 404
+- Ownership: Private (user-scoped)
+
+## Pantry Staples
+
+### GET /api/pantry-staples
+
+- Auth: Required
+- Response: `{ "ok": true, "data": [{ "id": "uuid", "userId": "uuid", "name": "string" }, ...] }`
+- Ownership: Private (user-scoped)
+
+### POST /api/pantry-staples
+
+- Auth: Required
+- Request: `{ "name": "string" }`
+- Response: `{ "ok": true, "data": PantryStaple }` (201)
+- Ownership: Private (user-scoped)
+- Notes: Duplicates are ignored (case-insensitive)
+
+### DELETE /api/pantry-staples
+
+- Auth: Required
+- Request: `{ "name": "string" }`
+- Response: `{ "ok": true }`
+- Ownership: Private (user-scoped)
+- Notes: Removes by name (case-insensitive match)
+
+## User Secrets
+
+### GET /api/secrets
+
+- Auth: Required
+- Response: `{ "ok": true, "data": [{ "id": "uuid", "keyName": "string", "createdAt": "ISO8601", "updatedAt": "ISO8601" }, ...] }`
+- Ownership: Private (user-scoped)
+- Notes: List does NOT include secret values. Values only returned on individual GET.
+
+### POST /api/secrets
+
+- Auth: Required
+- Request: `{ "keyName": "string", "value": "string" }`
+- Response: `{ "ok": true, "data": { "id": "uuid", "keyName": "string", ... } }` (201)
+- Ownership: Private (user-scoped, encrypted at rest with AES-256-GCM)
+- Notes: Upserts by keyName. Value is encrypted before storage.
+
+### GET /api/secrets/{id}
+
+- Auth: Required
+- Response: `{ "ok": true, "data": { "id": "uuid", "keyName": "string", "value": "decrypted plaintext" } }`
+- Ownership: Private (user-scoped)
+- Notes: Returns decrypted value. Only accessible by the secret owner.
+
+### DELETE /api/secrets/{id}
+
+- Auth: Required
+- Response: `{ "ok": true }`
+- Ownership: Private (user-scoped)
 
 ---
 

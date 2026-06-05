@@ -48,6 +48,7 @@ export function useAppTheme() {
       localStorage.removeItem(THEME_STORAGE_KEY);
     }
     setThemeId(id);
+    import('@/lib/app-settings-store').then(m => m.useAppSettingsStore.getState().updateTheme(id)).catch(() => {});
   }, []);
 
   useEffect(() => {

@@ -146,4 +146,55 @@ type Store interface {
 	GetCommunityCategories() ([]CommunityCategory, error)
 	UpsertRecipeRating(recipeID, userID string, rating int) error
 	SeedCategories() error
+
+	// User settings
+	GetSettings(userID string) (*UserSettings, error)
+	UpsertSettings(userID string, settingsJSON string) (*UserSettings, error)
+
+	// Templates
+	ListTemplates(userID string) ([]Template, error)
+	ListTemplatesByType(userID, tmplType string) ([]Template, error)
+	GetTemplate(userID, id string) (*Template, error)
+	CreateTemplate(userID string, req *CreateTemplateRequest) (*Template, error)
+	UpdateTemplate(userID, id string, req *UpdateTemplateRequest) (*Template, error)
+	DeleteTemplate(userID, id string) error
+
+	// Dietary profiles
+	ListDietaryProfiles(userID string) ([]DietaryProfile, error)
+	GetDietaryProfile(userID, id string) (*DietaryProfile, error)
+	CreateDietaryProfile(userID string, req *CreateDietaryProfileRequest) (*DietaryProfile, error)
+	UpdateDietaryProfile(userID, id string, req *UpdateDietaryProfileRequest) (*DietaryProfile, error)
+	DeleteDietaryProfile(userID, id string) error
+
+	// Allergen rules
+	ListAllergenRules(userID, profileID string) ([]AllergenRule, error)
+	CreateAllergenRule(userID, profileID string, req *CreateAllergenRuleRequest) (*AllergenRule, error)
+	UpdateAllergenRule(userID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error)
+	DeleteAllergenRule(userID, id string) error
+
+	// Brand kits
+	ListBrandKits(userID string) ([]BrandKit, error)
+	GetBrandKit(userID, id string) (*BrandKit, error)
+	CreateBrandKit(userID string, req *CreateBrandKitRequest) (*BrandKit, error)
+	UpdateBrandKit(userID, id string, req *UpdateBrandKitRequest) (*BrandKit, error)
+	DeleteBrandKit(userID, id string) error
+
+	// Pantry staples
+	ListPantryStaples(userID string) ([]PantryStaple, error)
+	AddPantryStaple(userID, name string) (*PantryStaple, error)
+	RemovePantryStaple(userID, name string) error
+
+	// User location
+	GetLocation(userID string) (*UserLocation, error)
+	UpsertLocation(userID string, req *UpdateLocationRequest) (*UserLocation, error)
+
+	// Seasonal foods
+	GetSeasonalFoods(country, region string, month int) ([]string, error)
+	SetSeasonalFoods(country, region string, month int, foods string) error
+
+	// User secrets
+	ListSecrets(userID string) ([]UserSecret, error)
+	CreateSecret(userID string, req *CreateSecretRequest, encryptedValue []byte) (*UserSecret, error)
+	GetSecret(userID, keyName string) ([]byte, error)
+	DeleteSecret(userID, id string) error
 }

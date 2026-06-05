@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
-import { getAllFoodLogEntries, getAllWeightEntries, getAllNutritionProfiles, getAllBrandKits, getBrandKit } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { useDietaryStore } from '@/lib/dietary-store';
 import { detectAllergens } from '@/lib/dietary-rules';
 import { exportElementAsPdf } from '@/lib/pdf-export';
@@ -31,8 +31,8 @@ export function ComplianceReport() {
 
   useEffect(() => {
     fetchProfiles();
-    getAllNutritionProfiles().then(setNutritionProfiles);
-    getAllBrandKits().then(setBrandKits);
+    getApiClient().getNutritionProfiles().then(setNutritionProfiles);
+    getApiClient().getBrandKits().then(setBrandKits);
   }, [fetchProfiles]);
 
   const selectedDietaryProfile = dietaryProfiles.find(p => p.id === selectedDietaryProfileId);
@@ -48,7 +48,7 @@ export function ComplianceReport() {
     if (!reportRef.current) return;
     setExporting(true);
     try {
-      const kit = brandKitId && brandKitId !== 'none' ? await getBrandKit(brandKitId) : undefined;
+      const kit = brandKitId && brandKitId !== 'none' ? await getApiClient().getBrandKit(brandKitId) : undefined;
       const blob = await exportElementAsPdf(reportRef.current, { pageSize: 'letter' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

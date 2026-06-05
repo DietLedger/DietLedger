@@ -833,56 +833,214 @@ export class GoApiClient implements ApiClient {
     }
   }
 
-  // ── Templates (client-only — delegated to LocalApiClient) ────────
+  // ── Templates (server-persisted) ──────────────────────────────────
 
-  private async localFallback(): Promise<import('./api-client-local').LocalApiClient> {
-    const { LocalApiClient } = await import('./api-client-local');
-    return new LocalApiClient();
+  private parseTemplate(t: TemplateRecord & { layout?: string | TemplateLayout }): TemplateRecord {
+    return { ...t, layout: typeof t.layout === 'string' ? JSON.parse(t.layout) : t.layout };
   }
 
   async getTemplates(): Promise<TemplateRecord[]> {
-    return (await this.localFallback()).getTemplates();
+    const resp = await this.request<{ ok: boolean; data: (TemplateRecord & { layout?: string })[] }>('GET', '/api/templates');
+    return (resp?.data ?? []).map(t => this.parseTemplate(t));
   }
   async getTemplatesByType(type: TemplateRecord['type']): Promise<TemplateRecord[]> {
-    return (await this.localFallback()).getTemplatesByType(type);
+    const resp = await this.request<{ ok: boolean; data: (TemplateRecord & { layout?: string })[] }>('GET', `/api/templates?type=${encodeURIComponent(type)}`);
+    return (resp?.data ?? []).map(t => this.parseTemplate(t));
   }
   async getTemplate(id: string): Promise<TemplateRecord | null> {
-    return (await this.localFallback()).getTemplate(id);
+    try {
+      const resp = await this.request<{ ok: boolean; data: TemplateRecord & { layout?: string } }>('GET', `/api/templates/${id}`);
+      return resp?.data ? this.parseTemplate(resp.data) : null;
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
   }
   async createTemplate(data: Omit<TemplateRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<TemplateRecord> {
-    return (await this.localFallback()).createTemplate(data);
+    const resp = await this.request<{ ok: boolean; data: TemplateRecord }>('POST', '/api/templates', {
+      name: data.name,
+      type: data.type,
+      isDefault: data.isDefault,
+      layout: JSON.stringify(data.layout),
+    });
+    const t = resp.data;
+    return { ...t, layout: typeof t.layout === 'string' ? JSON.parse(t.layout) : t.layout };
   }
   async updateTemplate(id: string, data: Partial<Omit<TemplateRecord, 'id' | 'createdAt'>>): Promise<TemplateRecord> {
-    return (await this.localFallback()).updateTemplate(id, data);
+    const body: Record<string, unknown> = {};
+    if (data.name !== undefined) body.name = data.name;
+    if (data.layout !== undefined) body.layout = JSON.stringify(data.layout);
+    if (data.isDefault !== undefined) body.isDefault = data.isDefault;
+    const resp = await this.request<{ ok: boolean; data: TemplateRecord }>('PUT', `/api/templates/${id}`, body);
+    const t = resp.data;
+    return { ...t, layout: typeof t.layout === 'string' ? JSON.parse(t.layout) : t.layout };
   }
   async deleteTemplate(id: string): Promise<void> {
-    return (await this.localFallback()).deleteTemplate(id);
+    await this.request('DELETE', `/api/templates/${id}`);
   }
 
-  // ── Dietary Profiles (client-only — delegated to LocalApiClient) ─
+  // ── Dietary Profiles (server-persisted) ──────────────────────────
 
   async getDietaryProfiles(): Promise<DietaryProfileRecord[]> {
-    return (await this.localFallback()).getDietaryProfiles();
+    const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord[] }>('GET', '/api/dietary-profiles');
+    const profiles = resp?.data ?? [];
+    return profiles.map((p: DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string }) => ({
+      ...p,
+      allergens: typeof (p as any).allergens === 'string' ? JSON.parse((p as any).allergens) : p.allergens,
+      dietaryTags: typeof (p as any).dietaryTags === 'string' ? JSON.parse((p as any).dietaryTags) : p.dietaryTags,
+      nutrientThresholds: typeof (p as any).nutrientThresholds === 'string' ? JSON.parse((p as any).nutrientThresholds) : p.nutrientThresholds,
+    }));
   }
   async createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
-    return (await this.localFallback()).createDietaryProfile(data);
+    const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord }>('POST', '/api/dietary-profiles', {
+      name: data.name,
+      allergens: JSON.stringify(data.allergens),
+      dietaryTags: JSON.stringify(data.dietaryTags),
+      nutrientThresholds: JSON.stringify(data.nutrientThresholds),
+      isActive: data.isActive,
+    });
+    const p = resp.data as DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string };
+    return {
+      ...p,
+      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
+      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
+      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
+    };
   }
   async updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord> {
-    return (await this.localFallback()).updateDietaryProfile(id, data);
+    const body: Record<string, unknown> = {};
+    if (data.name !== undefined) body.name = data.name;
+    if (data.allergens !== undefined) body.allergens = JSON.stringify(data.allergens);
+    if (data.dietaryTags !== undefined) body.dietaryTags = JSON.stringify(data.dietaryTags);
+    if (data.nutrientThresholds !== undefined) body.nutrientThresholds = JSON.stringify(data.nutrientThresholds);
+    if (data.isActive !== undefined) body.isActive = data.isActive;
+    const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord }>('PUT', `/api/dietary-profiles/${id}`, body);
+    const p = resp.data as DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string };
+    return {
+      ...p,
+      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
+      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
+      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
+    };
   }
   async deleteDietaryProfile(id: string): Promise<void> {
-    return (await this.localFallback()).deleteDietaryProfile(id);
+    await this.request('DELETE', `/api/dietary-profiles/${id}`);
   }
   async getAllergenRulesByProfile(profileId: string): Promise<AllergenRuleRecord[]> {
-    return (await this.localFallback()).getAllergenRulesByProfile(profileId);
+    const resp = await this.request<{ ok: boolean; data: AllergenRuleRecord[] }>('GET', `/api/dietary-profiles/${profileId}/allergen-rules`);
+    const rules = resp?.data ?? [];
+    return rules.map((r: AllergenRuleRecord & { customKeywords?: string }) => ({
+      ...r,
+      customKeywords: typeof (r as any).customKeywords === 'string' ? JSON.parse((r as any).customKeywords) : r.customKeywords,
+    }));
   }
   async createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord> {
-    return (await this.localFallback()).createAllergenRule(data);
+    const resp = await this.request<{ ok: boolean; data: AllergenRuleRecord }>('POST', `/api/dietary-profiles/${data.profileId}/allergen-rules`, {
+      allergen: data.allergen,
+      severity: data.severity,
+      customKeywords: JSON.stringify(data.customKeywords),
+    });
+    const r = resp.data as AllergenRuleRecord & { customKeywords?: string };
+    return { ...r, customKeywords: typeof r.customKeywords === 'string' ? JSON.parse(r.customKeywords) : r.customKeywords };
   }
   async updateAllergenRule(id: string, data: Partial<Omit<AllergenRuleRecord, 'id' | 'createdAt'>>): Promise<AllergenRuleRecord> {
-    return (await this.localFallback()).updateAllergenRule(id, data);
+    const body: Record<string, unknown> = {};
+    if (data.allergen !== undefined) body.allergen = data.allergen;
+    if (data.severity !== undefined) body.severity = data.severity;
+    if (data.customKeywords !== undefined) body.customKeywords = JSON.stringify(data.customKeywords);
+    const resp = await this.request<{ ok: boolean; data: AllergenRuleRecord }>('PUT', `/api/allergen-rules/${id}`, body);
+    const r = resp.data as AllergenRuleRecord & { customKeywords?: string };
+    return { ...r, customKeywords: typeof r.customKeywords === 'string' ? JSON.parse(r.customKeywords) : r.customKeywords };
   }
   async deleteAllergenRule(id: string): Promise<void> {
-    return (await this.localFallback()).deleteAllergenRule(id);
+    await this.request('DELETE', `/api/allergen-rules/${id}`);
+  }
+
+  // ── Settings ──────────────────────────────────────────────────────
+
+  async getSettings(): Promise<Record<string, unknown>> {
+    const resp = await this.request<{ ok: boolean; data: { settings?: string } | null }>('GET', '/api/settings');
+    const data = resp?.data;
+    if (!data || !data.settings) return {};
+    return typeof data.settings === 'string' ? JSON.parse(data.settings) : (data.settings as Record<string, unknown>);
+  }
+
+  async updateSettings(settings: Record<string, unknown>): Promise<void> {
+    await this.request('PUT', '/api/settings', { settings: JSON.stringify(settings) });
+  }
+
+  // ── Brand Kits ────────────────────────────────────────────────────
+
+  async getBrandKits(): Promise<import('./types').BrandKit[]> {
+    const resp = await this.request<{ ok: boolean; data: import('./types').BrandKit[] }>('GET', '/api/brand-kits');
+    return resp?.data ?? [];
+  }
+  async getBrandKit(id: string): Promise<import('./types').BrandKit | null> {
+    try {
+      const resp = await this.request<{ ok: boolean; data: import('./types').BrandKit }>('GET', `/api/brand-kits/${id}`);
+      return resp?.data ?? null;
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('not found')) return null;
+      throw e;
+    }
+  }
+  async createBrandKit(data: Omit<import('./types').BrandKit, 'id' | 'createdAt' | 'updatedAt'>): Promise<import('./types').BrandKit> {
+    const resp = await this.request<{ ok: boolean; data: import('./types').BrandKit }>('POST', '/api/brand-kits', data);
+    return resp.data;
+  }
+  async updateBrandKit(id: string, data: Partial<Omit<import('./types').BrandKit, 'id' | 'createdAt'>>): Promise<import('./types').BrandKit> {
+    const resp = await this.request<{ ok: boolean; data: import('./types').BrandKit }>('PUT', `/api/brand-kits/${id}`, data);
+    return resp.data;
+  }
+  async deleteBrandKit(id: string): Promise<void> {
+    await this.request('DELETE', `/api/brand-kits/${id}`);
+  }
+
+  // ── Pantry Staples ────────────────────────────────────────────────
+
+  async getPantryStaples(): Promise<string[]> {
+    const resp = await this.request<{ ok: boolean; data: { id: string; name: string }[] }>('GET', '/api/pantry-staples');
+    return (resp?.data ?? []).map(s => s.name);
+  }
+  async addPantryStaple(name: string): Promise<void> {
+    await this.request('POST', '/api/pantry-staples', { name });
+  }
+  async removePantryStaple(name: string): Promise<void> {
+    await this.request('DELETE', '/api/pantry-staples', { name });
+  }
+
+  // ── User Location ─────────────────────────────────────────────────
+
+  async getLocation(): Promise<{ country: string; region: string } | null> {
+    const resp = await this.request<{ ok: boolean; data: { country: string; region: string } | null }>('GET', '/api/settings/location');
+    return resp?.data ?? null;
+  }
+  async updateLocation(country: string, region: string): Promise<void> {
+    await this.request('PUT', '/api/settings/location', { country, region });
+  }
+
+  // ── Seasonal Foods ────────────────────────────────────────────────
+
+  async getSeasonalFoods(country: string, region: string, month: number): Promise<string[]> {
+    const resp = await this.request<{ ok: boolean; data: string[] }>('GET', `/api/settings/seasonal-foods?country=${encodeURIComponent(country)}&region=${encodeURIComponent(region)}&month=${month}`);
+    return resp?.data ?? [];
+  }
+
+  // ── User Secrets ──────────────────────────────────────────────────
+
+  async getSecrets(): Promise<{ id: string; keyName: string }[]> {
+    const resp = await this.request<{ ok: boolean; data: { id: string; keyName: string }[] }>('GET', '/api/secrets');
+    return resp?.data ?? [];
+  }
+  async createSecret(keyName: string, value: string): Promise<{ id: string; keyName: string }> {
+    const resp = await this.request<{ ok: boolean; data: { id: string; keyName: string } }>('POST', '/api/secrets', { keyName, value });
+    return resp.data;
+  }
+  async getSecretValue(id: string): Promise<string> {
+    const resp = await this.request<{ ok: boolean; data: { value: string } }>('GET', `/api/secrets/${id}`);
+    return resp.data.value;
+  }
+  async deleteSecret(id: string): Promise<void> {
+    await this.request('DELETE', `/api/secrets/${id}`);
   }
 }

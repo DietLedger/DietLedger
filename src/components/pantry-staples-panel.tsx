@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, X, Package } from 'lucide-react';
-import {
-  getAllPantryStaples,
-  addPantryStaple,
-  removePantryStaple,
-  seedPantryStaplesIfNeeded,
-} from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
+
+const DEFAULT_PANTRY_STAPLES = [
+  'All-purpose flour', 'Sugar', 'Salt', 'Pepper', 'Olive oil',
+  'Butter', 'Eggs', 'Milk', 'Onions', 'Garlic',
+  'Rice', 'Pasta', 'Tomato paste', 'Chicken broth', 'Soy sauce',
+];
 
 export default function PantryStaplesPanel() {
   const [staples, setStaples] = useState<string[]>([]);
@@ -19,9 +20,20 @@ export default function PantryStaplesPanel() {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadStaples = useCallback(async () => {
-    await seedPantryStaplesIfNeeded();
-    const all = await getAllPantryStaples();
-    setStaples(all);
+    try {
+      const all = await getApiClient().getPantryStaples();
+      if (all.length === 0) {
+        for (const s of DEFAULT_PANTRY_STAPLES) {
+          await getApiClient().addPantryStaple(s);
+        }
+        const seeded = await getApiClient().getPantryStaples();
+        setStaples(seeded);
+      } else {
+        setStaples(all);
+      }
+    } catch {
+      setStaples([]);
+    }
     setIsLoading(false);
   }, []);
 
@@ -36,15 +48,15 @@ export default function PantryStaplesPanel() {
       setNewStaple('');
       return;
     }
-    await addPantryStaple(trimmed);
+    await getApiClient().addPantryStaple(trimmed);
     setNewStaple('');
-    const all = await getAllPantryStaples();
+    const all = await getApiClient().getPantryStaples();
     setStaples(all);
   }, [newStaple, staples]);
 
   const handleRemove = useCallback(async (name: string) => {
-    await removePantryStaple(name);
-    const all = await getAllPantryStaples();
+    await getApiClient().removePantryStaple(name);
+    const all = await getApiClient().getPantryStaples();
     setStaples(all);
   }, []);
 

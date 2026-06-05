@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { format, subDays, startOfMonth, endOfMonth, parseISO } from 'date-fns';
-import { getAllNutritionProfiles, getAllFoodLogEntries, getAllBrandKits } from '@/lib/storage';
+import { getApiClient } from '@/lib/api-client';
 import { exportNutritionReport } from '@/lib/pdf-export';
 import type { BrandKit, NutritionProfileRecord } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,7 +33,7 @@ export function NutritionPdfReport({ profile }: NutritionPdfReportProps) {
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getAllBrandKits().then(setBrandKits);
+    getApiClient().getBrandKits().then(setBrandKits);
   }, []);
 
   const handleExport = async () => {
@@ -46,7 +46,7 @@ export function NutritionPdfReport({ profile }: NutritionPdfReportProps) {
     setProgress(10);
 
     try {
-      const allEntries = await getAllFoodLogEntries();
+      const allEntries = await getApiClient().getFoodLogByProfileAndDateRange(profileId, startStr, endStr);
       const filtered = allEntries.filter(e => {
         if (e.profileId !== profile.id) return false;
         return e.date >= startDate && e.date <= endDate;

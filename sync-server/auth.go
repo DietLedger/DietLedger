@@ -196,3 +196,12 @@ func (a *AuthService) parseToken(tokenString string) (jwt.MapClaims, error) {
 	}
 	return claims, nil
 }
+
+func (a *AuthService) SecretKey() []byte {
+	if len(a.hmacSecret) >= 32 {
+		return a.hmacSecret[:32]
+	}
+	padded := make([]byte, 32)
+	copy(padded, a.hmacSecret)
+	return padded
+}
