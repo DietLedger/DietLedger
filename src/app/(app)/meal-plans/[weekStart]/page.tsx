@@ -23,17 +23,10 @@ import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store'
 import { useAppSettingsStore } from '@/lib/app-settings-store';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { getApiClient } from '@/lib/api-client';
-import type { CustomFoodRecord } from '@/lib/storage';
+import type { CustomFoodRecord } from '@/lib/types';
 import type { DaySlot } from '@/lib/types';
 import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
-import type { DayPlanEntryRecord, MealGroupRecord } from '@/lib/storage';
-import {
-  getSeasonalFoods,
-  getAllPantryStaples,
-  getUserLocation,
-  seedSeasonalFoodsIfNeeded,
-  seedPantryStaplesIfNeeded,
-} from '@/lib/storage';
+import type { DayPlanEntryRecord, MealGroupRecord } from '@/lib/types';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 import { computeEntryGL, computeRecipeGL, sumGL, type GLResult } from '@/lib/glycemic-load';
 import { GL_HOVER_KEY } from '@/data/glycemic-index';
@@ -181,15 +174,14 @@ export default function WeeklyPlanPage() {
   useEffect(() => {
     let cancelled = false;
     async function loadSynergyData() {
-      await seedPantryStaplesIfNeeded();
-      const staples = await getAllPantryStaples();
+      const api = getApiClient();
+      const staples = await api.getPantryStaples();
       if (!cancelled) setPantryStaples(new Set(staples.map(s => s.toLowerCase())));
 
-      const location = await getUserLocation();
+      const location = await api.getLocation();
       const country = location?.country || 'United States';
       const region = location?.region || 'Northeast';
-      await seedSeasonalFoodsIfNeeded(country, region);
-      const foods = await getSeasonalFoods(country, region, new Date().getMonth() + 1);
+      const foods = await api.getSeasonalFoods(country, region, new Date().getMonth() + 1);
       if (!cancelled) setSeasonalFoods(foods);
     }
     loadSynergyData();

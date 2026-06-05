@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { WeightEntryRecord } from '@/lib/storage';
+import type { WeightEntryRecord } from '@/lib/types';
 import {
   ResponsiveContainer,
   LineChart,

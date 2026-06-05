@@ -17,8 +17,6 @@ import type {
   FoodLogEntryRecord,
   WeightEntryRecord,
   CustomFoodRecord,
-} from './storage';
-import type {
   TemplateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
@@ -43,9 +41,6 @@ export type {
   FoodLogEntryRecord,
   WeightEntryRecord,
   CustomFoodRecord,
-} from './storage';
-
-export type {
   TemplateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
@@ -171,6 +166,8 @@ export interface ApiClient {
   getRecipeCategories(recipeId: string): Promise<RecipeCategoryRecord[]>;
   addCategoryToRecipe(recipeId: string, categoryId: string): Promise<RecipeCategoryRecord>;
   removeCategoryFromRecipe(recipeId: string, categoryId: string): Promise<void>;
+  getCategoryDescendants(categoryId: string): Promise<string[]>;
+  getRecipesByCategory(categoryId: string): Promise<RecipeCategoryRecord[]>;
 
   // Meal Plans
   getMealPlans(): Promise<MealPlanRecord[]>;

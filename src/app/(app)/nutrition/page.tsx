@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useNutritionStore } from '@/lib/nutrition-store';
-import { FoodLogEntryRecord } from '@/lib/storage';
+import type { FoodLogEntryRecord } from '@/lib/types';
 import { PersonSelector } from '@/components/nutrition/person-selector';
 import { PeriodSelector, Period, getPeriodDates, formatDateForDB } from '@/components/nutrition/period-selector';
 import { BmiCalorieStats } from '@/components/nutrition/bmi-calorie-stats';

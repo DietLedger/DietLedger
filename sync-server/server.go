@@ -217,7 +217,21 @@ func (s *Server) bookRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) categoryRoutes(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/categories/")
+	path := strings.TrimPrefix(r.URL.Path, "/api/categories/")
+	if path == "" {
+		s.categoriesRouter(w, r)
+		return
+	}
+	parts := strings.SplitN(path, "/", 3)
+	id := parts[0]
+	if len(parts) >= 2 && parts[1] == "descendants" {
+		s.categoryDescendants(w, r, id)
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "recipes" {
+		s.categoryRecipes(w, r, id)
+		return
+	}
 	s.categoryItemRouter(w, r, id)
 }
 

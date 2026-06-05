@@ -1056,6 +1056,45 @@ func (s *Server) categoryItemRouter(w http.ResponseWriter, r *http.Request, id s
 	}
 }
 
+func (s *Server) categoryDescendants(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != "GET" {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cats, err := s.store.ListCategories()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list categories")
+		return
+	}
+	ids := []string{id}
+	queue := []string{id}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, c := range cats {
+			if c.ParentID != nil && *c.ParentID == current {
+				ids = append(ids, c.ID)
+				queue = append(queue, c.ID)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: ids})
+}
+
+func (s *Server) categoryRecipes(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != "GET" {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	rcs, err := s.store.RecipeCategoriesByCategory(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list recipes by category")
+		return
+	}
+	if rcs == nil { rcs = []RecipeCategory{} }
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: rcs})
+}
+
 // ── Custom Foods ─────────────────────────────────────────────────────
 
 func (s *Server) customFoodsRouter(w http.ResponseWriter, r *http.Request) {

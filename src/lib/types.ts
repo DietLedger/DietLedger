@@ -330,3 +330,230 @@ export interface HealthMetrics {
   bloodPressureDiastolic?: number;
   measurementContext?: 'fasting' | 'postMeal' | 'random';
 }
+
+export interface IngredientGroup {
+  id: string;
+  title: string;
+}
+
+export interface IngredientRecord {
+  id: string;
+  recipeId: string;
+  fdcId: number;
+  name: string;
+  amount: number;
+  unit: string;
+  description: string;
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+  groupId: string | null;
+  linkedRecipeId: string | null;
+  prepInstructions: string[];
+  storageLocation?: string;
+}
+
+export interface RecipeRecord {
+  id: string;
+  name: string;
+  servings: number;
+  servingName: string;
+  instructions: string | null;
+  ingredientGroups: IngredientGroup[];
+  createdAt: string;
+  updatedAt: string;
+  ingredients: IngredientRecord[];
+  leftoverStorage?: string;
+}
+
+export interface BookRecord {
+  id: string;
+  title: string;
+  description: string;
+  coverColor: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChapterRecord {
+  id: string;
+  bookId: string;
+  title: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  pageTemplateId?: string;
+  recipeTemplateId?: string;
+}
+
+export interface ChapterRecipeRecord {
+  id: string;
+  chapterId: string;
+  recipeId: string;
+  position: number;
+}
+
+export interface CategoryRecord {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecipeCategoryRecord {
+  id: string;
+  recipeId: string;
+  categoryId: string;
+}
+
+export interface ChapterPageRecord {
+  id: string;
+  chapterId: string;
+  title: string;
+  content: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookPageRecord {
+  id: string;
+  bookId: string;
+  title: string;
+  content: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomFoodRecord {
+  id: string;
+  name: string;
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+  createdAt: string;
+}
+
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
+export type MealSlot = 'morning' | 'midMorning' | 'noon' | 'afternoon' | 'evening' | 'night' | 'snack';
+export type FoodSourceType = 'recipe' | 'customFood' | 'manual';
+export type BmrEquation = 'auto' | 'mifflin' | 'harrisBenedict' | 'owen' | 'indirectCalorimetry';
+
+export interface NutritionProfileRecord {
+  id: string;
+  name: string;
+  sex: 'male' | 'female';
+  birthDate: string | null;
+  heightCm: number | null;
+  activityLevel: ActivityLevel;
+  goalWeightKg: number | null;
+  goalDate: string | null;
+  bmrEquation?: BmrEquation;
+  manualBmrValue?: number | null;
+  calorieTarget?: number | null;
+  proteinGoalG?: number;
+  carbsGoalG?: number;
+  fatGoalG?: number;
+  fiberGoalG?: number;
+  sodiumMaxMg?: number;
+  sugarMaxG?: number;
+  vitaminDGoalUg?: number;
+  calciumGoalMg?: number;
+  ironGoalMg?: number;
+  potassiumGoalMg?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FoodLogEntryRecord {
+  id: string;
+  profileId: string;
+  date: string;
+  time?: string;
+  mealSlot: MealSlot;
+  sourceType: FoodSourceType;
+  sourceId: string | null;
+  name: string;
+  servings: number;
+  calories: number;
+  totalFat: number;
+  saturatedFat: number;
+  transFat: number;
+  cholesterol: number;
+  sodium: number;
+  totalCarbs: number;
+  dietaryFiber: number;
+  totalSugars: number;
+  addedSugars: number;
+  protein: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
+  potassium: number;
+  servingAmount?: number;
+  servingUnit?: string;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeightEntryRecord {
+  id: string;
+  profileId: string;
+  date: string;
+  weightKg: number;
+  notes: string | null;
+  lastSyncedAt: string | null;
+  bloodSugar?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  measurementContext?: 'fasting' | 'postMeal' | 'random';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SeasonalFoodsRecord {
+  id: string;
+  country: string;
+  region: string;
+  month: number;
+  foods: string[];
+}
+
+export interface PantryStapleRecord {
+  id: string;
+  name: string;
+}
+
+export interface UserLocationRecord {
+  id: string;
+  country: string;
+  region: string;
+  updatedAt: string;
+}

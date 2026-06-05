@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { FoodLogEntryRecord, MealSlot } from '@/lib/storage';
+import type { FoodLogEntryRecord, MealSlot } from '@/lib/types';
 import { FoodLogEntry, MEAL_LABELS } from '@/components/nutrition/food-log-entry';
 
 const MEAL_ORDER: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];

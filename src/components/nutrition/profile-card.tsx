@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useCallback } from 'react';
-import { NutritionProfileRecord, WeightEntryRecord } from '@/lib/storage';
+import type { NutritionProfileRecord, WeightEntryRecord } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';

@@ -8,7 +8,7 @@ import { AddFoodLogDialog } from '@/components/nutrition/add-food-log-dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FoodLogEntryRecord, MealSlot } from '@/lib/storage';
+import type { FoodLogEntryRecord, MealSlot } from '@/lib/types';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 

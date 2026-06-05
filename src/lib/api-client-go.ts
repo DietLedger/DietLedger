@@ -489,6 +489,16 @@ export class GoApiClient implements ApiClient {
     await this.request('DELETE', `/api/recipes/${recipeId}/categories/${categoryId}`);
   }
 
+  async getCategoryDescendants(categoryId: string): Promise<string[]> {
+    const resp = await this.request<{ ok: boolean; data: string[] }>('GET', `/api/categories/${categoryId}/descendants`);
+    return resp?.data ?? [];
+  }
+
+  async getRecipesByCategory(categoryId: string): Promise<RecipeCategoryRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: RecipeCategoryRecord[] }>('GET', `/api/categories/${categoryId}/recipes`);
+    return resp?.data ?? [];
+  }
+
   // ── Meal Plans ───────────────────────────────────────────────────
 
   async getMealPlans(): Promise<MealPlanRecord[]> {

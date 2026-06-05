@@ -19,13 +19,8 @@ import {
 import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
-import {
-  getGroceryChecklistByWeekStart,
-  createGroceryChecklist,
-  putGroceryChecklist,
-  type GroceryChecklistRecord,
-  type DayPlanEntryRecord,
-} from '@/lib/storage';
+import type { GroceryChecklistRecord, DayPlanEntryRecord } from '@/lib/types';
+
 import {
   aggregateIngredients,
   getUnitSystem,
@@ -77,9 +72,9 @@ export default function GroceryListPage() {
         const ents = await client.getDayEntriesByMealPlanId(plan.id);
         setEntries(ents as DayPlanEntryRecord[]);
       }
-      let cl = await getGroceryChecklistByWeekStart(weekStart);
+      let cl = await getApiClient().getGroceryChecklist(weekStart);
       if (!cl) {
-        cl = await createGroceryChecklist(weekStart);
+        cl = await getApiClient().upsertGroceryChecklist({ weekStart, checkedItems: [] });
       }
       setChecklist(cl);
     }
@@ -321,7 +316,7 @@ export default function GroceryListPage() {
         : [...checklist.checkedItems, key];
       const updated = { ...checklist, checkedItems: newChecked };
       setChecklist(updated);
-      await putGroceryChecklist(updated);
+      await getApiClient().upsertGroceryChecklist(updated);
     },
     [checklist]
   );

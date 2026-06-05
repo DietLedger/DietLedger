@@ -1,4 +1,4 @@
-import type { RecipeRecord } from '@/lib/storage';
+import type { RecipeRecord } from '@/lib/types';
 
 export interface SynergyResult {
   recipe: RecipeRecord;

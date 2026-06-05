@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { FoodLogEntryRecord, NutritionProfileRecord } from '@/lib/storage';
+import type { FoodLogEntryRecord, NutritionProfileRecord } from '@/lib/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { X, AlertTriangle } from 'lucide-react';

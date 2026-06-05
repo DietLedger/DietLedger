@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Plus } from 'lucide-react';
-import type { RecipeRecord, DayPlanEntryRecord } from '@/lib/storage';
+import type { RecipeRecord, DayPlanEntryRecord } from '@/lib/types';
 import type { DaySlot } from '@/lib/types';
 import { findRecipesContainingIngredient } from '@/lib/recipe-synergy';
 

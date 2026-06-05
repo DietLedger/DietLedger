@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus } from 'lucide-react';
-import { MealSlot, FoodLogEntryRecord } from '@/lib/storage';
+import type { MealSlot, FoodLogEntryRecord } from '@/lib/types';
 import Link from 'next/link';
 
 const MEAL_SLOTS: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];

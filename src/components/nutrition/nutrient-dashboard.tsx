@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { FoodLogEntryRecord, NutritionProfileRecord } from '@/lib/storage';
+import type { FoodLogEntryRecord, NutritionProfileRecord } from '@/lib/types';
 import { ProgressRingsGrid } from '@/components/nutrition/progress-rings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';

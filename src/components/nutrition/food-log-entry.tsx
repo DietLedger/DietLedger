@@ -1,6 +1,6 @@
 'use client';
 
-import { FoodLogEntryRecord, MealSlot } from '@/lib/storage';
+import type { FoodLogEntryRecord, MealSlot } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Pencil, Trash2 } from 'lucide-react';

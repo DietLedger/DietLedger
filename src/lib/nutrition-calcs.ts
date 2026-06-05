@@ -1,4 +1,4 @@
-import type { ActivityLevel } from '@/lib/storage';
+import type { ActivityLevel } from '@/lib/types';
 
 type Sex = 'male' | 'female';
 

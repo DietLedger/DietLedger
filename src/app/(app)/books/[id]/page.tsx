@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useBookStore } from '@/lib/book-store';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
-import type { RecipeRecord } from '@/lib/storage';
+import type { RecipeRecord } from '@/lib/types';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

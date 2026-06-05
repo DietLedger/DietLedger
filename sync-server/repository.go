@@ -109,6 +109,7 @@ type Store interface {
 	ListRecipeCategories(recipeID string) ([]RecipeCategory, error)
 	AddRecipeCategory(recipeID, categoryID string) (*RecipeCategory, error)
 	RemoveRecipeCategory(recipeID, categoryID string) error
+	RecipeCategoriesByCategory(categoryID string) ([]RecipeCategory, error)
 
 	// Custom foods
 	ListCustomFoods(userID string) ([]CustomFood, error)

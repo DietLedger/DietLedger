@@ -1198,6 +1198,18 @@ func (s *SQLiteStore) AddRecipeCategory(recipeID, categoryID string) (*RecipeCat
 	return &RecipeCategory{ID: id, RecipeID: recipeID, CategoryID: categoryID}, nil
 }
 func (s *SQLiteStore) RemoveRecipeCategory(recipeID, categoryID string) error { _, err := s.db.Exec(`DELETE FROM recipe_categories WHERE recipe_id = ? AND category_id = ?`, recipeID, categoryID); return err }
+func (s *SQLiteStore) RecipeCategoriesByCategory(categoryID string) ([]RecipeCategory, error) {
+	rows, err := s.db.Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE category_id = ?`, categoryID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var rcs []RecipeCategory
+	for rows.Next() {
+		var rc RecipeCategory
+		if err := rows.Scan(&rc.ID, &rc.RecipeID, &rc.CategoryID); err != nil { return nil, err }
+		rcs = append(rcs, rc)
+	}
+	return rcs, nil
+}
 func (s *SQLiteStore) ListCustomFoods(userID string) ([]CustomFood, error) {
 	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE user_id = ? ORDER BY name`, userID)
 	if err != nil { return nil, err }

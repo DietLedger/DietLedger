@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRecipeStore, type Recipe } from '@/lib/recipe-store';
 import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { getApiClient } from '@/lib/api-client';
-import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/storage';
+import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/types';
 import { format, startOfWeek, parseISO } from 'date-fns';
 import type { DaySlot } from '@/lib/types';
 

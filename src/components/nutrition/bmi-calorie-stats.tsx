@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useCallback } from 'react';
-import { NutritionProfileRecord, WeightEntryRecord } from '@/lib/storage';
+import type { NutritionProfileRecord, WeightEntryRecord } from '@/lib/types';
 import { calculateBMI, calculateFullBmr, getBmiCategoryLabel, getBmiCategoryColor, isObeseClass2Plus, calculateGoalCalories, getGoalCalorieWarning } from '@/lib/nutrition-calcs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';

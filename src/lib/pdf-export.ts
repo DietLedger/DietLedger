@@ -2,7 +2,6 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { toCanvas } from 'html-to-image';
 import type { CookbookExportOptions, BrandKit, TemplateTheme } from '@/lib/types';
-import { getRecipe, getBook, getChaptersByBook, getChapterRecipes } from '@/lib/storage';
 import { getApiClient } from '@/lib/api-client';
 
 interface RecipeData {

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNutritionStore } from '@/lib/nutrition-store';
 import { ProfileCard } from '@/components/nutrition/profile-card';
 import { getApiClient } from '@/lib/api-client';
-import { WeightEntryRecord, NutritionProfileRecord, ActivityLevel } from '@/lib/storage';
+import type { WeightEntryRecord, NutritionProfileRecord, ActivityLevel } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

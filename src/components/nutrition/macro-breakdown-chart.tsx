@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { FoodLogEntryRecord } from '@/lib/storage';
+import type { FoodLogEntryRecord } from '@/lib/types';
 import {
   ResponsiveContainer,
   PieChart,

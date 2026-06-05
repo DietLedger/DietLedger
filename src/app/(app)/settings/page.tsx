@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Clock, Key, Plus, Trash2, Copy, Check, Download, Upload, AlertTriangle } from 'lucide-react';
 import { DEFAULT_MEAL_SLOT_TIMES, type DaySlot } from '@/lib/types';
-import { getAllStoreData, putStoreData } from '@/lib/storage';
+import { exportAllData, downloadJson, importFromJson } from '@/lib/export-import';
 
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: 'Morning',
@@ -143,27 +143,13 @@ export default function SettingsPage() {
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
-  const DATA_STORES = [
-    'customFoods', 'nutritionProfiles', 'foodLogEntries', 'weightEntries',
-    'mealPlans', 'dayPlanEntries', 'mealGroups', 'groceryChecklists',
-    'recipes', 'books', 'chapters', 'chapterRecipes', 'chapterPages',
-    'categories', 'recipeCategories', 'dietaryProfiles', 'allergenRules',
-  ];
-
   const handleExport = async () => {
     setExporting(true);
     try {
-      const data: Record<string, unknown[]> = {};
-      for (const store of DATA_STORES) {
-        data[store] = await getAllStoreData(store);
-      }
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `dietledger-export-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const data = await exportAllData();
+      downloadJson(data);
+    } catch (err) {
+      console.error('Export failed:', err);
     } finally {
       setExporting(false);
     }
@@ -175,16 +161,14 @@ export default function SettingsPage() {
     setImporting(true);
     setImportStatus(null);
     try {
-      const text = await file.text();
-      const data = JSON.parse(text) as Record<string, unknown[]>;
-      let total = 0;
-      for (const [store, records] of Object.entries(data)) {
-        if (DATA_STORES.includes(store) && Array.isArray(records) && records.length > 0) {
-          await putStoreData(store, records);
-          total += records.length;
-        }
+      const result = await importFromJson(file);
+      if (result.success && result.counts) {
+        const total = Object.values(result.counts).reduce((a, b) => a + b, 0);
+        const stores = Object.values(result.counts).filter(c => c > 0).length;
+        setImportStatus(`Imported ${total} records from ${stores} stores`);
+      } else {
+        setImportStatus(`Import failed: ${result.error ?? 'Unknown error'}`);
       }
-      setImportStatus(`Imported ${total} records from ${Object.keys(data).filter(k => DATA_STORES.includes(k) && Array.isArray(data[k]) && data[k].length > 0).length} stores`);
     } catch (err) {
       setImportStatus(`Import failed: ${err instanceof Error ? err.message : 'Invalid file'}`);
     } finally {

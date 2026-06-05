@@ -1188,6 +1188,23 @@ func (s *PostgresStore) RemoveRecipeCategory(recipeID, categoryID string) error 
 	return err
 }
 
+func (s *PostgresStore) RecipeCategoriesByCategory(categoryID string) ([]RecipeCategory, error) {
+	rows, err := s.db.Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE category_id = $1`, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rcs []RecipeCategory
+	for rows.Next() {
+		var rc RecipeCategory
+		if err := rows.Scan(&rc.ID, &rc.RecipeID, &rc.CategoryID); err != nil {
+			return nil, err
+		}
+		rcs = append(rcs, rc)
+	}
+	return rcs, nil
+}
+
 // ── Custom Foods ─────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListCustomFoods(userID string) ([]CustomFood, error) {

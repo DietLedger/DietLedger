@@ -57,22 +57,17 @@ describe('getApiClient', () => {
     expect(a).toBe(b)
   })
 
-  it('does not select LocalApiClient even when local-only env is set', async () => {
+  it('always uses GoApiClient (no local client exists)', async () => {
+    vi.doUnmock('./api-client-go')
     process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY = 'true'
-
-    let localClientConstructed = false
-    vi.doMock('./api-client-local', () => ({
-      LocalApiClient: class {
-        constructor() { localClientConstructed = true }
-      },
-    }))
 
     const { getApiClient, resetApiClient } = await import('./api-client')
     resetApiClient()
 
-    getApiClient()
+    const { GoApiClient } = await import('./api-client-go')
+    const client = getApiClient()
 
-    expect(localClientConstructed).toBe(false)
+    expect(client).toBeInstanceOf(GoApiClient)
   })
 })
 

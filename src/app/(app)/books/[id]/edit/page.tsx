@@ -4,7 +4,6 @@ import React, { Suspense, useEffect, useState, useCallback, useRef, useMemo } fr
 import { useSearchParams } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { useBookStore, type CategoryNode } from '@/lib/book-store';
-import { getCategoryDescendants, getRecipesByCategory } from '@/lib/storage';
 import { getApiClient } from '@/lib/api-client';
 import { generateUUID } from '@/lib/utils';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
@@ -321,9 +320,9 @@ function RecipePage() {
     }
     let cancelled = false;
     (async () => {
-      const descendantIds = await getCategoryDescendants(categoryFilterId);
+      const descendantIds = await getApiClient().getCategoryDescendants(categoryFilterId);
       const recipeIdSets = await Promise.all(
-        descendantIds.map(id => getRecipesByCategory(id))
+        descendantIds.map(id => getApiClient().getRecipesByCategory(id))
       );
       const ids = new Set<string>();
       for (const recs of recipeIdSets) {

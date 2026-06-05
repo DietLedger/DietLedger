@@ -17,13 +17,8 @@ import {
   Check,
   Package,
 } from 'lucide-react';
-import {
-  getAllCustomFoods,
-  addCustomFood,
-  updateCustomFood,
-  deleteCustomFood,
-  type CustomFoodRecord,
-} from '@/lib/storage';
+import type { CustomFoodRecord } from '@/lib/types';
+import { getApiClient } from '@/lib/api-client';
 import { fmt } from '@/lib/format';
 
 const EMPTY_NUTRITION = {
@@ -56,7 +51,7 @@ export default function CustomFoodsPanel() {
 
   const fetchFoods = useCallback(async () => {
     try {
-      const result = await getAllCustomFoods();
+      const result = await getApiClient().getCustomFoods();
       setFoods(result);
     } catch {
       // ignore
@@ -121,16 +116,16 @@ export default function CustomFoodsPanel() {
     };
 
     if (editingFood) {
-      await updateCustomFood(editingFood.id, data);
+      await getApiClient().updateCustomFood(editingFood.id, data);
     } else {
-      await addCustomFood(data);
+      await getApiClient().createCustomFood(data);
     }
     setEditDialogOpen(false);
     fetchFoods();
   }, [name, nutrition, editingFood, fetchFoods]);
 
   const handleDelete = useCallback(async (id: string) => {
-    await deleteCustomFood(id);
+    await getApiClient().deleteCustomFood(id);
     fetchFoods();
   }, [fetchFoods]);
 

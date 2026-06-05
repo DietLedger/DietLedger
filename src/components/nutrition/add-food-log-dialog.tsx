@@ -22,13 +22,13 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useNutritionStore } from '@/lib/nutrition-store';
-import {
+import type {
   FoodLogEntryRecord,
   MealSlot,
   FoodSourceType,
   RecipeRecord,
   CustomFoodRecord,
-} from '@/lib/storage';
+} from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { UNIT_TO_GRAMS } from '@/lib/recipe-store';
