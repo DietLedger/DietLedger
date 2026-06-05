@@ -26,6 +26,13 @@ const PROXY_ROUTES = [
   '/api/about',
   '/api/keys',
   '/api/nutrition/sync',
+  '/api/settings',
+  '/api/templates',
+  '/api/dietary-profiles',
+  '/api/allergen-rules',
+  '/api/brand-kits',
+  '/api/pantry-staples',
+  '/api/secrets',
 ];
 
 function shouldProxy(pathname: string): boolean {
