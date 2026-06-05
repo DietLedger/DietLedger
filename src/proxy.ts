@@ -39,11 +39,7 @@ function shouldProxy(pathname: string): boolean {
 }
 
 export async function proxy(request: NextRequest) {
-  const isLocalOnly =
-    process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === 'true' ||
-    process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === '1';
-
-  if (!isLocalOnly && shouldProxy(request.nextUrl.pathname)) {
+  if (shouldProxy(request.nextUrl.pathname)) {
     const target = new URL(request.nextUrl.pathname + request.nextUrl.search, API_URL);
 
     const headers = new Headers(request.headers);

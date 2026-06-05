@@ -75,17 +75,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const isLocalOnly =
-    typeof window !== 'undefined' &&
-    (process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === 'true' ||
-      process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === '1');
-
   return (
     <AuthContext.Provider
       value={{
         user,
         isLoading,
-        isAuthenticated: isLocalOnly || !!user,
+        isAuthenticated: !!user,
         login,
         register,
         logout,

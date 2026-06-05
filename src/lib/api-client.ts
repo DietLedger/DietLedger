@@ -285,23 +285,14 @@ export interface ApiClient {
   deleteAllergenRule(id: string): Promise<void>;
 }
 
+import { GoApiClient } from './api-client-go';
+
 let _client: ApiClient | null = null;
 
 export function getApiClient(): ApiClient {
   if (_client) return _client;
 
-  const localOnly =
-    typeof window !== 'undefined' &&
-    (process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === 'true' ||
-      process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY === '1');
-
-  if (localOnly) {
-    const { LocalApiClient } = require('./api-client-local');
-    _client = new LocalApiClient();
-  } else {
-    const { GoApiClient } = require('./api-client-go');
-    _client = new GoApiClient('');
-  }
+  _client = new GoApiClient('');
 
   return _client!;
 }
