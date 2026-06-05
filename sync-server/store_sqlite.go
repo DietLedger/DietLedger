@@ -66,6 +66,7 @@ func (s *SQLiteStore) InitDB() error {
 		serving_name TEXT NOT NULL DEFAULT 'serving',
 		instructions TEXT,
 		leftover_storage TEXT,
+		ingredient_groups TEXT NOT NULL DEFAULT '[]',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -79,11 +80,16 @@ func (s *SQLiteStore) InitDB() error {
 		name TEXT NOT NULL,
 		amount REAL NOT NULL,
 		unit TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
 		calories REAL DEFAULT 0, total_fat REAL DEFAULT 0, saturated_fat REAL DEFAULT 0,
 		trans_fat REAL DEFAULT 0, cholesterol REAL DEFAULT 0, sodium REAL DEFAULT 0,
 		total_carbs REAL DEFAULT 0, dietary_fiber REAL DEFAULT 0, total_sugars REAL DEFAULT 0,
 		added_sugars REAL DEFAULT 0, protein REAL DEFAULT 0, vitamin_d REAL DEFAULT 0,
 		calcium REAL DEFAULT 0, iron REAL DEFAULT 0, potassium REAL DEFAULT 0,
+		group_id TEXT,
+		linked_recipe_id TEXT,
+		prep_instructions TEXT NOT NULL DEFAULT '[]',
+		storage_location TEXT NOT NULL DEFAULT '',
 		FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_ingredients_recipe_id ON ingredients(recipe_id);
@@ -464,16 +470,18 @@ func (s *SQLiteStore) ListRecipes(userID string, page, perPage int) ([]Recipe, i
 	offset := (page - 1) * perPage
 	rows, err := s.db.Query(`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, userID, perPage, offset)
 	if err != nil { return nil, 0, err }
-	defer rows.Close()
 	var recipes []Recipe
 	for rows.Next() {
 		var r Recipe
 		var groupsJSON string
 		rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
 		r.ScanIngredientGroups(groupsJSON)
-		ings, _ := s.listIngredientsByRecipe(r.ID)
-		r.Ingredients = ings
 		recipes = append(recipes, r)
+	}
+	rows.Close()
+	for i := range recipes {
+		ings, _ := s.listIngredientsByRecipe(recipes[i].ID)
+		recipes[i].Ingredients = ings
 	}
 	return recipes, total, nil
 }
@@ -495,7 +503,7 @@ func (s *SQLiteStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*Re
 	now := time.Now().UTC()
 	sn := "serving"
 	if req.ServingName != "" { sn = req.ServingName }
-	_, err := s.db.Exec(`INSERT INTO recipes (id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`, id, userID, req.Name, req.Servings, sn, req.Instructions, req.LeftoverStorage, now, now)
+	_, err := s.db.Exec(`INSERT INTO recipes (id, user_id, name, servings, serving_name, instructions, leftover_storage, ingredient_groups, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, id, userID, req.Name, req.Servings, sn, req.Instructions, req.LeftoverStorage, "[]", now, now)
 	if err != nil { return nil, err }
 	var ings []Ingredient
 	for _, ing := range req.Ingredients {
@@ -503,7 +511,7 @@ func (s *SQLiteStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*Re
 		if err != nil { return nil, err }
 		ings = append(ings, *c)
 	}
-	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: sn, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
+	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: sn, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, IngredientGroupsJSON: "[]", CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
 }
 
 func (s *SQLiteStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
@@ -551,7 +559,7 @@ func (s *SQLiteStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, er
 func (s *SQLiteStore) CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error) {
 	id := uuid.New().String()
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
-	_, err := s.db.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.db.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID)
 	if err != nil { return nil, err }
 	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
@@ -572,7 +580,7 @@ func (s *SQLiteStore) ReplaceIngredients(recipeID string, ingredients []CreateIn
 	for _, ing := range ingredients {
 		id := uuid.New().String()
 		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
-		tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID)
 	}
 	return tx.Commit()
