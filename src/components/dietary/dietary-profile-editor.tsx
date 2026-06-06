@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useDietaryStore } from '@/lib/dietary-store';
+import { useState, useCallback } from 'react';
+import { useDietaryProfiles, useCreateDietaryProfile, useUpdateDietaryProfile, useDeleteDietaryProfile } from '@/hooks/use-dietary';
+import { useDietarySelection } from '@/lib/dietary-selection';
 import type { Allergen, DietaryTag, NutrientThreshold, DietaryProfileRecord } from '@/lib/types';
 import { getAllergenNames } from '@/lib/dietary-rules';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -137,7 +138,8 @@ function ThresholdEditor({
 }
 
 export function DietaryProfileEditor({ profile, onClose, onSaved }: DietaryProfileEditorProps) {
-  const { createProfile, updateProfile } = useDietaryStore();
+  const createMutation = useCreateDietaryProfile();
+  const updateMutation = useUpdateDietaryProfile();
   const [name, setName] = useState(profile?.name ?? '');
   const [allergens, setAllergens] = useState<Allergen[]>(profile?.allergens ?? []);
   const [dietaryTags, setDietaryTags] = useState<DietaryTag[]>(profile?.dietaryTags ?? []);
@@ -161,14 +163,17 @@ export function DietaryProfileEditor({ profile, onClose, onSaved }: DietaryProfi
     setSaving(true);
     try {
       if (profile) {
-        await updateProfile(profile.id, {
-          name: name.trim(),
-          allergens,
-          dietaryTags,
-          nutrientThresholds: thresholds,
+        await updateMutation.mutateAsync({
+          id: profile.id,
+          data: {
+            name: name.trim(),
+            allergens,
+            dietaryTags,
+            nutrientThresholds: thresholds,
+          },
         });
       } else {
-        await createProfile({
+        await createMutation.mutateAsync({
           name: name.trim(),
           allergens,
           dietaryTags,
@@ -251,16 +256,14 @@ export function DietaryProfileEditor({ profile, onClose, onSaved }: DietaryProfi
 }
 
 export function DietaryProfileList() {
-  const { profiles, activeProfileId, fetchProfiles, deleteProfile, setActiveProfileId } = useDietaryStore();
+  const { profiles, activeProfileId } = useDietaryProfiles();
+  const deleteMutation = useDeleteDietaryProfile();
+  const { setActiveProfileId } = useDietarySelection();
   const [editingProfile, setEditingProfile] = useState<DietaryProfileRecord | null>(null);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
-
   const handleDelete = async (id: string) => {
-    await deleteProfile(id);
+    await deleteMutation.mutateAsync(id);
   };
 
   const handleActivate = async (id: string) => {
@@ -324,7 +327,7 @@ export function DietaryProfileList() {
           <DialogHeader>
             <DialogTitle>Create Dietary Profile</DialogTitle>
           </DialogHeader>
-          <DietaryProfileEditor onClose={() => setCreating(false)} onSaved={fetchProfiles} />
+          <DietaryProfileEditor onClose={() => setCreating(false)} onSaved={() => {}} />
         </DialogContent>
       </Dialog>
 
@@ -337,7 +340,7 @@ export function DietaryProfileList() {
             <DietaryProfileEditor
               profile={editingProfile}
               onClose={() => setEditingProfile(null)}
-              onSaved={fetchProfiles}
+              onSaved={() => {}}
             />
           )}
         </DialogContent>

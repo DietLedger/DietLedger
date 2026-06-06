@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import type { DietaryTag, Allergen, DietaryProfileRecord } from '@/lib/types';
 import { detectAllergens, inferDietaryTags } from '@/lib/dietary-rules';
-import { useDietaryStore } from '@/lib/dietary-store';
+import { useDietaryProfiles } from '@/hooks/use-dietary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -37,7 +37,7 @@ export function DietaryFilters({
   onExcludeAllergensChange,
 }: DietaryFiltersProps) {
   const [expanded, setExpanded] = useState(false);
-  const { profiles, activeProfileId } = useDietaryStore();
+  const { profiles, activeProfileId } = useDietaryProfiles();
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId),
     [profiles, activeProfileId]

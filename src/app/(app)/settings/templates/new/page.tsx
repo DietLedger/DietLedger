@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useTemplateStore } from '@/lib/template-store';
+import { useTemplates, useCreateTemplate, useDuplicateTemplate } from '@/hooks/use-templates';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -93,7 +93,9 @@ function NewTemplatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromId = searchParams.get('from');
-  const { templates, fetchTemplates, createTemplate, duplicateTemplate } = useTemplateStore();
+  const { data: templates = [] } = useTemplates();
+  const createMutation = useCreateTemplate();
+  const duplicateMutation = useDuplicateTemplate();
 
   useSetBreadcrumbLabel('/settings', 'Settings');
   useSetBreadcrumbLabel('/settings/templates', 'Templates');
@@ -102,28 +104,24 @@ function NewTemplatePageContent() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
-
-  useEffect(() => {
     if (!fromId || templates.length === 0) return;
 
     const duplicate = async () => {
       setCreating(true);
       try {
-        const created = await duplicateTemplate(fromId);
+        const created = await duplicateMutation.mutateAsync(fromId);
         router.replace(`/settings/templates/${created.id}`);
       } catch {
         setCreating(false);
       }
     };
     duplicate();
-  }, [fromId, templates, duplicateTemplate, router]);
+  }, [fromId, templates, duplicateMutation, router]);
 
   const handleCreate = async (type: TemplateRecord['type']) => {
     setCreating(true);
     try {
-      const created = await createTemplate({
+      const created = await createMutation.mutateAsync({
         name: `New ${type === 'recipe' ? 'Recipe' : type === 'book-page' ? 'Book Page' : 'Book Recipe'} Template`,
         type,
         isDefault: false,

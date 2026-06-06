@@ -58,7 +58,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { fmt } from '@/lib/format';
-import { useTemplateStore } from '@/lib/template-store';
+import { useTemplates } from '@/hooks/use-templates';
 import RecipeRenderer from '@/components/recipe-renderer';
 import { STORAGE_LOCATIONS, STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 
@@ -208,10 +208,7 @@ function RecipePage() {
     unassignCategory,
   } = useBookStore();
 
-  const {
-    templates,
-    fetchTemplates,
-  } = useTemplateStore();
+  const { data: templates = [] } = useTemplates();
 
   const [selectedRecipeTemplateId, setSelectedRecipeTemplateId] = useState<string | null>(null);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
@@ -296,8 +293,7 @@ function RecipePage() {
   useEffect(() => {
     fetchRecipes();
     fetchCategories();
-    fetchTemplates();
-  }, [fetchRecipes, fetchCategories, fetchTemplates]);
+  }, [fetchRecipes, fetchCategories]);
 
   const initialRecipeId = useRef(searchParams.get('recipeId'));
   useEffect(() => {

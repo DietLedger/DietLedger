@@ -63,9 +63,9 @@ import {
 } from 'lucide-react';
 import { toCanvas } from 'html-to-image';
 import { fmt } from '@/lib/format';
-import { useTemplateStore } from '@/lib/template-store';
+import { useTemplates } from '@/hooks/use-templates';
 import { DietaryFilters, applyDietaryFilters } from '@/components/dietary/dietary-filters';
-import { useDietaryStore } from '@/lib/dietary-store';
+import { useDietaryProfiles } from '@/hooks/use-dietary';
 import type { DietaryTag } from '@/lib/types';
 import RecipeRenderer from '@/components/recipe-renderer';
 import { ShareDialog } from '@/components/recipe/share-dialog';
@@ -217,12 +217,9 @@ function RecipePage() {
     unassignCategory,
   } = useBookStore();
 
-  const {
-    templates,
-    fetchTemplates,
-  } = useTemplateStore();
+  const { data: templates = [] } = useTemplates();
 
-  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryStore();
+  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryProfiles();
   const activeDietaryProfile = useMemo(
     () => dietaryProfiles.find((p) => p.id === activeDietaryProfileId) ?? null,
     [dietaryProfiles, activeDietaryProfileId]
@@ -321,8 +318,7 @@ function RecipePage() {
   useEffect(() => {
     fetchRecipes();
     fetchCategories();
-    fetchTemplates();
-  }, [fetchRecipes, fetchCategories, fetchTemplates]);
+  }, [fetchRecipes, fetchCategories]);
 
   const initialRecipeId = useRef(searchParams.get('recipeId'));
   const nutritionLabelRef = useRef<HTMLDivElement>(null);

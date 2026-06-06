@@ -22,7 +22,7 @@ import Link from 'next/link';
 import { calculateGoalCalories, calculateFullBmr } from '@/lib/nutrition-calcs';
 import { DietaryProfileList } from '@/components/dietary/dietary-profile-editor';
 import { ThresholdAlerts } from '@/components/nutrition/threshold-alerts';
-import { useDietaryStore } from '@/lib/dietary-store';
+import { useDietaryProfiles } from '@/hooks/use-dietary';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { findGI, glCategory, type GLCategory } from '@/data/glycemic-index';
 import { computeRecipeGL } from '@/lib/glycemic-load';
@@ -60,7 +60,7 @@ function NutritionDashboard() {
   const exportRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
 
-  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId, fetchProfiles: fetchDietaryProfiles } = useDietaryStore();
+  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryProfiles();
   const { defaultMealSlotTimes, fetchSettings } = useAppSettingsStore();
   const { recipes, fetchRecipes } = useRecipeStore();
   const activeDietaryProfile = useMemo(
@@ -75,10 +75,9 @@ function NutritionDashboard() {
 
   useEffect(() => {
     fetchProfiles();
-    fetchDietaryProfiles();
     fetchSettings();
     fetchRecipes();
-  }, [fetchProfiles, fetchDietaryProfiles, fetchSettings, fetchRecipes]);
+  }, [fetchProfiles, fetchSettings, fetchRecipes]);
 
   useEffect(() => {
     if (searchParams.get('action') === 'addfood') {

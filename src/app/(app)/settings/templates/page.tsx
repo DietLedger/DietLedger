@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTemplateStore } from '@/lib/template-store';
+import { useTemplates, useDeleteTemplate, useDuplicateTemplate } from '@/hooks/use-templates';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,16 +43,14 @@ function typeBadgeColor(type: TemplateRecord['type']) {
 
 export default function TemplatesPage() {
   const router = useRouter();
-  const { templates, fetchTemplates, deleteTemplate, duplicateTemplate } = useTemplateStore();
+  const { data: templates = [] } = useTemplates();
+  const deleteMutation = useDeleteTemplate();
+  const duplicateMutation = useDuplicateTemplate();
   const [activeTab, setActiveTab] = useState<string>('recipe');
   const [deleteTarget, setDeleteTarget] = useState<TemplateRecord | null>(null);
 
   useSetBreadcrumbLabel('/settings', 'Settings');
   useSetBreadcrumbLabel('/settings/templates', 'Templates');
-
-  useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
 
   const filtered = templates.filter((t) => t.type === activeTab);
 
@@ -61,13 +59,13 @@ export default function TemplatesPage() {
   };
 
   const handleDuplicate = async (id: string) => {
-    const created = await duplicateTemplate(id);
+    const created = await duplicateMutation.mutateAsync(id);
     router.push(`/settings/templates/${created.id}`);
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await deleteTemplate(deleteTarget.id);
+    await deleteMutation.mutateAsync(deleteTarget.id);
     setDeleteTarget(null);
   };
 

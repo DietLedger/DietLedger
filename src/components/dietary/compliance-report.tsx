@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { getApiClient } from '@/lib/api-client';
-import { useDietaryStore } from '@/lib/dietary-store';
+import { useDietaryProfiles } from '@/hooks/use-dietary';
 import { detectAllergens } from '@/lib/dietary-rules';
 import { exportElementAsPdf } from '@/lib/pdf-export';
 import type { DietaryProfileRecord, NutritionProfileRecord, BrandKit } from '@/lib/types';
@@ -26,14 +26,13 @@ export function ComplianceReport() {
   const [nutritionProfiles, setNutritionProfiles] = useState<NutritionProfileRecord[]>([]);
   const [exporting, setExporting] = useState(false);
 
-  const { profiles: dietaryProfiles, fetchProfiles } = useDietaryStore();
+  const { profiles: dietaryProfiles } = useDietaryProfiles();
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchProfiles();
     getApiClient().getNutritionProfiles().then(setNutritionProfiles);
     getApiClient().getBrandKits().then(setBrandKits);
-  }, [fetchProfiles]);
+  }, []);
 
   const selectedDietaryProfile = dietaryProfiles.find(p => p.id === selectedDietaryProfileId);
   const selectedNutritionProfile = nutritionProfiles.find(p => p.id === selectedNutritionProfileId);
