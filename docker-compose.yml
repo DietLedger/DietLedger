@@ -53,7 +53,6 @@ services:
       - DOCKER=1
       - API_URL=http://dietledger-api:8080
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
-      - NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=${NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY:-false}
       - FDA_API_KEY=${FDA_API_KEY:-DEMO_KEY}
     restart: unless-stopped
     healthcheck:

@@ -1,8 +1,6 @@
 FROM node:22-alpine AS base
 RUN npm install -g npm@11.16.0
 
-ARG NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false
-
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
@@ -10,7 +8,6 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM base AS builder
-ARG NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -21,15 +18,12 @@ RUN BUILD_VERSION=$(node -e "console.log(require('./package.json').version)") &&
     node scripts/docker-prep.js && \
     export BUILD_VERSION=$(cat /tmp/version.txt) && \
     NEXT_PUBLIC_APP_VERSION=${BUILD_VERSION} \
-    NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=${NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY} \
     npx next build --webpack
 
 FROM base AS runner
-ARG NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false
 WORKDIR /app
 ENV NODE_ENV=production
 ENV DOCKER=1
-ENV NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=${NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY}
 
 RUN apk add --no-cache wget && \
     addgroup --system --gid 1001 nodejs && \

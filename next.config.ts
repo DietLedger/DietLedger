@@ -9,6 +9,7 @@ if (process.platform === 'win32') {
 const pkg = require('./package.json');
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
     unoptimized: true,
   },

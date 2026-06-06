@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * NutriLabel Production Server Entry Point
+ * DietLedger Production Server Entry Point
  *
- * A copy/symlink-compatible entry point that the Tauri desktop app can bundle.
- * Works in two contexts:
- *   1. Project root:  `bun server.js` — auto-locates .next/standalone/
- *   2. Tauri bundle:  Placed inside the server/ resource directory alongside
- *                     the standalone output files.
+ * Standalone Next.js server for Docker deployment.
+ * Requires output: "standalone" in next.config.ts.
  *
  * Environment variables:
  *   PORT         - Server port (default: 3000)
  *   HOSTNAME     - Server bind address (default: 127.0.0.1)
- *   DATABASE_URL - SQLite database connection string
  *   FDA_API_KEY  - FDA FoodData Central API key
  */
 
@@ -43,18 +39,10 @@ console.log(`[DietLedger] Version: ${APP_VERSION}`);
 console.log(`[DietLedger] Node: ${process.version}`);
 console.log(`[DietLedger] Environment: ${process.env.DOCKER ? "docker" : "native"}`);
 
-if (!process.env.DATABASE_URL) {
-  const dbPath = path.join(__dirname, "db", "custom.db");
-  process.env.DATABASE_URL = `sqlite:${dbPath}`;
-  console.warn(
-    `[NutriLabel] DATABASE_URL not set — defaulting to ${process.env.DATABASE_URL}`
-  );
-}
-
 if (!process.env.FDA_API_KEY) {
   process.env.FDA_API_KEY = "DEMO_KEY";
   console.warn(
-    "[NutriLabel] FDA_API_KEY not set — using DEMO_KEY (rate-limited to 30 req/hour)"
+    "[DietLedger] FDA_API_KEY not set — using DEMO_KEY (rate-limited to 30 req/hour)"
   );
 }
 
@@ -62,26 +50,24 @@ if (!process.env.FDA_API_KEY) {
 // Resolve the server root directory
 // ---------------------------------------------------------------------------
 
-// When bundled inside Tauri, this file sits alongside the standalone output
-// (i.e. __dirname IS the server root).  When running from the project root we
-// need to descend into .next/standalone/ where the real server files live.
+// When running from the project root, the standalone output is in
+// .next/standalone/. When deployed via Docker, the standalone files
+// are at the server root.
 
 let serverRoot;
 
 if (fs.existsSync(path.join(__dirname, ".next", "required-server-files.json"))) {
-  // Already inside the standalone / Tauri bundle directory
   serverRoot = __dirname;
 } else if (
   fs.existsSync(
     path.join(__dirname, ".next", "standalone", ".next", "required-server-files.json")
   )
 ) {
-  // Running from the project root — redirect to the standalone build
   serverRoot = path.join(__dirname, ".next", "standalone");
 } else {
   console.error(
-    "[NutriLabel] Error: Next.js standalone build not found.\n" +
-      'Run `bun run build` (with output: "standalone" in next.config) first.'
+    "[DietLedger] Error: Next.js standalone build not found.\n" +
+      'Run `npm run build` (with output: "standalone" in next.config) first.'
   );
   process.exit(1);
 }
@@ -91,9 +77,8 @@ if (fs.existsSync(path.join(__dirname, ".next", "required-server-files.json"))) 
 // ---------------------------------------------------------------------------
 
 // The standalone server expects .next/static/ and public/ relative to the
-// server root.  When running from the project root we create junction
-// symlinks so the standalone server can find them.  In the Tauri bundle
-// these directories are already copied by the build script.
+// server root. When running from the project root we create junction
+// symlinks so the standalone server can find them.
 
 if (serverRoot !== __dirname) {
   const staticSource = path.join(__dirname, ".next", "static");
@@ -138,7 +123,7 @@ const httpServer = http.createServer(async (req, res) => {
   try {
     await requestHandler(req, res);
   } catch (err) {
-    console.error("[NutriLabel] Request error:", err);
+    console.error("[DietLedger] Request error:", err);
     if (!res.headersSent) {
       res.statusCode = 500;
       res.setHeader("content-type", "text/plain");
@@ -148,12 +133,12 @@ const httpServer = http.createServer(async (req, res) => {
 });
 
 httpServer.on("error", (err) => {
-  console.error("[NutriLabel] Server error:", err);
+  console.error("[DietLedger] Server error:", err);
   process.exit(1);
 });
 
 httpServer.listen(PORT, HOSTNAME, () => {
   console.log(
-    `[NutriLabel] Production server running at http://${HOSTNAME}:${PORT}`
+    `[DietLedger] Production server running at http://${HOSTNAME}:${PORT}`
   );
 });

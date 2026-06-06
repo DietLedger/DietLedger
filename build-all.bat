@@ -31,7 +31,7 @@ echo [2/4] Building images (parallel via buildx bake)...
 set DOCKER_BUILDKIT=1
 set "APP_VERSION=%VERSION%"
 
-docker buildx bake --load --set web.args.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false --set api.args.BUILD_VERSION=%VERSION% -f "%BASE_DIR%docker-compose.build.yml"
+docker buildx bake --load --set api.args.BUILD_VERSION=%VERSION% -f "%BASE_DIR%docker-compose.build.yml"
 if %errorlevel% neq 0 (
     echo ERROR: Docker build failed
     pause

@@ -12,12 +12,8 @@ if (!content.includes('output: "standalone"')) {
     '  images:',
     '  output: "standalone",\n  images:'
   );
+  fs.writeFileSync(configPath, content);
+  console.log('[docker-prep] next.config.ts updated for standalone output');
+} else {
+  console.log('[docker-prep] standalone output already configured');
 }
-
-content = content.replace(
-  '  output: "export"',
-  '  // output: "export"'
-);
-
-fs.writeFileSync(configPath, content);
-console.log('[docker-prep] next.config.ts updated for standalone output');
