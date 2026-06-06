@@ -1,7 +1,11 @@
 package main
 
 import (
+	"database/sql"
+	"os"
 	"testing"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestUserCRUD(t *testing.T) {
@@ -796,4 +800,54 @@ func TestFoodItemUPC(t *testing.T) {
 	}
 }
 
+func TestMigrationIdempotency(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec("DROP SCHEMA public CASCADE"); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if _, err := db.Exec("CREATE SCHEMA public"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := RunMigrations(db, migrationFS, "migrations"); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	if err := RunMigrations(db, migrationFS, "migrations"); err != nil {
+		t.Fatalf("second run (idempotency): %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count == 0 {
+		t.Fatal("expected at least one recorded migration")
+	}
+}
+
+func TestLoadMigrationsOrdering(t *testing.T) {
+	migrations, err := loadMigrations(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(migrations) == 0 {
+		t.Fatal("expected at least one migration")
+	}
+	for i := 1; i < len(migrations); i++ {
+		if migrations[i].Version <= migrations[i-1].Version {
+			t.Fatalf("migrations not sorted: %d <= %d", migrations[i].Version, migrations[i-1].Version)
+		}
+	}
+}
 
