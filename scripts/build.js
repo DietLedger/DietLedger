@@ -16,6 +16,5 @@ execSync(`${npx} next build --webpack`, {
   env: {
     ...process.env,
     NODE_OPTIONS: nodeOptions.join(' '),
-    NEXT_STATIC_EXPORT: '1',
   },
 });

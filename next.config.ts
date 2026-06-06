@@ -9,9 +9,6 @@ if (process.platform === 'win32') {
 const pkg = require('./package.json');
 
 const nextConfig: NextConfig = {
-  // NOTE: Use `output: "export"` only when building for Tauri/Capacitor static export
-  // During development, keep it commented out so the dev server works normally
-  output: process.env.NEXT_STATIC_EXPORT === '1' ? 'export' : undefined,
   images: {
     unoptimized: true,
   },
