@@ -3,8 +3,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useRecipeStore } from '@/lib/recipe-store';
 import { useRecipes } from '@/hooks/use-recipes';
+import { useFDAKey, useSetFDAKey } from '@/hooks/use-secrets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -57,7 +57,8 @@ const NAV_ITEMS = [
 export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { apiKey, setApiKey, loadApiKey } = useRecipeStore();
+  const { data: apiKey = 'DEMO_KEY' } = useFDAKey();
+  const setFDAKeyMutation = useSetFDAKey();
   const { data: recipes = [] } = useRecipes();
   const { user, logout } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -66,15 +67,11 @@ export default function AppNav() {
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const { themeId, setTheme, themes, mounted: themeMounted } = useAppTheme();
 
-  useEffect(() => {
-    loadApiKey();
-  }, [loadApiKey]);
-
   const handleSaveApiKey = useCallback(() => {
-    setApiKey(apiKeyInput);
+    setFDAKeyMutation.mutate(apiKeyInput);
     setApiKeySaved(true);
     setTimeout(() => setApiKeySaved(false), 2000);
-  }, [apiKeyInput, setApiKey]);
+  }, [apiKeyInput, setFDAKeyMutation]);
 
   function getActiveSection(pathname: string): string | null {
     for (const item of NAV_ITEMS) {

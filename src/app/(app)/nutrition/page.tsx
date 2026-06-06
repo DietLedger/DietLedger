@@ -26,7 +26,7 @@ import { useDietaryProfiles } from '@/hooks/use-dietary';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { findGI, glCategory, type GLCategory } from '@/data/glycemic-index';
 import { computeRecipeGL } from '@/lib/glycemic-load';
-import { useAppSettingsStore } from '@/lib/app-settings-store';
+import { useAppSettings } from '@/hooks/use-settings';
 import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
 import { useRecipes } from '@/hooks/use-recipes';
 import { exportNutritionDashboard } from '@/lib/pdf-export';
@@ -59,7 +59,8 @@ function NutritionDashboard() {
   const searchParams = useSearchParams();
 
   const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryProfiles();
-  const { defaultMealSlotTimes, fetchSettings } = useAppSettingsStore();
+  const { data: appSettings } = useAppSettings();
+  const defaultMealSlotTimes = appSettings?.defaultMealSlotTimes ?? DEFAULT_MEAL_SLOT_TIMES;
   const { data: recipes = [] } = useRecipes();
   const activeDietaryProfile = useMemo(
     () => dietaryProfiles.find((p) => p.id === activeDietaryProfileId) ?? null,
@@ -70,10 +71,6 @@ function NutritionDashboard() {
     () => profiles.find((p) => p.id === activeProfileId),
     [profiles, activeProfileId]
   );
-
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
 
   useEffect(() => {
     if (searchParams.get('action') === 'addfood') {

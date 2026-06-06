@@ -29,7 +29,12 @@ export function getUnitSystem(): UnitSystem {
 export function setUnitSystem(system: UnitSystem): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(UNIT_SYSTEM_KEY, system);
-  import('@/lib/app-settings-store').then(m => m.useAppSettingsStore.getState().updateUnitSystem(system)).catch(() => {});
+  import('@/lib/api-client').then(m => {
+    const api = m.getApiClient();
+    api.getSettings().then(settings => {
+      api.updateSettings({ ...settings, unitSystem: system });
+    });
+  }).catch(() => {});
 }
 
 function normalizeUnit(unit: string): string {

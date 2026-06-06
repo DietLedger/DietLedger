@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useRecipes, type Recipe } from '@/hooks/use-recipes';
-import { toPublicRecipe } from '@/lib/recipe-store';
+import { toPublicRecipe } from '@/lib/recipe-types';
 import { getApiClient } from '@/lib/api-client';
 import type { GroceryChecklistRecord, DayPlanEntryRecord } from '@/lib/types';
 

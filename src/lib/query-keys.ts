@@ -60,4 +60,31 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.customFoods.all, 'detail', id] as const,
     community: (page: number) => [...queryKeys.customFoods.all, 'community', page] as const,
   },
+  settings: {
+    all: ['settings'] as const,
+  },
+  secrets: {
+    all: ['secrets'] as const,
+    list: () => [...queryKeys.secrets.all, 'list'] as const,
+  },
+  brandKits: {
+    all: ['brand-kits'] as const,
+    list: () => [...queryKeys.brandKits.all, 'list'] as const,
+    detail: (id: string) => [...queryKeys.brandKits.all, 'detail', id] as const,
+  },
+  pantryStaples: {
+    all: ['pantry-staples'] as const,
+    list: () => [...queryKeys.pantryStaples.all, 'list'] as const,
+  },
+  location: {
+    all: ['location'] as const,
+  },
+  grocery: {
+    all: ['grocery'] as const,
+    byWeek: (weekStart: string) => [...queryKeys.grocery.all, weekStart] as const,
+  },
+  foodSearch: {
+    all: ['food-search'] as const,
+    query: (q: string) => [...queryKeys.foodSearch.all, q] as const,
+  },
 } as const;

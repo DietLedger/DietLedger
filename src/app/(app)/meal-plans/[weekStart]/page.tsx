@@ -20,8 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWeekPlan, useEnsureMealPlan, useAddRecipeToSlot, useAddFoodToSlot, useRemoveEntry, useMoveEntry, useUpdateServings, useCreateMealGroup, useAddToGroup, useRemoveFromGroup, useDeleteMealGroupAndUngroup, useToggleLeftover, useUpdateSlotTimes, useReorderEntries } from '@/hooks/use-meal-plans';
 import { useRecipes, type Recipe } from '@/hooks/use-recipes';
-import { toPublicRecipe } from '@/lib/recipe-store';
-import { useAppSettingsStore } from '@/lib/app-settings-store';
+import { toPublicRecipe } from '@/lib/recipe-types';
+import { useAppSettings } from '@/hooks/use-settings';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { getApiClient } from '@/lib/api-client';
 import type { CustomFoodRecord } from '@/lib/types';
@@ -100,7 +100,8 @@ export default function WeeklyPlanPage() {
   const updateSlotTimesMutation = useUpdateSlotTimes();
 
   const { data: recipes = [] } = useRecipes();
-  const { defaultMealSlotTimes, fetchSettings } = useAppSettingsStore();
+  const { data: appSettings } = useAppSettings();
+  const defaultMealSlotTimes = appSettings?.defaultMealSlotTimes ?? DEFAULT_MEAL_SLOT_TIMES;
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [addDialogSlot, setAddDialogSlot] = useState<{ date: string; slot: DaySlot } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -132,9 +133,8 @@ export default function WeeklyPlanPage() {
   );
 
   useEffect(() => {
-    fetchSettings();
     getApiClient().getCustomFoods().then(setCustomFoods);
-  }, [fetchSettings]);
+  }, []);
 
   useEffect(() => {
     if (!searchQuery || !addDialogSlot || addTab !== 'food') {

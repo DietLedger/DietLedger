@@ -31,7 +31,7 @@ import type {
 } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
-import { UNIT_TO_GRAMS } from '@/lib/recipe-store';
+import { UNIT_TO_GRAMS } from '@/lib/recipe-types';
 import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
 const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [

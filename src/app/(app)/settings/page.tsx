@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useAppSettingsStore } from '@/lib/app-settings-store';
+import { useAppSettings, useUpdateSingleSlotTime, useUpdateSettings } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +52,10 @@ interface ApiKeyInfo {
 }
 
 export default function SettingsPage() {
-  const { defaultMealSlotTimes, fetchSettings, updateSingleSlotTime } = useAppSettingsStore();
+  const { data: appSettings } = useAppSettings();
+  const defaultMealSlotTimes = appSettings?.defaultMealSlotTimes ?? DEFAULT_MEAL_SLOT_TIMES;
+  const updateSingleSlotTimeMutation = useUpdateSingleSlotTime();
+  const updateSettingsMutation = useUpdateSettings();
 
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -68,8 +71,6 @@ export default function SettingsPage() {
   });
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
   const loadKeys = useCallback(async () => {
     try {
@@ -97,7 +98,9 @@ export default function SettingsPage() {
   useEffect(() => { loadKeys(); }, [loadKeys]);
 
   const handleResetDefaults = () => {
-    useAppSettingsStore.getState().updateDefaultMealSlotTimes({ ...DEFAULT_MEAL_SLOT_TIMES });
+    if (appSettings) {
+      updateSettingsMutation.mutate({ defaultMealSlotTimes: { ...DEFAULT_MEAL_SLOT_TIMES }, unitSystem: appSettings.unitSystem, theme: appSettings.theme });
+    }
   };
 
   const handleCreateKey = async () => {
@@ -211,7 +214,7 @@ export default function SettingsPage() {
                 <input
                   type="time"
                   value={defaultMealSlotTimes[slot] || DEFAULT_MEAL_SLOT_TIMES[slot]}
-                  onChange={(e) => updateSingleSlotTime(slot, e.target.value)}
+                  onChange={(e) => { if (appSettings) { updateSingleSlotTimeMutation.mutate({ slot, time: e.target.value, currentTimes: defaultMealSlotTimes, unitSystem: appSettings.unitSystem, theme: appSettings.theme }); } }}
                   className="h-8 w-32 px-2 text-sm border border-stone-200 rounded-md bg-transparent focus:outline-none focus:border-brand-400"
                 />
               </div>

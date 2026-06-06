@@ -2,11 +2,43 @@
 
 import React, { Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useRecipeStore } from '@/lib/recipe-store';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useRecipes,
+  useRecipe,
+  useCreateRecipe,
+  useUpdateRecipe,
+  useDeleteRecipe,
+  useAddIngredient,
+  useUpdateIngredient,
+  useRemoveIngredient,
+  useReorderIngredients,
+  useUpdateRecipeGroups,
+  buildIngredientData,
+  buildCustomIngredientData,
+  buildRecipeAsIngredientData,
+  buildRescaledIngredientUpdate,
+  buildInstructionUpdate,
+  computeIngredientGroupUpdate,
+  computeRemoveIngredientGroup,
+  computeRenameIngredientGroup,
+  computeMoveIngredientToGroup,
+  computeInstructionGroupUpdate,
+  computeRemoveInstructionGroup,
+  computeRenameInstructionGroup,
+  computeMoveInstructionToGroup,
+  type FDAFood,
+  type InstructionStep,
+  type Ingredient,
+  type IngredientGroup,
+  type InstructionGroup,
+  type Recipe,
+} from '@/hooks/use-recipes';
 import { useCategories, useRecipeCategories, useCreateCategory, useDeleteCategory, useAssignCategory, useUnassignCategory, type CategoryNode } from '@/hooks/use-categories';
 import { getApiClient } from '@/lib/api-client';
 import { generateUUID } from '@/lib/utils';
-import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
+import { sumNutrition, emptyNutrition } from '@/lib/recipe-types';
+import { searchFDAFoods } from '@/lib/fda-client';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -165,36 +197,34 @@ export default function HomePage() {
 
 function RecipePage() {
   const searchParams = useSearchParams();
-  const {
-    recipes,
-    activeRecipe,
-    isSearching,
-    searchResults,
-    searchSource,
-    isLoading,
-    fetchRecipes,
-    createRecipe,
-    selectRecipe,
-    updateRecipe,
-    deleteRecipe,
-    searchFDA,
-    addIngredient,
-    addCustomIngredient,
-    addRecipeAsIngredient,
-    removeIngredient,
-    updateIngredient,
-    getTotalNutrition,
-    reorderIngredients,
-    reorderInstructions,
-    createIngredientGroup,
-    removeIngredientGroup,
-    renameIngredientGroup,
-    moveIngredientToGroup,
-    createInstructionGroup,
-    removeInstructionGroup,
-    renameInstructionGroup,
-    moveInstructionToGroup,
-  } = useRecipeStore();
+  const queryClient = useQueryClient();
+
+  const { data: recipes = [] } = useRecipes();
+  const [activeRecipeId, setActiveRecipeId] = useState<string | null>(searchParams.get('recipeId'));
+  const { data: activeRecipe } = useRecipe(activeRecipeId ?? '');
+
+  const createRecipeMutation = useCreateRecipe();
+  const updateRecipeMutation = useUpdateRecipe();
+  const deleteRecipeMutation = useDeleteRecipe();
+  const addIngredientMutation = useAddIngredient();
+  const updateIngredientMutation = useUpdateIngredient();
+  const removeIngredientMutation = useRemoveIngredient();
+  const reorderIngredientsMutation = useReorderIngredients();
+  const updateGroupsMutation = useUpdateRecipeGroups();
+
+  const isMutating =
+    createRecipeMutation.isPending ||
+    updateRecipeMutation.isPending ||
+    deleteRecipeMutation.isPending ||
+    addIngredientMutation.isPending ||
+    updateIngredientMutation.isPending ||
+    removeIngredientMutation.isPending ||
+    reorderIngredientsMutation.isPending ||
+    updateGroupsMutation.isPending;
+
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<FDAFood[]>([]);
+  const [searchSource, setSearchSource] = useState<'fda' | 'fallback' | 'local' | null>(null);
 
   const { categories, categoryTree } = useCategories();
   const createCategoryMutation = useCreateCategory();
@@ -284,18 +314,6 @@ function RecipePage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  useEffect(() => {
-    fetchRecipes();
-  }, [fetchRecipes]);
-
-  const initialRecipeId = useRef(searchParams.get('recipeId'));
-  useEffect(() => {
-    if (initialRecipeId.current) {
-      selectRecipe(initialRecipeId.current);
-      initialRecipeId.current = null;
-    }
-  }, [selectRecipe]);
-
   const { data: recipeCategoriesArray = [] } = useRecipeCategories(activeRecipe?.id ?? '');
   const recipeCategories = useMemo(() => {
     if (!activeRecipe?.id) return new Map<string, { categoryId: string; id: string }[]>();
@@ -337,39 +355,78 @@ function RecipePage() {
 
   const handleCreateRecipe = useCallback(async () => {
     if (!newRecipeName.trim()) return;
-    await createRecipe(newRecipeName.trim());
+    const recipe = await createRecipeMutation.mutateAsync(newRecipeName.trim());
+    setActiveRecipeId(recipe.id);
     setNewRecipeName('');
-  }, [newRecipeName, createRecipe]);
+  }, [newRecipeName, createRecipeMutation]);
 
-  const handleSearchFDA = useCallback(() => {
+  const handleSearchFDA = useCallback(async () => {
     if (!searchQuery.trim()) return;
-    searchFDA(searchQuery.trim());
-  }, [searchQuery, searchFDA]);
+    setIsSearching(true);
+    setSearchResults([]);
+    setSearchSource(null);
+    try {
+      const result = await searchFDAFoods(searchQuery.trim());
+      let customFoods: FDAFood[] = [];
+      try {
+        const api = getApiClient();
+        const allCustom = await api.getCustomFoods();
+        const q = searchQuery.trim().toLowerCase();
+        customFoods = allCustom
+          .filter((f) => f.name.toLowerCase().includes(q))
+          .map((f) => ({
+            fdcId: -(Date.now() + Math.random() * 1000),
+            description: f.name,
+            brandOwner: null as string | null,
+            dataType: 'Custom',
+            servingSize: 100,
+            servingSizeUnit: 'g',
+            nutrients: {
+              calories: f.calories, totalFat: f.totalFat, saturatedFat: f.saturatedFat,
+              transFat: f.transFat, cholesterol: f.cholesterol, sodium: f.sodium,
+              totalCarbs: f.totalCarbs, dietaryFiber: f.dietaryFiber, totalSugars: f.totalSugars,
+              addedSugars: f.addedSugars, protein: f.protein, vitaminD: f.vitaminD,
+              calcium: f.calcium, iron: f.iron, potassium: f.potassium,
+            },
+          }));
+      } catch {}
+      const allFoods = [...customFoods, ...result.foods.map((r) => ({ ...r }))];
+      setSearchResults(allFoods);
+      setSearchSource(customFoods.length > 0 && result.foods.length === 0 ? 'local' : result.source === 'fallback' ? 'fallback' : result.source === 'local' ? 'local' : 'fda');
+    } catch {
+      setSearchResults([]);
+      setSearchSource(null);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery]);
 
   const handleAddIngredient = useCallback(async () => {
-    if (!selectedFood || !ingredientAmount) return;
-    await addIngredient(selectedFood, parseFloat(ingredientAmount), ingredientUnit);
+    if (!selectedFood || !ingredientAmount || !activeRecipeId) return;
+    const ingredientData = buildIngredientData(selectedFood, parseFloat(ingredientAmount), ingredientUnit);
+    await addIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredient: ingredientData });
     setSelectedFood(null);
     setIngredientAmount('100');
     setIngredientUnit('g');
     setSearchDialogOpen(false);
-  }, [selectedFood, ingredientAmount, ingredientUnit, addIngredient]);
+  }, [selectedFood, ingredientAmount, ingredientUnit, activeRecipeId, addIngredientMutation]);
 
   const handleAddRecipeAsIngredient = useCallback(async () => {
-    if (!selectedRecipeToAdd) return;
+    if (!selectedRecipeToAdd || !activeRecipeId) return;
     const multiplier = recipeAddMode === 'whole'
       ? (parseFloat(recipeMultiplier) || 1)
       : (parseFloat(recipeServingsCount) || 1) / selectedRecipeToAdd.servings;
-    await addRecipeAsIngredient(selectedRecipeToAdd, multiplier);
+    const ingredientData = buildRecipeAsIngredientData(selectedRecipeToAdd, multiplier);
+    await addIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredient: ingredientData });
     setSelectedRecipeToAdd(null);
     setRecipeMultiplier('1');
     setRecipeServingsCount('1');
     setRecipeAddMode('whole');
     setSearchDialogOpen(false);
-  }, [selectedRecipeToAdd, recipeMultiplier, recipeAddMode, recipeServingsCount, addRecipeAsIngredient]);
+  }, [selectedRecipeToAdd, recipeMultiplier, recipeAddMode, recipeServingsCount, activeRecipeId, addIngredientMutation]);
 
   const handleAddCustomIngredient = useCallback(async () => {
-    if (!customName.trim()) return;
+    if (!customName.trim() || !activeRecipeId) return;
     const nutrition = {
       calories: parseFloat(customCalories) || 0,
       totalFat: parseFloat(customTotalFat) || 0,
@@ -387,7 +444,8 @@ function RecipePage() {
       iron: parseFloat(customIron) || 0,
       potassium: parseFloat(customPotassium) || 0,
     };
-    await addCustomIngredient(customName.trim(), nutrition, parseFloat(customAmount) || 100, customUnit);
+    const ingredientData = buildCustomIngredientData(customName.trim(), nutrition, parseFloat(customAmount) || 100, customUnit);
+    await addIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredient: ingredientData });
     if (customSaveForReuse) {
       try {
         await getApiClient().createCustomFood({
@@ -432,33 +490,34 @@ function RecipePage() {
     setCustomUnit('g');
     setCustomSaveForReuse(false);
     setSearchDialogOpen(false);
-  }, [customName, customCalories, customProtein, customTotalFat, customTotalCarbs, customSaturatedFat, customTransFat, customCholesterol, customSodium, customDietaryFiber, customTotalSugars, customAddedSugars, customVitaminD, customCalcium, customIron, customPotassium, customAmount, customUnit, customSaveForReuse, addCustomIngredient]);
+  }, [customName, customCalories, customProtein, customTotalFat, customTotalCarbs, customSaturatedFat, customTransFat, customCholesterol, customSodium, customDietaryFiber, customTotalSugars, customAddedSugars, customVitaminD, customCalcium, customIron, customPotassium, customAmount, customUnit, customSaveForReuse, activeRecipeId, addIngredientMutation]);
 
   const handleDeleteRecipe = useCallback(async (id: string) => {
-    await deleteRecipe(id);
+    await deleteRecipeMutation.mutateAsync(id);
+    if (activeRecipeId === id) setActiveRecipeId(null);
     setDeleteConfirmId(null);
-  }, [deleteRecipe]);
+  }, [deleteRecipeMutation, activeRecipeId]);
 
   const handleUpdateName = useCallback(async () => {
-    if (!activeRecipe || !nameValue.trim()) {
+    if (!activeRecipe || !activeRecipeId || !nameValue.trim()) {
       setEditingName(false);
       return;
     }
-    await updateRecipe({ name: nameValue.trim() });
+    await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: { name: nameValue.trim() } });
     setEditingName(false);
-  }, [activeRecipe, nameValue, updateRecipe]);
+  }, [activeRecipe, activeRecipeId, nameValue, updateRecipeMutation]);
 
   const handleUpdateServings = useCallback(async () => {
-    if (!activeRecipe || !servingsValue) {
+    if (!activeRecipe || !activeRecipeId || !servingsValue) {
       setEditingServings(false);
       return;
     }
-    await updateRecipe({ servings: parseInt(servingsValue) || 1, servingName: servingNameValue.trim() || 'serving' });
+    await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: { servings: parseInt(servingsValue) || 1, servingName: servingNameValue.trim() || 'serving' } });
     setEditingServings(false);
-  }, [activeRecipe, servingsValue, servingNameValue, updateRecipe]);
+  }, [activeRecipe, activeRecipeId, servingsValue, servingNameValue, updateRecipeMutation]);
 
   const handleSaveStep = useCallback(async () => {
-    if (!activeRecipe || !stepText.trim()) return;
+    if (!activeRecipe || !activeRecipeId || !stepText.trim()) return;
     const steps = [...activeRecipe.instructionSteps];
     if (editingStepId) {
       const idx = steps.findIndex((s) => s.id === editingStepId);
@@ -466,20 +525,20 @@ function RecipePage() {
     } else {
       steps.push({ id: generateUUID(), text: stepText.trim(), groupId: null });
     }
-    await updateRecipe({ instructionSteps: steps });
+    await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionSteps: steps }) });
     setStepText('');
     setEditingStepId(null);
-  }, [activeRecipe, stepText, editingStepId, updateRecipe]);
+  }, [activeRecipe, activeRecipeId, stepText, editingStepId, updateRecipeMutation]);
 
   const handleDeleteStep = useCallback(async (stepId: string) => {
-    if (!activeRecipe) return;
+    if (!activeRecipe || !activeRecipeId) return;
     const steps = activeRecipe.instructionSteps.filter((s) => s.id !== stepId);
-    await updateRecipe({ instructionSteps: steps });
+    await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionSteps: steps }) });
     if (editingStepId === stepId) {
       setEditingStepId(null);
       setStepText('');
     }
-  }, [activeRecipe, editingStepId, updateRecipe]);
+  }, [activeRecipe, activeRecipeId, editingStepId, updateRecipeMutation]);
 
   const handleEditStep = useCallback((step: InstructionStep) => {
     setEditingStepId(step.id);
@@ -487,23 +546,24 @@ function RecipePage() {
   }, []);
 
   const handleSaveIngredientEdit = useCallback(async () => {
-    if (!editIngredientId || !activeRecipe) return;
+    if (!editIngredientId || !activeRecipe || !activeRecipeId) return;
     const ingredient = activeRecipe.ingredients.find((i) => i.id === editIngredientId);
     if (!ingredient) return;
-    await updateIngredient(editIngredientId, {
+    const updateData = buildRescaledIngredientUpdate(ingredient, {
       name: editName,
       description: editDescription,
       amount: parseFloat(editAmount) || ingredient.amount,
       unit: editUnit,
       prepInstructions: editPrepInstructions,
-      storageLocation: editStorageLocation || undefined,
+      storageLocation: editStorageLocation,
     });
+    await updateIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredientId: editIngredientId, data: updateData as any });
     setEditIngredientId(null);
-  }, [editIngredientId, editDescription, editAmount, editUnit, editPrepInstructions, activeRecipe, updateIngredient]);
+  }, [editIngredientId, editName, editDescription, editAmount, editUnit, editPrepInstructions, editStorageLocation, activeRecipe, activeRecipeId, updateIngredientMutation]);
 
   const handleIngredientDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id || !activeRecipe) return;
+    if (!over || active.id === over.id || !activeRecipe || !activeRecipeId) return;
 
     if (shiftRef.current) {
       setGroupDialogTargetIds([String(active.id), String(over.id)]);
@@ -516,12 +576,15 @@ function RecipePage() {
     const oldIndex = activeRecipe.ingredients.findIndex((i) => i.id === active.id);
     const newIndex = activeRecipe.ingredients.findIndex((i) => i.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-    reorderIngredients(oldIndex, newIndex);
-  }, [activeRecipe, reorderIngredients]);
+    const ingredients = [...activeRecipe.ingredients];
+    const [moved] = ingredients.splice(oldIndex, 1);
+    ingredients.splice(newIndex, 0, moved);
+    reorderIngredientsMutation.mutate({ recipeId: activeRecipeId, ingredients });
+  }, [activeRecipe, activeRecipeId, reorderIngredientsMutation]);
 
   const handleInstructionDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id || !activeRecipe) return;
+    if (!over || active.id === over.id || !activeRecipe || !activeRecipeId) return;
 
     if (shiftRef.current) {
       setGroupDialogTargetIds([String(active.id), String(over.id)]);
@@ -534,8 +597,11 @@ function RecipePage() {
     const oldIndex = activeRecipe.instructionSteps.findIndex((s) => s.id === active.id);
     const newIndex = activeRecipe.instructionSteps.findIndex((s) => s.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-    reorderInstructions(oldIndex, newIndex);
-  }, [activeRecipe, reorderInstructions]);
+    const steps = [...activeRecipe.instructionSteps];
+    const [moved] = steps.splice(oldIndex, 1);
+    steps.splice(newIndex, 0, moved);
+    updateRecipeMutation.mutate({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionSteps: steps }) });
+  }, [activeRecipe, activeRecipeId, updateRecipeMutation]);
 
   const toggleIngredientSelect = useCallback((id: string) => {
     setSelectedIngredientIds(prev =>
@@ -566,18 +632,20 @@ function RecipePage() {
   }, [selectedStepIds]);
 
   const handleGroupDialogConfirm = useCallback(async () => {
-    if (!groupDialogTitle.trim()) return;
+    if (!groupDialogTitle.trim() || !activeRecipe || !activeRecipeId) return;
     if (groupDialogType === 'ingredient') {
-      await createIngredientGroup(groupDialogTargetIds, groupDialogTitle.trim());
+      const { ingredients, ingredientGroups } = computeIngredientGroupUpdate(activeRecipe, groupDialogTargetIds, groupDialogTitle.trim());
+      await updateGroupsMutation.mutateAsync({ recipeId: activeRecipeId, ingredients, ingredientGroups });
       setSelectedIngredientIds([]);
     } else {
-      await createInstructionGroup(groupDialogTargetIds, groupDialogTitle.trim());
+      const { instructionSteps, instructionGroups } = computeInstructionGroupUpdate(activeRecipe, groupDialogTargetIds, groupDialogTitle.trim());
+      await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionSteps, instructionGroups }) });
       setSelectedStepIds([]);
     }
     setGroupDialogOpen(false);
     setGroupDialogTitle('');
     setGroupDialogTargetIds([]);
-  }, [groupDialogTitle, groupDialogType, groupDialogTargetIds, createIngredientGroup, createInstructionGroup]);
+  }, [groupDialogTitle, groupDialogType, groupDialogTargetIds, activeRecipe, activeRecipeId, updateGroupsMutation, updateRecipeMutation]);
 
   const handleStartEditGroupTitle = useCallback((groupId: string, currentTitle: string, type: 'ingredient' | 'instruction') => {
     setEditingGroupId(groupId);
@@ -586,19 +654,23 @@ function RecipePage() {
   }, []);
 
   const handleFinishEditGroupTitle = useCallback(async () => {
-    if (!editingGroupId || !editingGroupTitleValue.trim()) {
+    if (!editingGroupId || !editingGroupTitleValue.trim() || !activeRecipe || !activeRecipeId) {
       setEditingGroupId(null);
       return;
     }
     if (editingGroupType === 'ingredient') {
-      await renameIngredientGroup(editingGroupId, editingGroupTitleValue.trim());
+      const ingredientGroups = computeRenameIngredientGroup(activeRecipe, editingGroupId, editingGroupTitleValue.trim());
+      await updateGroupsMutation.mutateAsync({ recipeId: activeRecipeId, ingredientGroups });
     } else {
-      await renameInstructionGroup(editingGroupId, editingGroupTitleValue.trim());
+      const instructionGroups = computeRenameInstructionGroup(activeRecipe, editingGroupId, editingGroupTitleValue.trim());
+      await updateRecipeMutation.mutateAsync({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionGroups }) });
     }
     setEditingGroupId(null);
-  }, [editingGroupId, editingGroupTitleValue, editingGroupType, renameIngredientGroup, renameInstructionGroup]);
+  }, [editingGroupId, editingGroupTitleValue, editingGroupType, activeRecipe, activeRecipeId, updateGroupsMutation, updateRecipeMutation]);
 
-  const totalNutrition = getTotalNutrition();
+  const totalNutrition = activeRecipe && activeRecipe.ingredients.length > 0
+    ? sumNutrition(activeRecipe.ingredients)
+    : emptyNutrition();
 
   const nutritionData: NutritionData = {
     servings: activeRecipe?.servings || 1,
@@ -659,7 +731,7 @@ function RecipePage() {
               <CardContent className="pt-0">
                 <div className="flex gap-2 mb-4">
                   <Input placeholder="New recipe name..." value={newRecipeName} onChange={(e) => setNewRecipeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateRecipe()} className="text-sm h-9" />
-                  <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isLoading} size="sm" className="bg-brand-600 hover:bg-brand-700 shrink-0">
+                  <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isMutating} size="sm" className="bg-brand-600 hover:bg-brand-700 shrink-0">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -724,7 +796,7 @@ function RecipePage() {
                               ? 'bg-brand-50 border border-brand-200 text-brand-900 font-medium'
                               : 'hover:bg-stone-100 text-stone-600'
                           }`}
-                          onClick={() => selectRecipe(recipe.id)}
+                          onClick={() => setActiveRecipeId(recipe.id)}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="truncate font-medium text-sm">{recipe.name}</div>
@@ -799,7 +871,7 @@ function RecipePage() {
                          <span className="text-xs text-stone-500">Leftovers:</span>
                          <select
                            value={(activeRecipe as any).leftoverStorage || ''}
-                           onChange={(e) => updateRecipe({ leftoverStorage: e.target.value || undefined } as any)}
+                           onChange={(e) => updateRecipeMutation.mutate({ id: activeRecipeId!, data: { leftoverStorage: e.target.value || undefined } as any })}
                            className="h-6 rounded-md border border-input bg-background px-2 text-xs"
                          >
                            <option value="">Not set</option>
@@ -913,8 +985,8 @@ function RecipePage() {
                                       <option value="lb">lb</option><option value="whole">whole</option>
                                     </select>
                                   </div>
-                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
-                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
+                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isMutating} className="bg-brand-600 hover:bg-brand-700 h-9">
+                                    {isMutating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                   </Button>
                                 </div>
                               </div>
@@ -966,8 +1038,8 @@ function RecipePage() {
                                       <Input type="number" min="0.1" step="0.1" value={recipeMultiplier} onChange={(e) => setRecipeMultiplier(e.target.value)} className="h-9" />
                                     </div>
                                     <span className="text-sm text-stone-500 pb-2">× recipe</span>
-                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
-                                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
+                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isMutating} className="bg-brand-600 hover:bg-brand-700 h-9">
+                                      {isMutating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                     </Button>
                                   </div>
                                 ) : (
@@ -977,8 +1049,8 @@ function RecipePage() {
                                       <Input type="number" min="0.1" step="0.5" value={recipeServingsCount} onChange={(e) => setRecipeServingsCount(e.target.value)} className="h-9" />
                                     </div>
                                     <span className="text-sm text-stone-500 pb-2">{selectedRecipeToAdd.servingName || 'servings'} (recipe makes {selectedRecipeToAdd.servings})</span>
-                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
-                                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
+                                    <Button onClick={handleAddRecipeAsIngredient} disabled={isMutating} className="bg-brand-600 hover:bg-brand-700 h-9">
+                                      {isMutating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                     </Button>
                                   </div>
                                 )}
@@ -1072,8 +1144,8 @@ function RecipePage() {
                                     <option value="lb">lb</option><option value="whole">whole</option>
                                   </select>
                                 </div>
-                                <Button onClick={handleAddCustomIngredient} disabled={!customName.trim() || isLoading} className="bg-brand-600 hover:bg-brand-700 h-9">
-                                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
+                                <Button onClick={handleAddCustomIngredient} disabled={!customName.trim() || isMutating} className="bg-brand-600 hover:bg-brand-700 h-9">
+                                  {isMutating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                 </Button>
                               </div>
                             </div>
@@ -1139,7 +1211,7 @@ function RecipePage() {
                                           {slot.group.title}
                                         </span>
                                       )}
-                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => removeIngredientGroup(slot.group.id)}>
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => { if (activeRecipe && activeRecipeId) { const r = computeRemoveIngredientGroup(activeRecipe, slot.group.id); updateGroupsMutation.mutate({ recipeId: activeRecipeId, ...r }); } }}>
                                         <X className="w-3 h-3" />
                                       </Button>
                                     </div>
@@ -1155,12 +1227,12 @@ function RecipePage() {
                                            editDescription={editDescription}
                                           editAmount={editAmount}
                                           editUnit={editUnit}
-                                          isLoading={isLoading}
+                                          isMutating={isMutating}
                                           isGrouped
                                           onToggleSelect={() => toggleIngredientSelect(ingredient.id)}
                                            onEdit={() => { setEditIngredientId(ingredient.id); setEditName(ingredient.name); setEditDescription(ingredient.description || ''); setEditAmount(String(ingredient.amount)); setEditUnit(ingredient.unit); setEditPrepInstructions(ingredient.prepInstructions || []); setEditStorageLocation((ingredient as any).storageLocation || ''); }}
-                                            onRemove={() => removeIngredient(ingredient.id)}
-                                            onRemoveFromGroup={() => moveIngredientToGroup(ingredient.id, null)}
+onRemove={() => removeIngredientMutation.mutate({ recipeId: activeRecipeId!, ingredientId: ingredient.id })}
+                                             onRemoveFromGroup={() => { if (activeRecipe && activeRecipeId) { const ings = computeMoveIngredientToGroup(activeRecipe, ingredient.id, null); updateGroupsMutation.mutate({ recipeId: activeRecipeId, ingredients: ings }); } }}
                                             onSaveEdit={handleSaveIngredientEdit}
                                             onCancelEdit={() => setEditIngredientId(null)}
                                             onEditName={setEditName}
@@ -1190,11 +1262,11 @@ function RecipePage() {
                                   editDescription={editDescription}
                                   editAmount={editAmount}
                                   editUnit={editUnit}
-                                  isLoading={isLoading}
+                                  isMutating={isMutating}
                                   isGrouped={false}
                                   onToggleSelect={() => toggleIngredientSelect(slot.ingredient.id)}
                                   onEdit={() => { setEditIngredientId(slot.ingredient.id); setEditName(slot.ingredient.name); setEditDescription(slot.ingredient.description || ''); setEditAmount(String(slot.ingredient.amount)); setEditUnit(slot.ingredient.unit); setEditPrepInstructions(slot.ingredient.prepInstructions || []); setEditStorageLocation((slot.ingredient as any).storageLocation || ''); }}
-                                  onRemove={() => removeIngredient(slot.ingredient.id)}
+                                  onRemove={() => removeIngredientMutation.mutate({ recipeId: activeRecipeId!, ingredientId: slot.ingredient.id })}
                                   onSaveEdit={handleSaveIngredientEdit}
                                   onCancelEdit={() => setEditIngredientId(null)}
                                   onEditName={setEditName}
@@ -1263,7 +1335,7 @@ function RecipePage() {
                                           {slot.group.title}
                                         </span>
                                       )}
-                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => removeInstructionGroup(slot.group.id)}>
+                                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-brand-400 hover:text-destructive" onClick={() => { if (activeRecipe && activeRecipeId) { const r = computeRemoveInstructionGroup(activeRecipe, slot.group.id); updateRecipeMutation.mutate({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, r) }); } }}>
                                         <X className="w-3 h-3" />
                                       </Button>
                                     </div>
@@ -1280,7 +1352,7 @@ function RecipePage() {
                                           onToggleSelect={() => toggleStepSelect(step.id)}
                                           onEdit={() => handleEditStep(step)}
                                           onDelete={() => handleDeleteStep(step.id)}
-                                          onRemoveFromGroup={() => moveInstructionToGroup(step.id, null)}
+                                          onRemoveFromGroup={() => { if (activeRecipe && activeRecipeId) { const steps = computeMoveInstructionToGroup(activeRecipe, step.id, null); updateRecipeMutation.mutate({ id: activeRecipeId, data: buildInstructionUpdate(activeRecipe, { instructionSteps: steps }) }); } }}
                                         />
                                       ))}
                                     </div>
@@ -1320,8 +1392,8 @@ function RecipePage() {
                         className="min-h-[80px] text-sm resize-none"
                       />
                       <div className="flex items-center gap-2">
-                        <Button onClick={handleSaveStep} disabled={!stepText.trim() || isLoading} className="bg-brand-600 hover:bg-brand-700 gap-1 text-sm" size="sm">
-                          {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />{editingStepId ? 'Update Step' : 'Save Step'}</>}
+                        <Button onClick={handleSaveStep} disabled={!stepText.trim() || isMutating} className="bg-brand-600 hover:bg-brand-700 gap-1 text-sm" size="sm">
+                          {isMutating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />{editingStepId ? 'Update Step' : 'Save Step'}</>}
                         </Button>
                         {editingStepId && (
                           <Button variant="ghost" size="sm" className="text-sm" onClick={() => { setEditingStepId(null); setStepText(''); }}>Cancel</Button>
@@ -1695,7 +1767,7 @@ interface SortableIngredientItemProps {
   editDescription: string;
   editAmount: string;
   editUnit: string;
-  isLoading: boolean;
+  isMutating: boolean;
   isGrouped: boolean;
   prepInstructions: string[];
   editStorageLocation: string;
@@ -1723,7 +1795,7 @@ function SortableIngredientItem({
   editDescription,
   editAmount,
   editUnit,
-  isLoading,
+  isMutating,
   isGrouped,
   onToggleSelect,
   onEdit,
@@ -1845,8 +1917,8 @@ function SortableIngredientItem({
               </div>
             )}
             {isRecipe && <span className="text-sm text-stone-500 pb-1.5">× recipe</span>}
-            <Button size="sm" className="bg-brand-600 hover:bg-brand-700 h-8 gap-1" onClick={onSaveEdit} disabled={isLoading}>
-              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />Save</>}
+            <Button size="sm" className="bg-brand-600 hover:bg-brand-700 h-8 gap-1" onClick={onSaveEdit} disabled={isMutating}>
+              {isMutating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5" />Save</>}
             </Button>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onCancelEdit}>Cancel</Button>
           </div>
