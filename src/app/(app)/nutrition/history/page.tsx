@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useState, useMemo, useCallback } from 'react';
+import { useNutritionProfiles, useFoodLogByRange, useDeleteFoodLogEntry } from '@/hooks/use-nutrition';
 import { PersonSelector } from '@/components/nutrition/person-selector';
 import { FoodLogEntry, MEAL_LABELS } from '@/components/nutrition/food-log-entry';
 import { AddFoodLogDialog } from '@/components/nutrition/add-food-log-dialog';
@@ -13,33 +13,18 @@ import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 
 export default function HistoryPage() {
-  const {
-    profiles,
-    activeProfileId,
-    foodLog,
-    fetchProfiles,
-    fetchFoodLog,
-    deleteFoodLogEntry,
-  } = useNutritionStore();
-
+  const { profiles, activeProfileId } = useNutritionProfiles();
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const { data: foodLog = [] } = useFoodLogByRange(activeProfileId ?? '', startDate, endDate);
+  const deleteMutation = useDeleteFoodLogEntry();
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
-
-  useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
-
-  useEffect(() => {
-    if (activeProfileId && startDate && endDate) {
-      fetchFoodLog(activeProfileId, startDate, endDate);
-    }
-  }, [activeProfileId, startDate, endDate, fetchFoodLog]);
 
   const grouped = useMemo(() => {
     const byDate: Record<string, Record<MealSlot, FoodLogEntryRecord[]>> = {};
@@ -76,8 +61,9 @@ export default function HistoryPage() {
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
-    await deleteFoodLogEntry(id);
-  }, [deleteFoodLogEntry]);
+    if (!activeProfileId) return;
+    await deleteMutation.mutateAsync({ id, profileId: activeProfileId, date: startDate });
+  }, [deleteMutation, activeProfileId, startDate]);
 
   if (!activeProfileId && profiles.length === 0) {
     return (

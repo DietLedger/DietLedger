@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useNutritionProfiles, useCreateNutritionProfile, useUpdateNutritionProfile, useDeleteNutritionProfile, useLogWeight } from '@/hooks/use-nutrition';
 import { ProfileCard } from '@/components/nutrition/profile-card';
 import { getApiClient } from '@/lib/api-client';
 import type { WeightEntryRecord, NutritionProfileRecord, ActivityLevel } from '@/lib/types';
@@ -50,7 +50,11 @@ interface WeightCache {
 }
 
 export default function ProfilesPage() {
-  const { profiles, fetchProfiles, createProfile, updateProfile, deleteProfile, logWeight } = useNutritionStore();
+  const { profiles } = useNutritionProfiles();
+  const createProfile = useCreateNutritionProfile();
+  const updateProfile = useUpdateNutritionProfile();
+  const deleteProfile = useDeleteNutritionProfile();
+  const logWeightMutation = useLogWeight();
   const { system } = useUnitSystem();
   const [weightCache, setWeightCache] = useState<WeightCache>({});
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -83,10 +87,6 @@ export default function ProfilesPage() {
   const [formBPSystolic, setFormBPSystolic] = useState('');
   const [formBPDiastolic, setFormBPDiastolic] = useState('');
   const [formMeasurementContext, setFormMeasurementContext] = useState<'fasting' | 'postMeal' | 'random' | ''>('');
-
-  useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
 
   useEffect(() => {
     async function loadWeights() {
@@ -241,10 +241,10 @@ export default function ProfilesPage() {
       calorieTarget: formCalorieTarget ? Number(formCalorieTarget) : null,
     };
     if (editingProfile) {
-      await updateProfile(editingProfile.id, data);
+      await updateProfile.mutateAsync({ id: editingProfile.id, data });
     } else {
-      const profile = await createProfile(data);
-      await logWeight({
+      const profile = await createProfile.mutateAsync(data);
+      await logWeightMutation.mutateAsync({
         profileId: profile.id,
         date: new Date().toISOString().split('T')[0],
         weightKg: formStartingWeightKg!,
@@ -258,7 +258,7 @@ export default function ProfilesPage() {
       setWeightCache(prev => ({ ...prev, [profile.id]: latest }));
     }
     setProfileDialogOpen(false);
-  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, formBmrEquation, formManualBmrValue, formCalorieTarget, formStartingWeightKg, editingProfile, createProfile, updateProfile, logWeight]);
+  }, [formName, formSex, formBirthDate, formHeightCm, formActivityLevel, formGoalWeightKg, formGoalDate, formBmrEquation, formManualBmrValue, formCalorieTarget, formStartingWeightKg, editingProfile, createProfile, updateProfile, logWeightMutation]);
 
   const handleSaveWeight = useCallback(async () => {
     if (!weightProfileId || formWeightKg === null) return;
@@ -273,7 +273,7 @@ export default function ProfilesPage() {
     if (formBPSystolic) data.bloodPressureSystolic = Number(formBPSystolic);
     if (formBPDiastolic) data.bloodPressureDiastolic = Number(formBPDiastolic);
     if (formMeasurementContext) data.measurementContext = formMeasurementContext;
-    await logWeight(data as Parameters<typeof logWeight>[0]);
+    await logWeightMutation.mutateAsync(data as any);
     setWeightDialogOpen(false);
     const client = getApiClient();
     const weights = await client.getWeightByProfile(weightProfileId);
@@ -281,11 +281,11 @@ export default function ProfilesPage() {
       ? weights.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
       : undefined;
     setWeightCache(prev => ({ ...prev, [weightProfileId]: updated }));
-  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeight]);
+  }, [weightProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeightMutation]);
 
   const handleDelete = useCallback(async () => {
     if (!deletingProfileId) return;
-    await deleteProfile(deletingProfileId);
+    await deleteProfile.mutateAsync(deletingProfileId);
     setDeleteDialogOpen(false);
     setDeletingProfileId(null);
   }, [deletingProfileId, deleteProfile]);

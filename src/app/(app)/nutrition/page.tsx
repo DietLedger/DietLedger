@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useNutritionProfiles, useFoodLogByRange, useWeights, useDeleteFoodLogEntry } from '@/hooks/use-nutrition';
 import type { FoodLogEntryRecord } from '@/lib/types';
 import { PersonSelector } from '@/components/nutrition/person-selector';
 import { PeriodSelector, Period, getPeriodDates, formatDateForDB } from '@/components/nutrition/period-selector';
@@ -40,20 +40,18 @@ export default function NutritionPage() {
 }
 
 function NutritionDashboard() {
-  const {
-    profiles,
-    activeProfileId,
-    foodLog,
-    weights,
-    fetchProfiles,
-    fetchFoodLog,
-    fetchWeights,
-    deleteFoodLogEntry,
-    updateFoodLogEntry,
-  } = useNutritionStore();
-
+  const { profiles, activeProfileId } = useNutritionProfiles();
   const [period, setPeriod] = useState<Period>('today');
   const [selectedDate, setSelectedDate] = useState(formatDateForDB(new Date()));
+  const periodDates = useMemo(() => getPeriodDates(period, selectedDate), [period, selectedDate]);
+  const { data: foodLog = [] } = useFoodLogByRange(
+    activeProfileId ?? '',
+    formatDateForDB(periodDates.start),
+    formatDateForDB(periodDates.end),
+  );
+  const { weights } = useWeights(activeProfileId ?? '');
+  const deleteFoodLogEntryMutation = useDeleteFoodLogEntry();
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
   const [dietsDialogOpen, setDietsDialogOpen] = useState(false);
@@ -74,10 +72,9 @@ function NutritionDashboard() {
   );
 
   useEffect(() => {
-    fetchProfiles();
     fetchSettings();
     fetchRecipes();
-  }, [fetchProfiles, fetchSettings, fetchRecipes]);
+  }, [fetchSettings, fetchRecipes]);
 
   useEffect(() => {
     if (searchParams.get('action') === 'addfood') {
@@ -85,14 +82,6 @@ function NutritionDashboard() {
       setDialogOpen(true);
     }
   }, [searchParams]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      const { start, end } = getPeriodDates(period, selectedDate);
-      fetchFoodLog(activeProfileId, formatDateForDB(start), formatDateForDB(end));
-      fetchWeights(activeProfileId);
-    }
-  }, [activeProfileId, period, selectedDate, fetchFoodLog, fetchWeights]);
 
   const latestWeight = useMemo(() => {
     if (!weights.length) return undefined;
@@ -203,8 +192,9 @@ function NutritionDashboard() {
   }, [todayEntries, defaultMealSlotTimes, recipes]);
 
   const handleDeleteEntry = useCallback(async (id: string) => {
-    await deleteFoodLogEntry(id);
-  }, [deleteFoodLogEntry]);
+    if (!activeProfileId) return;
+    await deleteFoodLogEntryMutation.mutateAsync({ id, profileId: activeProfileId, date: formatDateForDB(periodDates.start) });
+  }, [deleteFoodLogEntryMutation, activeProfileId, periodDates]);
 
   const handleEditEntry = useCallback((entry: FoodLogEntryRecord) => {
     setEditEntry(entry);

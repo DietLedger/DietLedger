@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useAddFoodLogEntry, useUpdateFoodLogEntry } from '@/hooks/use-nutrition';
 import type {
   FoodLogEntryRecord,
   MealSlot,
@@ -116,7 +116,8 @@ export function AddFoodLogDialog({
   defaultDate,
   editEntry,
 }: AddFoodLogDialogProps) {
-  const { addFoodLogEntry, updateFoodLogEntry } = useNutritionStore();
+  const addEntry = useAddFoodLogEntry();
+  const updateEntry = useUpdateFoodLogEntry();
   const [tab, setTab] = useState('recipes');
   const [mealSlot, setMealSlot] = useState<MealSlot>(defaultMealSlot ?? 'noon');
   const [date, setDate] = useState(defaultDate ?? new Date().toISOString().split('T')[0]);
@@ -343,13 +344,18 @@ export function AddFoodLogDialog({
     }
 
     if (editEntry) {
-      await updateFoodLogEntry(editEntry.id, {
-        name,
-        mealSlot,
-        date,
-        time,
-        servings: servingsNum,
-        ...nutritionData,
+      await updateEntry.mutateAsync({
+        id: editEntry.id,
+        data: {
+          name,
+          mealSlot,
+          date,
+          time,
+          servings: servingsNum,
+          ...nutritionData,
+        },
+        profileId,
+        date: editEntry.date,
       });
       if (saveAsCustom) {
         await getApiClient().createCustomFood(buildCustomFoodData());
@@ -358,7 +364,7 @@ export function AddFoodLogDialog({
       if (tab === 'manual') {
         await getApiClient().createCustomFood(buildCustomFoodData());
       }
-      await addFoodLogEntry({
+      await addEntry.mutateAsync({
         profileId,
         name,
         mealSlot,
@@ -374,7 +380,7 @@ export function AddFoodLogDialog({
       });
     }
     onOpenChange(false);
-  }, [name, mealSlot, date, time, servings, nutrients, profileId, tab, selectedItem, editEntry, saveAsCustom, baseNutrients, servingAmount, servingUnit, addFoodLogEntry, updateFoodLogEntry, buildCustomFoodData, onOpenChange]);
+  }, [name, mealSlot, date, time, servings, nutrients, profileId, tab, selectedItem, editEntry, saveAsCustom, baseNutrients, servingAmount, servingUnit, addEntry, updateEntry, buildCustomFoodData, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

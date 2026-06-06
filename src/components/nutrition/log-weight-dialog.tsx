@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useNutritionProfiles, useLogWeight } from '@/hooks/use-nutrition';
 import { getApiClient } from '@/lib/api-client';
 import { useUnitSystem, lbsToKg, weightUnit, weightPlaceholder } from '@/hooks/use-unit-system';
 
@@ -28,7 +28,8 @@ interface LogWeightDialogProps {
 }
 
 export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
-  const { profiles, fetchProfiles, logWeight } = useNutritionStore();
+  const { profiles } = useNutritionProfiles();
+  const logWeightMutation = useLogWeight();
   const { system } = useUnitSystem();
 
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
@@ -44,7 +45,6 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
 
   useEffect(() => {
     if (open) {
-      fetchProfiles();
       setFormWeightDisplay('');
       setFormWeightKg(null);
       setFormWeightDate(new Date().toISOString().split('T')[0]);
@@ -87,12 +87,12 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
       if (formBPSystolic) data.bloodPressureSystolic = Number(formBPSystolic);
       if (formBPDiastolic) data.bloodPressureDiastolic = Number(formBPDiastolic);
       if (formMeasurementContext) data.measurementContext = formMeasurementContext;
-      await logWeight(data as Parameters<typeof logWeight>[0]);
+      await logWeightMutation.mutateAsync(data as any);
       onOpenChange(false);
     } finally {
       setSaving(false);
     }
-  }, [selectedProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeight, onOpenChange]);
+  }, [selectedProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeightMutation, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

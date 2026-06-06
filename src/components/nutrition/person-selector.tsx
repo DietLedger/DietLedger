@@ -1,6 +1,7 @@
 'use client';
 
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useNutritionProfiles } from '@/hooks/use-nutrition';
+import { useNutritionSelection } from '@/lib/nutrition-selection';
 import {
   Select,
   SelectContent,
@@ -13,7 +14,8 @@ import Link from 'next/link';
 import { User } from 'lucide-react';
 
 export function PersonSelector() {
-  const { profiles, activeProfileId, setActiveProfile } = useNutritionStore();
+  const { profiles, activeProfileId } = useNutritionProfiles();
+  const { setActiveProfileId } = useNutritionSelection();
 
   if (profiles.length === 0) {
     return (
@@ -28,7 +30,7 @@ export function PersonSelector() {
   }
 
   return (
-    <Select value={activeProfileId ?? ''} onValueChange={setActiveProfile}>
+    <Select value={activeProfileId ?? ''} onValueChange={setActiveProfileId}>
       <SelectTrigger className="w-[200px]">
         <SelectValue placeholder="Select person" />
       </SelectTrigger>

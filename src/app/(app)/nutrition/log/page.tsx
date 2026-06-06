@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNutritionStore } from '@/lib/nutrition-store';
+import { useState, useCallback, useMemo } from 'react';
+import { useNutritionProfiles, useFoodLogByDate, useDeleteFoodLogEntry } from '@/hooks/use-nutrition';
 import { PersonSelector } from '@/components/nutrition/person-selector';
 import { FoodLogEntry, MEAL_LABELS } from '@/components/nutrition/food-log-entry';
 import { AddFoodLogDialog } from '@/components/nutrition/add-food-log-dialog';
@@ -15,29 +15,14 @@ import Link from 'next/link';
 const MEAL_SLOTS: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'evening', 'night', 'snack'];
 
 export default function FoodLogPage() {
-  const {
-    profiles,
-    activeProfileId,
-    foodLog,
-    fetchProfiles,
-    fetchFoodLogForDate,
-    deleteFoodLogEntry,
-  } = useNutritionStore();
-
+  const { profiles, activeProfileId } = useNutritionProfiles();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const { data: foodLog = [] } = useFoodLogByDate(activeProfileId ?? '', date);
+  const deleteMutation = useDeleteFoodLogEntry();
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMealSlot, setDialogMealSlot] = useState<MealSlot>('noon');
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
-
-  useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      fetchFoodLogForDate(activeProfileId, date);
-    }
-  }, [activeProfileId, date, fetchFoodLogForDate]);
 
   const entriesBySlot = useMemo(() => {
     const map: Record<MealSlot, FoodLogEntryRecord[]> = {
@@ -82,8 +67,9 @@ export default function FoodLogPage() {
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
-    await deleteFoodLogEntry(id);
-  }, [deleteFoodLogEntry]);
+    if (!activeProfileId) return;
+    await deleteMutation.mutateAsync({ id, profileId: activeProfileId, date });
+  }, [deleteMutation, activeProfileId, date]);
 
   if (!activeProfileId && profiles.length === 0) {
     return (
