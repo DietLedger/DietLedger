@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -385,9 +384,6 @@ func TestWeightEntryUniqueDate(t *testing.T) {
 	_, err = s.CreateWeightEntry(u.ID, p.ID, &CreateWeightEntryRequest{Date: "2025-01-15", WeightKg: 71})
 	if err == nil {
 		t.Fatal("expected error on duplicate date")
-	}
-	if !strings.Contains(err.Error(), "UNIQUE") {
-		t.Fatalf("expected UNIQUE constraint error, got: %v", err)
 	}
 }
 
@@ -800,5 +796,4 @@ func TestFoodItemUPC(t *testing.T) {
 	}
 }
 
-func strPtr(s string) *string { return &s }
-func intPtr(i int) *int       { return &i }
+

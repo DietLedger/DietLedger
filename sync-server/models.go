@@ -15,15 +15,6 @@ type User struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-type Device struct {
-	ID           string     `json:"id"`
-	UserID       string     `json:"userId"`
-	DeviceName   string     `json:"deviceName"`
-	DeviceType   string     `json:"deviceType"`
-	LastSyncedAt *time.Time `json:"lastSyncedAt"`
-	CreatedAt    time.Time  `json:"createdAt"`
-}
-
 type Recipe struct {
 	ID              string       `json:"id"`
 	UserID          string       `json:"userId"`
@@ -629,18 +620,7 @@ type FoodSearchResult struct {
 	TotalPages int        `json:"totalPages"`
 }
 
-type SyncRecord struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	StoreName string    `json:"storeName"`
-	RecordID  string    `json:"recordId"`
-	Action    string    `json:"action"`
-	Data      string    `json:"data"`
-	Version   int       `json:"version"`
-	Checksum  string    `json:"checksum"`
-	Timestamp time.Time `json:"timestamp"`
-	DeviceID  string    `json:"deviceId"`
-}
+
 
 type Conflict struct {
 	ID            string     `json:"id"`

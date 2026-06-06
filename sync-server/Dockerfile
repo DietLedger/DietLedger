@@ -23,13 +23,9 @@ RUN adduser -D -s /bin/sh apiuser
 COPY --from=builder /app/dietledger-api /usr/local/bin/
 COPY --from=builder /app/migrations/ /app/migrations/
 
-RUN mkdir -p /data && chown apiuser:apiuser /data
-VOLUME ["/data"]
-
 USER apiuser
 
 ENV PORT=8080
-ENV DB_DRIVER=postgres
 ENV DATABASE_URL=""
 ENV CORS_ORIGIN=*
 ENV FDA_API_KEY=DEMO_KEY

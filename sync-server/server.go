@@ -68,7 +68,6 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/keys/", s.requireAuth(s.apiKeyRoutes))
 	mux.HandleFunc("/api/keys", s.requireAuth(s.apiKeysRouter))
-	mux.HandleFunc("/api/nutrition/sync", s.requireAuth(s.nutritionSyncRouter))
 
 	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
 	mux.HandleFunc("/api/share/", s.requireAuth(s.shareItemRouter))

@@ -616,18 +616,6 @@ Server: `sync-server/` Go API server
 
 ---
 
-## Nutrition Sync (Deprecated)
-
-### POST /api/nutrition/sync
-
-- Auth: Required
-- Request: `{ "profiles": [...], "foodLogEntries": [...], "weightEntries": [...] }`
-- Response 200: `{ "ok": true, "data": { "profiles": N, "foodLogEntries": N, "weightEntries": N } }`
-- Ownership: Private
-- Note: DEPRECATED. This endpoint exists for backward compatibility during migration. It MUST NOT be used by the Phase 1 web app. Individual CRUD endpoints should be used instead.
-
----
-
 ## User Settings
 
 ### GET /api/settings

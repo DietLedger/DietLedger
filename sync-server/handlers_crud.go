@@ -1299,60 +1299,6 @@ func (s *Server) apiKeyItemRouter(w http.ResponseWriter, r *http.Request, id str
 	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
-// ── Nutrition Sync ───────────────────────────────────────────────────
-
-func (s *Server) nutritionSyncRouter(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	user := getUserFromContext(r)
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	var req struct {
-		Profiles       []CreateProfileRequest `json:"profiles"`
-		FoodLogEntries []CreateFoodLogRequest `json:"foodLogEntries"`
-		WeightEntries  []CreateWeightEntryRequest `json:"weightEntries"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	results := map[string]int{"profiles": 0, "foodLogEntries": 0, "weightEntries": 0}
-	for _, p := range req.Profiles {
-		existing, _ := s.store.GetProfile(user.ID, p.Name)
-		if existing != nil {
-			s.store.UpdateProfile(user.ID, existing.ID, &p)
-		} else {
-			s.store.CreateProfile(user.ID, &p)
-		}
-		results["profiles"]++
-	}
-	for _, e := range req.FoodLogEntries {
-		profileID := e.ProfileID
-		entry, err := s.store.CreateFoodLogEntry(user.ID, profileID, &e)
-		if err != nil {
-			log.Printf("sync food log entry error: %v", err)
-		}
-		if entry != nil {
-			results["foodLogEntries"]++
-		}
-	}
-	for _, e := range req.WeightEntries {
-		profileID := e.ProfileID
-		entry, err := s.store.CreateWeightEntry(user.ID, profileID, &e)
-		if err != nil {
-			log.Printf("sync weight entry error: %v", err)
-		}
-		if entry != nil {
-			results["weightEntries"]++
-		}
-	}
-	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: results})
-}
-
 // ── Helper ───────────────────────────────────────────────────────────
 
 func queryInt(r *http.Request, key string, defaultVal int) int {

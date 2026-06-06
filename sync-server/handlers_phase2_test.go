@@ -410,7 +410,7 @@ func TestSeasonalFoodsEndpoint(t *testing.T) {
 	env := newTestEnv(t)
 
 	foods := `["apples","carrots"]`
-	if err := env.store.(*SQLiteStore).SetSeasonalFoods("US", "California", 1, foods); err != nil {
+	if err := env.store.SetSeasonalFoods("US", "California", 1, foods); err != nil {
 		t.Fatalf("seed seasonal foods: %v", err)
 	}
 
