@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { useBookStore } from '@/lib/book-store';
+import React, { useState, useCallback } from 'react';
+import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, type CategoryNode } from '@/hooks/use-categories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,43 +15,34 @@ import {
 import CategoryTree from '@/components/category-tree';
 
 export default function CategoriesPanel() {
-  const {
-    categories,
-    categoryTree,
-    isLoading,
-    fetchCategories,
-    createCategory,
-    updateCategory,
-    deleteCategory,
-  } = useBookStore();
+  const { categories, categoryTree, isLoading } = useCategories();
+  const createCategoryMutation = useCreateCategory();
+  const updateCategoryMutation = useUpdateCategory();
+  const deleteCategoryMutation = useDeleteCategory();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newParentId, setNewParentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
-
   const handleCreate = useCallback(async () => {
     if (!newName.trim()) return;
-    await createCategory(newName.trim(), newParentId);
+    await createCategoryMutation.mutateAsync({ name: newName.trim(), parentId: newParentId });
     setNewName('');
     setNewParentId(null);
     setCreateOpen(false);
-  }, [newName, newParentId, createCategory]);
+  }, [newName, newParentId, createCategoryMutation]);
 
   const handleRename = useCallback(async (id: string, name: string) => {
-    await updateCategory(id, { name });
-  }, [updateCategory]);
+    await updateCategoryMutation.mutateAsync({ id, data: { name } });
+  }, [updateCategoryMutation]);
 
   const handleDelete = useCallback(async (id: string) => {
-    await deleteCategory(id);
-  }, [deleteCategory]);
+    await deleteCategoryMutation.mutateAsync(id);
+  }, [deleteCategoryMutation]);
 
   const handleCreateChild = useCallback(async (parentId: string, name: string) => {
-    await createCategory(name, parentId);
-  }, [createCategory]);
+    await createCategoryMutation.mutateAsync({ name, parentId });
+  }, [createCategoryMutation]);
 
   return (
     <div className="space-y-4">

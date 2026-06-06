@@ -1,12 +1,11 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useBookStore } from '@/lib/book-store';
+import { useBookDetail } from '@/hooks/use-books';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
-import { useEffect } from 'react';
 
 const CookbookExport = dynamic(
   () => import('@/components/print/cookbook-export').then(m => ({ default: m.CookbookExport })),
@@ -17,13 +16,9 @@ export default function ExportPage() {
   const params = useParams();
   const router = useRouter();
   const bookId = params.id as string;
-  const { activeBook, selectBook } = useBookStore();
+  const { data: bookDetail } = useBookDetail(bookId);
 
-  useEffect(() => {
-    if (bookId) selectBook(bookId);
-  }, [bookId, selectBook]);
-
-  useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
+  useSetBreadcrumbLabel(`/books/${bookId}`, bookDetail?.book?.title);
   useSetBreadcrumbLabel(`/books/${bookId}/export`, 'Export');
 
   return (

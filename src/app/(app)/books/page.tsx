@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { useBookStore } from '@/lib/book-store';
+import React, { useState, useCallback } from 'react';
+import { useBooks, useCreateBook, useDeleteBook } from '@/hooks/use-books';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +18,9 @@ import { useRouter } from 'next/navigation';
 import { BOOK_COLORS } from '@/lib/types';
 
 export default function BooksPage() {
-  const { books, isLoading, fetchBooks, createBook, deleteBook } = useBookStore();
+  const { data: books = [], isLoading } = useBooks();
+  const createBookMutation = useCreateBook();
+  const deleteBookMutation = useDeleteBook();
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -27,23 +29,19 @@ export default function BooksPage() {
 
   const router = useRouter();
 
-  useEffect(() => {
-    fetchBooks();
-  }, [fetchBooks]);
-
   const handleCreate = useCallback(async () => {
     if (!newTitle.trim()) return;
-    await createBook(newTitle.trim(), newDescription.trim(), selectedColor);
+    await createBookMutation.mutateAsync({ title: newTitle.trim(), description: newDescription.trim(), coverColor: selectedColor });
     setNewTitle('');
     setNewDescription('');
     setSelectedColor(BOOK_COLORS[0]);
     setCreateOpen(false);
-  }, [newTitle, newDescription, selectedColor, createBook]);
+  }, [newTitle, newDescription, selectedColor, createBookMutation]);
 
   const handleDelete = useCallback(async (id: string) => {
-    await deleteBook(id);
+    await deleteBookMutation.mutateAsync(id);
     setDeleteConfirmId(null);
-  }, [deleteBook]);
+  }, [deleteBookMutation]);
 
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import type { CategoryNode } from '@/lib/book-store';
+import type { CategoryNode } from '@/hooks/use-categories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronRight, Pencil, Trash2, Check, X, Plus } from 'lucide-react';

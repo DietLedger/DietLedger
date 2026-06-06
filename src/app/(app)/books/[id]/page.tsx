@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useBookStore } from '@/lib/book-store';
+import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useAddRecipeToChapter } from '@/hooks/use-books';
 import { useRecipeStore } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
 import type { RecipeRecord } from '@/lib/types';
@@ -235,23 +235,21 @@ export default function BookDetailPage() {
   const router = useRouter();
   const bookId = params.id as string;
 
-  const {
-    activeBook,
-    isLoading: bookLoading,
-    selectBook,
-    addChapter,
-    deleteChapter,
-    removeRecipeFromChapter,
-    createChapterPage,
-    deleteChapterPage,
-    createBookPage,
-    deleteBookPage,
-    reorderBookLevelItems,
-    reorderChapterItems,
-    moveRecipeToChapter,
-    movePageToBookLevel,
-    movePageToChapter,
-  } = useBookStore();
+  const { data: bookDetail, isLoading: bookLoading } = useBookDetail(bookId);
+  const activeBook = bookDetail ? { ...bookDetail.book, chapters: bookDetail.chapters, bookPages: bookDetail.bookPages } : null;
+  const addChapterMutation = useAddChapter();
+  const deleteChapterMutation = useDeleteChapter();
+  const removeRecipeFromChapterMutation = useRemoveRecipeFromChapter();
+  const createChapterPageMutation = useCreateChapterPage();
+  const deleteChapterPageMutation = useDeleteChapterPage();
+  const createBookPageMutation = useCreateBookPage();
+  const deleteBookPageMutation = useDeleteBookPage();
+  const reorderBookLevelItemsMutation = useReorderBookLevelItems();
+  const reorderChapterItemsMutation = useReorderChapterItems();
+  const moveRecipeToChapterMutation = useMoveRecipeToChapter();
+  const movePageToBookLevelMutation = useMovePageToBookLevel();
+  const movePageToChapterMutation = useMovePageToChapter();
+  const addRecipeToChapterMutation = useAddRecipeToChapter();
 
   useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
 
@@ -276,10 +274,6 @@ export default function BookDetailPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  useEffect(() => {
-    if (bookId) selectBook(bookId);
-  }, [bookId, selectBook]);
 
   useEffect(() => {
     fetchRecipes();
@@ -340,7 +334,7 @@ export default function BookDetailPage() {
         const newIdx = bookLevelItems.findIndex(i => i.sortableId === over.id);
         if (oldIdx === -1 || newIdx === -1) return;
         const reordered = arrayMove(bookLevelItems, oldIdx, newIdx);
-        await reorderBookLevelItems(bookId, reordered.map(i => ({ id: i.id, type: i.type })));
+        await reorderBookLevelItemsMutation.mutateAsync({ bookId, items: reordered.map(i => ({ id: i.id, type: i.type })) });
       } else {
         const items = chapterItemsMap.get(aContainer);
         if (!items) return;
@@ -348,11 +342,11 @@ export default function BookDetailPage() {
         const newIdx = items.findIndex(i => i.sortableId === over.id);
         if (oldIdx === -1 || newIdx === -1) return;
         const reordered = arrayMove(items, oldIdx, newIdx);
-        await reorderChapterItems(aContainer, reordered.map(i =>
+        await reorderChapterItemsMutation.mutateAsync({ chapterId: aContainer, bookId, items: reordered.map(i =>
           i.type === 'recipe'
             ? { type: 'recipe' as const, recipeId: i.recipeId! }
             : { type: 'page' as const, pageId: i.pageId! }
-        ));
+        ) });
       }
       return;
     }
@@ -373,20 +367,20 @@ export default function BookDetailPage() {
         return;
       }
       if (aData.chapterRecipeId) {
-        await moveRecipeToChapter(aData.chapterRecipeId, targetChapterId, targetPos);
+        await moveRecipeToChapterMutation.mutateAsync({ chapterRecipeId: aData.chapterRecipeId, targetChapterId, position: targetPos, bookId });
       }
     } else if (aData.itemType === 'page' && oContainer === 'book-level') {
       const overIdx = bookLevelItems.findIndex(i => i.sortableId === over.id);
       const targetPos = overIdx >= 0 ? overIdx : bookLevelItems.length;
       if (aData.pageId) {
-        await movePageToBookLevel(aData.pageId, bookId, targetPos);
+        await movePageToBookLevelMutation.mutateAsync({ pageId: aData.pageId, bookId, position: targetPos });
       }
     } else if (aData.itemType === 'book-page' && oContainer !== 'book-level') {
       const targetItems = chapterItemsMap.get(oContainer);
       const overIdx = targetItems ? targetItems.findIndex(i => i.sortableId === over.id) : -1;
       const targetPos = overIdx >= 0 ? overIdx : (targetItems ? targetItems.length : 0);
       if (aData.pageId) {
-        await movePageToChapter(aData.dbId, oContainer, targetPos);
+        await movePageToChapterMutation.mutateAsync({ pageId: aData.dbId, chapterId: oContainer, position: targetPos, bookId });
       }
     } else if (aData.itemType === 'page' && oContainer !== 'book-level' && aContainer !== oContainer) {
       const targetChapter = activeBook.chapters.find(ch => ch.id === oContainer);
@@ -396,58 +390,57 @@ export default function BookDetailPage() {
       const bookLevelOverIdx = bookLevelItems.findIndex(i => i.sortableId === over.id);
       const finalPos = bookLevelOverIdx >= 0 ? bookLevelOverIdx : bookLevelItems.length;
       if (aData.pageId) {
-        await movePageToBookLevel(aData.pageId, bookId, finalPos);
+        await movePageToBookLevelMutation.mutateAsync({ pageId: aData.pageId, bookId, position: finalPos });
         const newPages = [...activeBook.bookPages, { id: '__temp__', title: '', content: '', bookId, position: 0, createdAt: '', updatedAt: '' }];
         const bookPage = newPages[newPages.length - 1];
         if (bookPage) {
-          await movePageToChapter(bookPage.id, oContainer, targetPos);
+          await movePageToChapterMutation.mutateAsync({ pageId: bookPage.id, chapterId: oContainer, position: targetPos, bookId });
         }
       }
     }
-  }, [activeBook, bookId, bookLevelItems, chapterItemsMap, reorderBookLevelItems, reorderChapterItems, moveRecipeToChapter, movePageToBookLevel, movePageToChapter]);
+  }, [activeBook, bookId, bookLevelItems, chapterItemsMap, reorderBookLevelItemsMutation, reorderChapterItemsMutation, moveRecipeToChapterMutation, movePageToBookLevelMutation, movePageToChapterMutation]);
 
   const handleAddChapter = useCallback(async () => {
     if (!newChapterTitle.trim() || !bookId) return;
-    await addChapter(bookId, newChapterTitle.trim());
+    await addChapterMutation.mutateAsync({ bookId, title: newChapterTitle.trim() });
     setNewChapterTitle('');
     setAddChapterOpen(false);
-  }, [newChapterTitle, bookId, addChapter]);
+  }, [newChapterTitle, bookId, addChapterMutation]);
 
   const handleDeleteChapter = useCallback(async (chapterId: string) => {
-    await deleteChapter(chapterId);
+    await deleteChapterMutation.mutateAsync({ id: chapterId, bookId });
     setDeleteChapterConfirmId(null);
-  }, [deleteChapter]);
+  }, [deleteChapterMutation, bookId]);
 
   const handleRemoveRecipe = useCallback(async (chapterRecipeId: string, recipeId: string) => {
     const chapter = activeBook?.chapters.find(ch => ch.chapterRecipes.some(cr => cr.id === chapterRecipeId));
     if (!chapter) return;
-    await removeRecipeFromChapter(chapter.id, recipeId);
+    await removeRecipeFromChapterMutation.mutateAsync({ chapterId: chapter.id, recipeId, bookId });
     setDeleteRecipeConfirm(null);
-  }, [activeBook, removeRecipeFromChapter]);
+  }, [activeBook, removeRecipeFromChapterMutation]);
 
   const handleAddRecipeToChapter = useCallback(async (recipeId: string) => {
     if (!addRecipeChapterId) return;
-    const { addRecipeToChapter: add } = useBookStore.getState();
-    await add(addRecipeChapterId, recipeId);
+    await addRecipeToChapterMutation.mutateAsync({ chapterId: addRecipeChapterId, recipeId, bookId });
     setAddRecipeChapterId(null);
     setAddRecipeSearch('');
-  }, [addRecipeChapterId]);
+  }, [addRecipeChapterId, addRecipeToChapterMutation]);
 
   const handleAddChapterPage = useCallback(async () => {
     if (!addPageChapterId || !newPageTitle.trim()) return;
-    await createChapterPage(addPageChapterId, newPageTitle.trim(), newPageContent.trim());
+    await createChapterPageMutation.mutateAsync({ chapterId: addPageChapterId, title: newPageTitle.trim(), content: newPageContent.trim(), bookId });
     setNewPageTitle('');
     setNewPageContent('');
     setAddPageChapterId(null);
-  }, [addPageChapterId, newPageTitle, newPageContent, createChapterPage]);
+  }, [addPageChapterId, newPageTitle, newPageContent, createChapterPageMutation]);
 
   const handleAddBookPage = useCallback(async () => {
     if (!bookId || !newBookPageTitle.trim()) return;
-    await createBookPage(bookId, newBookPageTitle.trim(), newBookPageContent.trim());
+    await createBookPageMutation.mutateAsync({ bookId, title: newBookPageTitle.trim(), content: newBookPageContent.trim() });
     setNewBookPageTitle('');
     setNewBookPageContent('');
     setAddBookPageOpen(false);
-  }, [bookId, newBookPageTitle, newBookPageContent, createBookPage]);
+  }, [bookId, newBookPageTitle, newBookPageContent, createBookPageMutation]);
 
   if (bookLoading && !activeBook) {
     return (
@@ -575,7 +568,7 @@ export default function BookDetailPage() {
                       key={item.sortableId}
                       page={page}
                       onDeleteConfirm={deleteBookPageConfirmId}
-                      onDelete={(id) => { if (id) { deleteBookPage(id); setDeleteBookPageConfirmId(null); } else { setDeleteBookPageConfirmId(null); } }}
+                      onDelete={(id) => { if (id) { deleteBookPageMutation.mutate({ id, bookId }); setDeleteBookPageConfirmId(null); } else { setDeleteBookPageConfirmId(null); } }}
                     />
                   );
                 }
@@ -610,7 +603,7 @@ export default function BookDetailPage() {
                                   key={ci.sortableId}
                                   page={{ ...page, chapterId: chapter.id }}
                                   onDeleteConfirm={deletePageConfirmId}
-                                  onDelete={(id) => { if (id) { deleteChapterPage(id); setDeletePageConfirmId(null); } else { setDeletePageConfirmId(null); } }}
+                                  onDelete={(id) => { if (id) { deleteChapterPageMutation.mutate({ id, bookId }); setDeletePageConfirmId(null); } else { setDeletePageConfirmId(null); } }}
                                 />
                               );
                             }

@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
-import { useBookStore, type CategoryNode } from '@/lib/book-store';
+import { useCategories, useRecipeCategories, useCreateCategory, useDeleteCategory, useAssignCategory, useUnassignCategory, type CategoryNode } from '@/hooks/use-categories';
 import { getApiClient } from '@/lib/api-client';
 import { generateUUID } from '@/lib/utils';
 import { type FDAFood, type InstructionStep, type Ingredient, type IngredientGroup, type InstructionGroup, type Recipe } from '@/lib/recipe-store';
@@ -205,17 +205,11 @@ function RecipePage() {
     moveInstructionToGroup,
   } = useRecipeStore();
 
-  const {
-    categories,
-    categoryTree,
-    recipeCategories,
-    fetchCategories,
-    fetchRecipeCategories,
-    createCategory,
-    deleteCategory,
-    assignCategory,
-    unassignCategory,
-  } = useBookStore();
+  const { categories, categoryTree } = useCategories();
+  const createCategoryMutation = useCreateCategory();
+  const deleteCategoryMutation = useDeleteCategory();
+  const assignCategoryMutation = useAssignCategory();
+  const unassignCategoryMutation = useUnassignCategory();
 
   const { data: templates = [] } = useTemplates();
 
@@ -317,8 +311,7 @@ function RecipePage() {
 
   useEffect(() => {
     fetchRecipes();
-    fetchCategories();
-  }, [fetchRecipes, fetchCategories]);
+  }, [fetchRecipes]);
 
   const initialRecipeId = useRef(searchParams.get('recipeId'));
   const nutritionLabelRef = useRef<HTMLDivElement>(null);
@@ -329,11 +322,11 @@ function RecipePage() {
     }
   }, [selectRecipe]);
 
-  useEffect(() => {
-    if (activeRecipe) {
-      fetchRecipeCategories(activeRecipe.id);
-    }
-  }, [activeRecipe?.id, fetchRecipeCategories]);
+  const { data: recipeCategoriesArray = [] } = useRecipeCategories(activeRecipe?.id ?? '');
+  const recipeCategories = useMemo(() => {
+    if (!activeRecipe?.id) return new Map<string, { categoryId: string; id: string }[]>();
+    return new Map([[activeRecipe.id, recipeCategoriesArray.map(rc => ({ categoryId: rc.categoryId, id: rc.id }))]]);
+  }, [activeRecipe?.id, recipeCategoriesArray]);
 
   useEffect(() => {
     if (!categoryFilterId) {
@@ -1616,10 +1609,10 @@ function RecipePage() {
               onKeyDown={async (e) => {
                 if (e.key === 'Enter' && newCategoryName.trim()) {
                   const parentId = selectedParentCategoryId || null;
-                  const cat = await createCategory(newCategoryName.trim(), parentId);
+                  const cat = await createCategoryMutation.mutateAsync({ name: newCategoryName.trim(), parentId });
                   setNewCategoryName('');
                   setSelectedParentCategoryId(null);
-                  if (categoryDialogRecipeId) await assignCategory(categoryDialogRecipeId, cat.id);
+                  if (categoryDialogRecipeId) await assignCategoryMutation.mutateAsync({ recipeId: categoryDialogRecipeId, categoryId: cat.id });
                 }
               }}
               className="flex-1 h-9"
@@ -1640,10 +1633,10 @@ function RecipePage() {
               disabled={!newCategoryName.trim()}
               onClick={async () => {
                 const parentId = selectedParentCategoryId || null;
-                const cat = await createCategory(newCategoryName.trim(), parentId);
+                const cat = await createCategoryMutation.mutateAsync({ name: newCategoryName.trim(), parentId });
                 setNewCategoryName('');
                 setSelectedParentCategoryId(null);
-                if (categoryDialogRecipeId) await assignCategory(categoryDialogRecipeId, cat.id);
+                if (categoryDialogRecipeId) await assignCategoryMutation.mutateAsync({ recipeId: categoryDialogRecipeId, categoryId: cat.id });
               }}
             >
               <Plus className="w-3.5 h-3.5" />{selectedParentCategoryId ? 'Add Child' : 'Add'}
@@ -1664,9 +1657,9 @@ function RecipePage() {
                   recipeCategories={recipeCategories}
                   selectedId={selectedParentCategoryId}
                   onSelect={setSelectedParentCategoryId}
-                  onAssign={assignCategory}
-                  onUnassign={unassignCategory}
-                  onDelete={deleteCategory}
+                  onAssign={async (recipeId, categoryId) => { await assignCategoryMutation.mutateAsync({ recipeId, categoryId }); }}
+                  onUnassign={async (recipeId, categoryId) => { await unassignCategoryMutation.mutateAsync({ recipeId, categoryId }); }}
+                  onDelete={(categoryId) => deleteCategoryMutation.mutateAsync(categoryId)}
                 />
               ))
             )}
@@ -1689,7 +1682,7 @@ interface CategoryTreeNodeProps {
   node: { id: string; name: string; children: CategoryTreeNodeProps['node'][] };
   depth: number;
   recipeId: string | null;
-  recipeCategories: Map<string, { categoryId: string }[]>;
+  recipeCategories: Map<string, { categoryId: string; id: string }[]>;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onAssign: (recipeId: string, categoryId: string) => Promise<void>;
