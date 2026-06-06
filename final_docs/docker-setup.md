@@ -1,20 +1,27 @@
-# DietLedger Deployment Guide
+# DietLedger Phase 1 Deployment Guide
 
-Self-host DietLedger using Docker, bare metal (PM2 or systemd), or Portainer.
+Deploy DietLedger as a hosted multi-user web application.
 
 ---
 
 ## Architecture
 
-```
-DietLedger (Next.js standalone on :3000) → SQLite (db/custom.db)
-                ↓
-           FDA API (external)
+```text
+Browser
+  -> Next.js web app (frontend server, port 3000)
+  -> Go API server (backend, port 8080)
+  -> PostgreSQL (database, port 5432)
 ```
 
-- **Runtime:** Node.js 20 (Alpine Linux in Docker)
-- **Database:** SQLite via Prisma (file-based, stored in `db/custom.db`)
-- **Port:** 3000 (configurable via `PORT` env var)
+Three containers:
+
+| Container | Image | Port | Role |
+|-----------|-------|------|------|
+| `dietledger-web` | `recipetool-dietledger` | 3000 | Next.js standalone server serving the frontend |
+| `dietledger-api` | `recipetool-api` | 8080 | Go API server handling all application logic |
+| `dietledger-postgres` | `postgres:17-alpine` | 5432 | PostgreSQL database (source of truth) |
+
+PostgreSQL may be a managed database service, host-level PostgreSQL, or the optional Docker Compose service.
 
 ---
 
@@ -23,433 +30,173 @@ DietLedger (Next.js standalone on :3000) → SQLite (db/custom.db)
 | Requirement | Minimum |
 |-------------|---------|
 | CPU | 1 core |
-| RAM | 512 MB |
-| Disk | 2 GB |
-| OS | Any Linux (Ubuntu 22.04+ recommended) |
-
-**Docker:** Docker 20.10+ and Docker Compose v2+
-
-**Bare metal:** Node.js 20.x LTS
-
-**FDA API key** (optional): Get a free key at https://fdc.nal.usda.gov/api-key-signup.html — 3,600 requests/hour. Without it the app uses `DEMO_KEY` (30 requests/hour).
+| RAM | 1 GB |
+| Disk | 5 GB |
+| Docker | Docker 20.10+ and Docker Compose v2+ |
+| PostgreSQL | 17+ (or use the Compose service) |
 
 ---
 
 ## Environment Variables
 
+### PostgreSQL
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `PORT` | No | `3000` | Server listen port |
-| `HOSTNAME` | No | `127.0.0.1` (`0.0.0.0` if `DOCKER=1`) | Bind address |
-| `DATABASE_URL` | No | `sqlite:db/custom.db` | SQLite database path |
+| `POSTGRES_DB` | No | `dietledger` | Database name |
+| `POSTGRES_USER` | No | `dietledger` | Database user |
+| `POSTGRES_PASSWORD` | **Yes** | `dietledger` | Database password (change in production) |
+
+### API Server
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `8080` | API server listen port |
+| `DATABASE_URL` | **Yes** | - | PostgreSQL connection string |
+| `CORS_ORIGIN` | No | `*` | Allowed CORS origins (comma-separated) |
+| `HMAC_SECRET` | **Yes** | (generated) | JWT signing secret. If unset, a random secret is generated on each restart and tokens will not survive restarts. |
+| `JWT_SIGNING_KEY_PATH` | No | - | Path to RSA PEM key for RS256 JWT signing. If unset, HS256 with HMAC_SECRET is used. |
 | `FDA_API_KEY` | No | `DEMO_KEY` | FDA FoodData Central API key |
-| `DOCKER` | No | unset | Set to `1` to bind `0.0.0.0` instead of localhost |
-| `NODE_ENV` | No | `production` | Node environment |
+| `MAX_BODY_MB` | No | `10` | Maximum request body size in megabytes |
+
+### Frontend Server
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `3000` | Frontend listen port |
+| `API_URL` | No | - | Internal API URL for server-side requests (e.g., `http://dietledger-api:8080`) |
+| `NEXT_PUBLIC_API_URL` | No | - | Public API URL for browser requests. If unset, the frontend proxies `/api/*` to the Go API. |
+| `FDA_API_KEY` | No | `DEMO_KEY` | FDA API key for server-side food search |
 
 ---
 
-## Method 1: Docker Compose
+## Quick Start
 
-### 1. Clone and configure
+### 1. Build images
 
 ```bash
-git clone <repo-url> /opt/dietledger
-cd /opt/dietledger
+docker compose -f docker-compose.build.yml build
+```
+
+### 2. Configure environment
+
+```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` with your production values. At minimum, set:
 
-```
-PORT=3000
-DATABASE_URL=sqlite:/app/db/custom.db
-FDA_API_KEY=DEMO_KEY
-```
+- `POSTGRES_PASSWORD` to a strong password
+- `HMAC_SECRET` to a long random string
+- `CORS_ORIGIN` to your frontend domain
 
-### 2. Build and start
+### 3. Start services
 
 ```bash
-docker compose up -d --build
-```
-
-### 3. Verify
-
-```bash
-docker compose logs -f dietledger
-curl http://localhost:3000
-```
-
-### 4. Stop
-
-```bash
-docker compose down
-```
-
-Data persists in the `dietledger-data` Docker volume.
-
----
-
-## Method 2: Plain Docker
-
-### 1. Build the image
-
-```bash
-git clone <repo-url> /opt/dietledger
-cd /opt/dietledger
-docker build -t dietledger .
-```
-
-### 2. Run
-
-```bash
-docker run -d \
-  --name dietledger \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e DOCKER=1 \
-  -e PORT=3000 \
-  -e DATABASE_URL=sqlite:/app/db/custom.db \
-  -e FDA_API_KEY=DEMO_KEY \
-  -v dietledger-data:/app/db \
-  --restart unless-stopped \
-  dietledger
-```
-
-### 3. Verify
-
-```bash
-docker logs -f dietledger
-curl http://localhost:3000
-```
-
-### 4. Stop / remove
-
-```bash
-docker stop dietledger
-docker rm dietledger
-```
-
----
-
-## Method 3: Portainer
-
-### 1. Install Portainer (if not already running)
-
-```bash
-docker volume create portainer_data
-docker run -d \
-  -p 9443:9443 \
-  --name portainer \
-  --restart=always \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v portainer_data:/data \
-  portainer/portainer-ce:latest
-```
-
-Open `https://your-server-ip:9443` and create the admin account.
-
-### 2. Deploy with Portainer Stacks
-
-1. Go to **Stacks** → **Add stack**
-2. Name it `dietledger`
-3. Choose **Git repository** as the build method:
-   - Repository URL: `<your-repo-url>`
-   - Compose path: `docker-compose.yml`
-4. Under **Environment variables**, add:
-
-| Name | Value |
-|------|-------|
-| `PORT` | `3000` |
-| `DATABASE_URL` | `sqlite:/app/db/custom.db` |
-| `FDA_API_KEY` | `YOUR_KEY_HERE` |
-
-5. Click **Deploy the stack**
-
-### 3. Deploy with Portainer Containers (alternative)
-
-Build on the server first:
-
-```bash
-cd /opt/dietledger
-docker build -t dietledger .
-```
-
-Then in Portainer:
-
-1. Go to **Containers** → **Add container**
-2. Name: `dietledger`
-3. Image: `dietledger`
-4. Map port: host `3000` → container `3000` (TCP)
-5. Under **Env** tab, add:
-   - `NODE_ENV=production`
-   - `DOCKER=1`
-   - `PORT=3000`
-   - `DATABASE_URL=sqlite:/app/db/custom.db`
-   - `FDA_API_KEY=DEMO_KEY`
-6. Under **Volumes** tab, map: `dietledger-data` → `/app/db`
-7. Under **Restart policy**, choose `Unless stopped`
-8. Click **Deploy the container**
-
-### 4. Monitor in Portainer
-
-- **Containers** → click `dietledger` → **Logs** to see output
-- **Inspect** to check health status
-- **Stats** for CPU/memory usage
-
----
-
-## Method 4: Bare Metal (PM2)
-
-### 1. Install Node.js 20
-
-```bash
-# Using nvm (recommended)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-source ~/.bashrc
-nvm install 20
-nvm use 20
-
-# Or using NodeSource (Ubuntu/Debian)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-### 2. Clone and build
-
-```bash
-cd /opt
-sudo git clone <repo-url> dietledger
-cd dietledger
-sudo npm install --omit=dev
-sudo npx prisma generate
-sudo npm run build
-```
-
-### 3. Create user and set permissions
-
-```bash
-sudo useradd -r -s /bin/false dietledger
-sudo mkdir -p /opt/dietledger/db /opt/dietledger/logs
-sudo chown -R dietledger:dietledger /opt/dietledger
-```
-
-### 4. Configure environment
-
-Edit `ecosystem.config.cjs` — update `FDA_API_KEY` in the `env` block.
-
-### 5. Run with PM2
-
-```bash
-sudo npm install -g pm2
-sudo -u dietledger pm2 start ecosystem.config.cjs
-sudo pm2 save
-sudo pm2 startup
-```
-
-### 6. Verify
-
-```bash
-pm2 status
-curl http://localhost:3000
-```
-
----
-
-## Method 5: Bare Metal (systemd)
-
-### 1. Install Node.js 20 and build
-
-Same steps as PM2 (Steps 1–3 above).
-
-### 2. Edit the service file
-
-```bash
-sudo nano deploy/dietledger.service
-```
-
-Update `FDA_API_KEY` in the `Environment` lines.
-
-### 3. Install and start
-
-```bash
-sudo cp deploy/dietledger.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable dietledger
-sudo systemctl start dietledger
-sudo systemctl status dietledger
+docker compose up -d
 ```
 
 ### 4. Verify
 
 ```bash
+curl http://localhost:8080/api/health
 curl http://localhost:3000
 ```
 
-### 5. View logs
-
-```bash
-journalctl -u dietledger -f
-```
+The API server runs PostgreSQL migrations automatically on startup. Migration failure prevents the API from serving traffic.
 
 ---
 
-## Database Management
+## Local Development with Docker
 
-### Location
-
-| Method | Database path |
-|--------|--------------|
-| Docker | Inside volume `dietledger-data` at `/app/db/custom.db` |
-| Bare metal | `/opt/dietledger/db/custom.db` |
-
-### Direct Access (Docker)
+The `docker-compose.yml` includes an optional PostgreSQL service for local development:
 
 ```bash
-docker compose exec dietledger sh
-npx prisma studio --port 5555 &
-# Or use sqlite3
-apk add sqlite3
-sqlite3 /app/db/custom.db
+docker compose up -d
 ```
 
-### Direct Access (Bare Metal)
+This starts all three containers. The frontend and API images must be built first using `docker-compose.build.yml`.
+
+To use an external PostgreSQL instead, remove the `postgres` service from `docker-compose.yml` and set `DATABASE_URL` to point to your external instance.
+
+---
+
+## Building Images
+
+### Build both images
 
 ```bash
-cd /opt/dietledger
-npx prisma studio
+docker compose -f docker-compose.build.yml build
 ```
 
-### Schema Changes
-
-After updating the Prisma schema in the source:
+### Build individually
 
 ```bash
-npx prisma generate
-npx prisma db push
+docker compose -f docker-compose.build.yml build web
+docker compose -f docker-compose.build.yml build api
 ```
 
-For Docker, the `docker-entrypoint.sh` runs `prisma db push` automatically on startup.
+### Pre-built distribution (Windows)
+
+```bat
+build-all.bat
+```
+
+This builds both Docker images, saves them to a tar archive, and creates a deployment package in `docker-build/`.
+
+---
+
+## Database Migrations
+
+The Go API server runs migrations automatically on startup:
+
+- Migrations are embedded in the API binary
+- Applied migrations are recorded in `schema_migrations`
+- Migrations are idempotent (safe to run multiple times)
+- If migration fails, the API exits immediately and will not serve traffic
+
+### Migration files
+
+Migration SQL files are in `sync-server/migrations/` and follow the naming convention `NNNNNN_name.up.sql` / `NNNNNN_name.down.sql`.
 
 ---
 
 ## Updating
 
-### Docker Compose
-
 ```bash
-cd /opt/dietledger
 git pull
-docker compose up -d --build
-docker compose logs -f --tail=50 dietledger
-```
-
-### Plain Docker
-
-```bash
-cd /opt/dietledger
-git pull
-docker build -t dietledger .
-docker stop dietledger && docker rm dietledger
-# Re-run the docker run command from Method 2
-```
-
-### Portainer (Stack)
-
-1. Go to **Stacks** → `dietledger`
-2. Click **Pull and redeploy**
-
-### Bare Metal (PM2)
-
-```bash
-cd /opt/dietledger
-git pull
-npm install --omit=dev
-npx prisma generate
-npm run build
-pm2 restart dietledger
-```
-
-### Bare Metal (systemd)
-
-```bash
-cd /opt/dietledger
-git pull
-npm install --omit=dev
-npx prisma generate
-npm run build
-sudo systemctl restart dietledger
-```
-
----
-
-## Backup & Restore
-
-### Manual Backup
-
-```bash
-# Docker
-docker cp dietledger:/app/db/custom.db ./backup-$(date +%Y%m%d).db
-
-# Bare metal
-cp /opt/dietledger/db/custom.db ./backup-$(date +%Y%m%d).db
-```
-
-### Restore (Docker)
-
-```bash
-docker compose down
-docker compose run --rm -v dietledger-data:/app/db -v $(pwd):/backup alpine \
-  cp /backup/backup-YYYYMMDD.db /app/db/custom.db
+docker compose -f docker-compose.build.yml build
 docker compose up -d
 ```
 
-### Restore (Bare Metal)
+The API will apply any new migrations automatically on startup.
+
+---
+
+## Backup
+
+PostgreSQL data is stored in the `pg-data` Docker volume. Use `pg_dump` for backups:
 
 ```bash
-sudo systemctl stop dietledger   # or: pm2 stop dietledger
-cp ./backup-YYYYMMDD.db /opt/dietledger/db/custom.db
-sudo systemctl start dietledger  # or: pm2 start dietledger
+docker compose exec postgres pg_dump -U dietledger dietledger > backup.sql
+```
+
+### Restore
+
+```bash
+docker compose exec -T postgres psql -U dietledger dietledger < backup.sql
 ```
 
 ---
 
-## Server Migration
+## Health Checks
 
-### Docker to Docker
+All containers have health checks configured:
 
-```bash
-# On old server
-docker cp dietledger:/app/db/custom.db ./export.db
-scp export.db user@new-server:/tmp/
+| Container | Endpoint | Interval |
+|-----------|----------|----------|
+| `dietledger-api` | `GET /api/health` | 30s |
+| `dietledger-web` | `GET /` | 30s |
+| `dietledger-postgres` | `pg_isready` | 10s |
 
-# On new server (after fresh deploy)
-docker compose down
-docker compose run --rm -v dietledger-data:/app/db -v /tmp:/backup alpine \
-  cp /backup/export.db /app/db/custom.db
-docker compose up -d
-```
-
-### Bare Metal to Bare Metal
-
-```bash
-# On old server
-scp /opt/dietledger/db/custom.db user@new-server:/tmp/
-
-# On new server (after fresh deploy)
-sudo systemctl stop dietledger   # or: pm2 stop dietledger
-sudo cp /tmp/custom.db /opt/dietledger/db/custom.db
-sudo chown dietledger:dietledger /opt/dietledger/db/custom.db
-sudo systemctl start dietledger  # or: pm2 start dietledger
-```
-
----
-
-## What Gets Stored Where
-
-| Path | Description | Persisted? |
-|------|-------------|------------|
-| `db/custom.db` | SQLite database (all user data) | Yes — Docker volume or on disk |
-| `logs/` | PM2 log files | Optional |
-| `/app` or `/opt/dietledger` | Application code | No — rebuilt on each deploy |
-
-The database is the only thing you need to back up. Everything else is rebuilt from source.
+The API server depends on PostgreSQL being healthy. The web server depends on the API being healthy.
