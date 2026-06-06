@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useRecipeStore, type Recipe } from '@/lib/recipe-store';
+import { useRecipes, type Recipe } from '@/hooks/use-recipes';
 import { useMealPlans } from '@/hooks/use-meal-plans';
 import { getApiClient } from '@/lib/api-client';
 import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/types';
@@ -119,7 +119,7 @@ export default function KitchenHelperPage() {
 function KitchenHelperContent() {
   const searchParams = useSearchParams();
   const initialRecipeId = searchParams.get('recipeId');
-  const { recipes, fetchRecipes } = useRecipeStore();
+  const { data: recipes = [] } = useRecipes();
   const { data: mealPlans = [] } = useMealPlans();
   const [mode, setMode] = useState<'recipe' | 'meal' | 'today'>('recipe');
   const [searchQuery, setSearchQuery] = useState('');
@@ -134,9 +134,8 @@ function KitchenHelperContent() {
   const [startWithPrep, setStartWithPrep] = useState(false);
 
   useEffect(() => {
-    fetchRecipes();
     setCompletedRecipeMap(getCompletedRecipes());
-  }, [fetchRecipes]);
+  }, []);
 
   useEffect(() => {
     if (initialRecipeId && recipes.length > 0) {

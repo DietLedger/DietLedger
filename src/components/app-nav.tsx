@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useRecipeStore } from '@/lib/recipe-store';
+import { useRecipes } from '@/hooks/use-recipes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -56,7 +57,8 @@ const NAV_ITEMS = [
 export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { apiKey, setApiKey, loadApiKey, recipes } = useRecipeStore();
+  const { apiKey, setApiKey, loadApiKey } = useRecipeStore();
+  const { data: recipes = [] } = useRecipes();
   const { user, logout } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logWeightOpen, setLogWeightOpen] = useState(false);

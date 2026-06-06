@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
+import { useRecipes, type Recipe } from '@/hooks/use-recipes';
+import { toPublicRecipe } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
 import type { GroceryChecklistRecord, DayPlanEntryRecord } from '@/lib/types';
 
@@ -49,7 +50,7 @@ export default function GroceryListPage() {
     return isValid(d) ? d : new Date();
   }, [weekStart]);
 
-  const { recipes, fetchRecipes } = useRecipeStore();
+  const { data: recipes = [] } = useRecipes();
   const [entries, setEntries] = useState<DayPlanEntryRecord[]>([]);
   const [checklist, setChecklist] = useState<GroceryChecklistRecord | null>(null);
   const [highlightedRecipe, setHighlightedRecipe] = useState<string | null>(null);
@@ -59,9 +60,8 @@ export default function GroceryListPage() {
   const [unitOverrides, setUnitOverrides] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
-    fetchRecipes();
     setUnitSystemState(getUnitSystem());
-  }, [fetchRecipes]);
+  }, []);
 
   useEffect(() => {
     async function loadData() {

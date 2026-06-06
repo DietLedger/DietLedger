@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useAddRecipeToChapter } from '@/hooks/use-books';
-import { useRecipeStore } from '@/lib/recipe-store';
+import { useRecipes } from '@/hooks/use-recipes';
 import { getApiClient } from '@/lib/api-client';
 import type { RecipeRecord } from '@/lib/types';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
@@ -253,7 +253,7 @@ export default function BookDetailPage() {
 
   useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
 
-  const { recipes, fetchRecipes } = useRecipeStore();
+  const { data: recipes = [] } = useRecipes();
 
   const [chapterRecipes, setChapterRecipes] = useState<Map<string, ChapterRecipeInfo[]>>(new Map());
   const [addChapterOpen, setAddChapterOpen] = useState(false);
@@ -274,10 +274,6 @@ export default function BookDetailPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  useEffect(() => {
-    fetchRecipes();
-  }, [fetchRecipes]);
 
   useEffect(() => {
     if (!activeBook) return;
