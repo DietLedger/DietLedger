@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useMealPlanStore } from '@/lib/meal-plan-store';
 import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { getApiClient } from '@/lib/api-client';
 import type { GroceryChecklistRecord, DayPlanEntryRecord } from '@/lib/types';

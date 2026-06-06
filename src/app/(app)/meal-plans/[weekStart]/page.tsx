@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useMealPlanStore } from '@/lib/meal-plan-store';
+import { useWeekPlan, useEnsureMealPlan, useAddRecipeToSlot, useAddFoodToSlot, useRemoveEntry, useMoveEntry, useUpdateServings, useCreateMealGroup, useAddToGroup, useRemoveFromGroup, useDeleteMealGroupAndUngroup, useToggleLeftover, useUpdateSlotTimes, useReorderEntries } from '@/hooks/use-meal-plans';
 import { useRecipeStore, toPublicRecipe, type Recipe } from '@/lib/recipe-store';
 import { useAppSettingsStore } from '@/lib/app-settings-store';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
@@ -81,25 +81,22 @@ export default function WeeklyPlanPage() {
     return isValid(d) ? d : new Date();
   }, [weekStart]);
 
-  const {
-    activeMealPlan,
-    dayEntries,
-    mealGroups,
-    fetchWeekPlan,
-    ensureMealPlan,
-    addRecipeToSlot,
-    addFoodToSlot,
-    removeEntry,
-    moveEntry,
-    updateServings,
-    createMealGroup,
-    removeFromGroup,
-    deleteMealGroupAndUngroup,
-    reorderEntries,
-    toggleLeftover,
-    updateSlotTimes,
-    isLoading,
-  } = useMealPlanStore();
+  const { data: weekData, isLoading } = useWeekPlan(weekStart);
+  const activeMealPlan = weekData?.plan ?? null;
+  const dayEntries = weekData?.entries ?? [];
+  const mealGroups = weekData?.groups ?? [];
+  const ensureMealPlanMutation = useEnsureMealPlan();
+  const addRecipeToSlotMutation = useAddRecipeToSlot();
+  const addFoodToSlotMutation = useAddFoodToSlot();
+  const removeEntryMutation = useRemoveEntry();
+  const moveEntryMutation = useMoveEntry();
+  const updateServingsMutation = useUpdateServings();
+  const createMealGroupMutation = useCreateMealGroup();
+  const removeFromGroupMutation = useRemoveFromGroup();
+  const deleteMealGroupAndUngroupMutation = useDeleteMealGroupAndUngroup();
+  const reorderEntriesMutation = useReorderEntries();
+  const toggleLeftoverMutation = useToggleLeftover();
+  const updateSlotTimesMutation = useUpdateSlotTimes();
 
   const { recipes, fetchRecipes } = useRecipeStore();
   const { defaultMealSlotTimes, fetchSettings } = useAppSettingsStore();
@@ -157,12 +154,6 @@ export default function WeeklyPlanPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery, addDialogSlot, addTab]);
-
-  useEffect(() => {
-    if (weekStart) {
-      fetchWeekPlan(weekStart);
-    }
-  }, [weekStart, fetchWeekPlan]);
 
   useEffect(() => {
     setCompletedRecipeMap(getCompletedRecipes());
@@ -237,17 +228,17 @@ export default function WeeklyPlanPage() {
 
   const handleSlotTimeChange = useCallback((slot: DaySlot, time: string) => {
     const updated = { ...effectiveSlotTimes, [slot]: time };
-    updateSlotTimes(updated);
-  }, [effectiveSlotTimes, updateSlotTimes]);
+    updateSlotTimesMutation.mutate({ planId: activeMealPlan!.id, slotTimes: updated, weekStart });
+  }, [effectiveSlotTimes, updateSlotTimesMutation, weekStart, activeMealPlan]);
 
   const handleEnsurePlan = useCallback(async () => {
-    await ensureMealPlan(weekStart);
-  }, [ensureMealPlan, weekStart]);
+    await ensureMealPlanMutation.mutateAsync(weekStart);
+  }, [ensureMealPlanMutation, weekStart]);
 
   const handleAddRecipe = useCallback(async (recipeId: string) => {
     if (!addDialogSlot) return;
     if (!activeMealPlan) await handleEnsurePlan();
-    await addRecipeToSlot(addDialogSlot.date, addDialogSlot.slot, recipeId);
+    await addRecipeToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: addDialogSlot.date, slot: addDialogSlot.slot, recipeId, weekStart });
     setAddDialogSlot(null);
     setSearchQuery('');
     setAddTab('recipes');
@@ -257,7 +248,7 @@ export default function WeeklyPlanPage() {
     setManualProtein('');
     setManualFat('');
     setManualCarbs('');
-  }, [addDialogSlot, activeMealPlan, handleEnsurePlan, addRecipeToSlot]);
+  }, [addDialogSlot, activeMealPlan, handleEnsurePlan, addRecipeToSlotMutation, weekStart]);
 
   const handleAddFood = useCallback(async (food: {
     name: string;
@@ -280,7 +271,7 @@ export default function WeeklyPlanPage() {
   }) => {
     if (!addDialogSlot) return;
     if (!activeMealPlan) await handleEnsurePlan();
-    await addFoodToSlot(addDialogSlot.date, addDialogSlot.slot, food);
+    await addFoodToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: addDialogSlot.date, slot: addDialogSlot.slot, food, weekStart });
     setAddDialogSlot(null);
     setSearchQuery('');
     setAddTab('recipes');
@@ -290,7 +281,7 @@ export default function WeeklyPlanPage() {
     setManualProtein('');
     setManualFat('');
     setManualCarbs('');
-  }, [addDialogSlot, activeMealPlan, handleEnsurePlan, addFoodToSlot]);
+  }, [addDialogSlot, activeMealPlan, handleEnsurePlan, addFoodToSlotMutation, weekStart]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
@@ -312,17 +303,19 @@ export default function WeeklyPlanPage() {
         const newIdx = slotEntries.findIndex((e) => e.id === overId);
         if (oldIdx !== -1 && newIdx !== -1) {
           const reordered = arrayMove(slotEntries, oldIdx, newIdx);
-          reorderEntries(
-            activeEntry.slot,
-            activeEntry.date,
-            reordered.map((e) => e.id)
-          );
+          reorderEntriesMutation.mutate({
+            slot: activeEntry.slot,
+            date: activeEntry.date,
+            entryIds: reordered.map((e) => e.id),
+            planId: activeMealPlan!.id,
+            weekStart,
+          });
         }
       } else {
-        moveEntry(active.id as string, overEntry.slot, overEntry.position);
+        moveEntryMutation.mutate({ entryId: active.id as string, toSlot: overEntry.slot, toPosition: overEntry.position, weekStart });
       }
     }
-  }, [dayEntries, moveEntry, reorderEntries]);
+  }, [dayEntries, moveEntryMutation, reorderEntriesMutation, activeMealPlan, weekStart]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(event.active.id as string);
@@ -332,18 +325,18 @@ export default function WeeklyPlanPage() {
     if (!groupName.trim() || selectedForGroup.length < 2) return;
     const firstEntry = dayEntries.find((e) => e.id === selectedForGroup[0]);
     if (!firstEntry) return;
-    await createMealGroup(firstEntry.date, firstEntry.slot, `Meal - ${groupName}`, selectedForGroup);
+    await createMealGroupMutation.mutateAsync({ planId: activeMealPlan!.id, date: firstEntry.date, slot: firstEntry.slot, name: `Meal - ${groupName}`, entryIds: selectedForGroup, weekStart });
     setGroupDialogOpen(false);
     setGroupName('');
     setSelectedForGroup([]);
     setGroupingMode(false);
-  }, [groupName, selectedForGroup, dayEntries, createMealGroup]);
+  }, [groupName, selectedForGroup, dayEntries, createMealGroupMutation, activeMealPlan, weekStart]);
 
   const handleSynergyAddToSlot = useCallback(async (recipeId: string, slot: DaySlot) => {
     if (!editingDay) return;
-    if (!activeMealPlan) await ensureMealPlan(weekStart);
-    await addRecipeToSlot(editingDay, slot, recipeId);
-  }, [editingDay, activeMealPlan, ensureMealPlan, weekStart, addRecipeToSlot]);
+    if (!activeMealPlan) await ensureMealPlanMutation.mutateAsync(weekStart);
+    await addRecipeToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: editingDay, slot, recipeId, weekStart });
+  }, [editingDay, activeMealPlan, ensureMealPlanMutation, weekStart, addRecipeToSlotMutation]);
 
   const filteredRecipes = useMemo(() => {
     if (!searchQuery) return recipes;
@@ -709,7 +702,7 @@ export default function WeeklyPlanPage() {
                                     className="h-5 w-5 p-0 text-stone-400 hover:text-red-500"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      deleteMealGroupAndUngroup(group.id);
+                                      deleteMealGroupAndUngroupMutation.mutate({ groupId: group.id, planId: activeMealPlan!.id, weekStart });
                                       if (selectedGroupId === group.id) setSelectedGroupId(null);
                                     }}
                                   >
@@ -728,7 +721,7 @@ export default function WeeklyPlanPage() {
                                       entry={entry}
                                       recipeName={getEntryName(entry)}
                                       isDragOverlay={false}
-                                      onToggleLeftover={() => toggleLeftover(entry.id)}
+                                      onToggleLeftover={() => toggleLeftoverMutation.mutate({ entryId: entry.id, isLeftover: !entry.isLeftover, weekStart })}
                                       isCompleted={completedRecipeMap[entry.recipeId ?? ''] === entry.date}
                                     />
                                   );
@@ -759,9 +752,9 @@ export default function WeeklyPlanPage() {
                                 setSelectedGroupId(null);
                               }
                             }}
-                            onRemove={() => removeEntry(entry.id)}
-                            onRemoveFromGroup={() => removeFromGroup(entry.id)}
-                            onToggleLeftover={() => toggleLeftover(entry.id)}
+onRemove={() => removeEntryMutation.mutate({ entryId: entry.id, weekStart })}
+                    onRemoveFromGroup={() => removeFromGroupMutation.mutate({ entryId: entry.id, weekStart })}
+                            onToggleLeftover={() => toggleLeftoverMutation.mutate({ entryId: entry.id, isLeftover: !entry.isLeftover, weekStart })}
                             egl={getEntryGL(entry)}
                           />
                         ))}
@@ -807,7 +800,7 @@ export default function WeeklyPlanPage() {
                               size="sm"
                               className="h-6 w-6 p-0"
                               onClick={() =>
-                                updateServings(selectedEntry.id, Math.max(1, selectedEntry.servings - 1))
+                                updateServingsMutation.mutate({ entryId: selectedEntry.id, servings: Math.max(1, selectedEntry.servings - 1), weekStart })
                               }
                             >
                               <Minus className="w-3 h-3" />
@@ -820,7 +813,7 @@ export default function WeeklyPlanPage() {
                               size="sm"
                               className="h-6 w-6 p-0"
                               onClick={() =>
-                                updateServings(selectedEntry.id, selectedEntry.servings + 1)
+                                updateServingsMutation.mutate({ entryId: selectedEntry.id, servings: selectedEntry.servings + 1, weekStart })
                               }
                             >
                               <Plus className="w-3 h-3" />
@@ -853,7 +846,7 @@ export default function WeeklyPlanPage() {
                                   size="sm"
                                   className="h-5 w-5 p-0"
                                   onClick={() =>
-                                    updateServings(entry.id, Math.max(1, entry.servings - 1))
+                                    updateServingsMutation.mutate({ entryId: entry.id, servings: Math.max(1, entry.servings - 1), weekStart })
                                   }
                                 >
                                   <Minus className="w-2.5 h-2.5" />
@@ -865,7 +858,7 @@ export default function WeeklyPlanPage() {
                                   variant="outline"
                                   size="sm"
                                   className="h-5 w-5 p-0"
-                                  onClick={() => updateServings(entry.id, entry.servings + 1)}
+                                  onClick={() => updateServingsMutation.mutate({ entryId: entry.id, servings: entry.servings + 1, weekStart })}
                                 >
                                   <Plus className="w-2.5 h-2.5" />
                                 </Button>

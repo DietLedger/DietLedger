@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   startOfMonth,
@@ -14,11 +14,10 @@ import {
   addMonths,
   subMonths,
   getDay,
-  parseISO,
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, UtensilsCrossed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useMealPlanStore } from '@/lib/meal-plan-store';
+import { useMealPlans } from '@/hooks/use-meal-plans';
 
 function getMonday(date: Date): Date {
   const day = getDay(date);
@@ -32,11 +31,7 @@ function getMonday(date: Date): Date {
 export default function MealPlansPage() {
   const router = useRouter();
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const { mealPlans, fetchMealPlans, isLoading } = useMealPlanStore();
-
-  useEffect(() => {
-    fetchMealPlans();
-  }, [fetchMealPlans]);
+  const { data: mealPlans = [], isLoading } = useMealPlans();
 
   const plannedWeeks = useMemo(() => {
     const set = new Set<string>();

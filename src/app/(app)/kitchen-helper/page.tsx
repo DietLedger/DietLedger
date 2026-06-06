@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRecipeStore, type Recipe } from '@/lib/recipe-store';
-import { useMealPlanStore } from '@/lib/meal-plan-store';
+import { useMealPlans } from '@/hooks/use-meal-plans';
 import { getApiClient } from '@/lib/api-client';
 import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/types';
 import { format, startOfWeek, parseISO } from 'date-fns';
@@ -120,7 +120,7 @@ function KitchenHelperContent() {
   const searchParams = useSearchParams();
   const initialRecipeId = searchParams.get('recipeId');
   const { recipes, fetchRecipes } = useRecipeStore();
-  const { mealPlans, fetchMealPlans } = useMealPlanStore();
+  const { data: mealPlans = [] } = useMealPlans();
   const [mode, setMode] = useState<'recipe' | 'meal' | 'today'>('recipe');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
@@ -135,9 +135,8 @@ function KitchenHelperContent() {
 
   useEffect(() => {
     fetchRecipes();
-    fetchMealPlans();
     setCompletedRecipeMap(getCompletedRecipes());
-  }, [fetchRecipes, fetchMealPlans]);
+  }, [fetchRecipes]);
 
   useEffect(() => {
     if (initialRecipeId && recipes.length > 0) {
