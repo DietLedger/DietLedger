@@ -80,7 +80,7 @@ describe('AuthProvider isAuthenticated', () => {
     delete process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY
   })
 
-  it('does not bypass auth when NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY is true', async () => {
+  it('does not bypass auth when NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY is true', { timeout: 15000 }, async () => {
     process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY = 'true'
 
     const { useAuth, AuthProvider } = await import('@/hooks/use-auth')

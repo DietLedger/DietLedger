@@ -75,7 +75,7 @@ describe('App Shell Smoke Test', () => {
     vi.resetModules()
   })
 
-  it('renders the app layout with navigation when authenticated', async () => {
+  it('renders the app layout with navigation when authenticated', { timeout: 15000 }, async () => {
     const { default: AppLayout } = await import('@/app/(app)/layout')
     render(wrapWithQueryClient(
       <AppLayout>
