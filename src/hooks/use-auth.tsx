@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { getApiClient } from '@/lib/api-client';
 
 interface AuthUser {
@@ -28,6 +29,7 @@ const USER_KEY = 'dietledger_user';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     try {
@@ -40,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false);
 
     const handleUnauthorized = () => {
+      queryClient.clear();
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(REFRESH_KEY);
       localStorage.removeItem(USER_KEY);
@@ -47,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('dietledger:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('dietledger:unauthorized', handleUnauthorized);
-  }, []);
+  }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string) => {
     const client = getApiClient();
@@ -57,7 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(REFRESH_KEY, result.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(authUser));
     setUser(authUser);
-  }, []);
+    queryClient.clear();
+  }, [queryClient]);
 
   const register = useCallback(async (email: string, password: string, displayName: string) => {
     const client = getApiClient();
@@ -67,14 +71,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(REFRESH_KEY, result.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(authUser));
     setUser(authUser);
-  }, []);
+    queryClient.clear();
+  }, [queryClient]);
 
   const logout = useCallback(() => {
+    queryClient.clear();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   return (
     <AuthContext.Provider

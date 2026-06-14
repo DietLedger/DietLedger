@@ -84,6 +84,7 @@ describe('AuthProvider isAuthenticated', () => {
     process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY = 'true'
 
     const { useAuth, AuthProvider } = await import('@/hooks/use-auth')
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 
     let authValue: ReturnType<typeof useAuth> | null = null
 
@@ -95,8 +96,16 @@ describe('AuthProvider isAuthenticated', () => {
     const { render } = await import('@testing-library/react')
     const React = await import('react')
 
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
     render(
-      React.createElement(AuthProvider, null, React.createElement(TestConsumer))
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(AuthProvider, null, React.createElement(TestConsumer))
+      )
     )
 
     expect(authValue!.isAuthenticated).toBe(false)
