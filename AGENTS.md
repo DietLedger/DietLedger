@@ -1,169 +1,291 @@
-# AGENTS.md
+# DietLedger Agent Instructions
 
-This file provides guidance to AI coding agents (Claude Code, Cursor, Copilot, Antigravity, etc.) when working with code in this repository.
+This repository is maintained by a single developer using AI-assisted development.
 
-## Repository Overview
+Your responsibility is to improve the product while preserving architectural consistency, domain correctness, maintainability, and simplicity.
 
-A collection of skills for Claude.ai and Claude Code for senior software engineers. Skills are packaged instructions and scripts that extend Claude and your coding agents capabilities.
-
-## OpenCode Integration
-
-OpenCode uses a **skill-driven execution model** powered by the `skill` tool and this repository's `/skills` directory.
-
-### Core Rules
-
-- If a task matches a skill, you MUST invoke it
-- Skills are located in `skills/<skill-name>/SKILL.md`
-- Never implement directly if a skill applies
-- Always follow the skill instructions exactly (do not partially apply them)
-
-### Intent → Skill Mapping
-
-The agent should automatically map user intent to skills:
-
-- Feature / new functionality → `spec-driven-development`, then `incremental-implementation`, `test-driven-development`
-- Planning / breakdown → `planning-and-task-breakdown`
-- Bug / failure / unexpected behavior → `debugging-and-error-recovery`
-- Code review → `code-review-and-quality`
-- Refactoring / simplification → `code-simplification`
-- API or interface design → `api-and-interface-design`
-- UI work → `frontend-ui-engineering`
-
-### Lifecycle Mapping (Implicit Commands)
-
-OpenCode does not support slash commands like `/spec` or `/plan`.
-
-Instead, the agent must internally follow this lifecycle:
-
-- DEFINE → `spec-driven-development`
-- PLAN → `planning-and-task-breakdown`
-- BUILD → `incremental-implementation` + `test-driven-development`
-- VERIFY → `debugging-and-error-recovery`
-- REVIEW → `code-review-and-quality`
-- SHIP → `shipping-and-launch`
-
-### Execution Model
-
-For every request:
-
-1. Determine if any skill applies (even 1% chance)
-2. Invoke the appropriate skill using the `skill` tool
-3. Follow the skill workflow strictly
-4. Only proceed to implementation after required steps (spec, plan, etc.) are complete
-
-### Anti-Rationalization
-
-The following thoughts are incorrect and must be ignored:
-
-- "This is too small for a skill"
-- "I can just quickly implement this"
-- "I’ll gather context first"
-
-Correct behavior:
-
-- Always check for and use skills first
-
-This ensures OpenCode behaves similarly to Claude Code with full workflow enforcement.
-
-## Creating a New Skill
-
-### Directory Structure
-
-```
-skills/
-  {skill-name}/           # kebab-case directory name
-    SKILL.md              # Required: skill definition
-    scripts/              # Required: executable scripts
-      {script-name}.sh    # Bash scripts (preferred)
-  {skill-name}.zip        # Required: packaged for distribution
-```
-
-### Naming Conventions
-
-- **Skill directory**: `kebab-case` (e.g. `web-quality`)
-- **SKILL.md**: Always uppercase, always this exact filename
-- **Scripts**: `kebab-case.sh` (e.g., `deploy.sh`, `fetch-logs.sh`)
-- **Zip file**: Must match directory name exactly: `{skill-name}.zip`
-
-### SKILL.md Format
-
-```markdown
----
-name: {skill-name}
-description: {One sentence describing when to use this skill. Include trigger phrases like "Deploy my app", "Check logs", etc.}
 ---
 
-# {Skill Title}
+# Required Reading
 
-{Brief description of what the skill does.}
+Always read:
 
-## How It Works
+1. AGENTS.md
 
-{Numbered list explaining the skill's workflow}
+Read additional documents only when relevant.
 
-## Usage
+## PROJECT.md
 
-```bash
-bash skills/{skill-name}/scripts/{script}.sh [args]
-```
+Read when working on:
 
-**Arguments:**
-- `arg1` - Description (defaults to X)
+* product features
+* roadmap decisions
+* prioritization
+* workflow design
+* user experience decisions
 
-**Examples:**
-{Show 2-3 common usage patterns}
+## ARCHITECTURE.md
 
-## Output
+Read when working on:
 
-{Show example output users will see}
+* system design
+* ownership boundaries
+* persistence
+* API design
+* frontend/backend responsibilities
+* infrastructure decisions
 
-## Present Results to User
+## NUTRITION_DOMAIN.md
 
-{Template for how Claude should format results when presenting to users}
+Read when working on:
 
-## Troubleshooting
+* nutrition calculations
+* food logging
+* recipes
+* serving calculations
+* nutrient analysis
+* dietary compliance
+* health metrics
 
-{Common issues and solutions, especially network/permissions errors}
-```
+## DECISIONS.md
 
-### Best Practices for Context Efficiency
+Read when:
 
-Skills are loaded on-demand — only the skill name and description are loaded at startup. The full `SKILL.md` loads into context only when the agent decides the skill is relevant. To minimize context usage:
+* introducing new technology
+* changing architecture
+* revisiting prior decisions
+* proposing major refactors
+* revisiting historical architectural decisions and rationale
 
-- **Keep SKILL.md under 500 lines** — put detailed reference material in separate files
-- **Write specific descriptions** — helps the agent know exactly when to activate the skill
-- **Use progressive disclosure** — reference supporting files that get read only when needed
-- **Prefer scripts over inline code** — script execution doesn't consume context (only output does)
-- **File references work one level deep** — link directly from SKILL.md to supporting files
+## TESTING_STRATEGY.md
 
-### Script Requirements
+Read when:
+* interacting with testing requirements, priorities, and standards
+* making tests 
+* updating tests
+* removing tests
+* planning tests
+* making testing changes
 
-- Use `#!/bin/bash` shebang
-- Use `set -e` for fail-fast behavior
-- Write status messages to stderr: `echo "Message" >&2`
-- Write machine-readable output (JSON) to stdout
-- Include a cleanup trap for temp files
-- Reference the script path as `skills/{skill-name}/scripts/{script}.sh`
+Load only the documents necessary for the current task.
 
-### Creating the Zip Package
+---
 
-After creating or updating a skill:
+# Repository Discovery
 
-```bash
-cd skills
-zip -r {skill-name}.zip {skill-name}/
-```
+Before proposing architecture changes or implementing significant features:
 
-### End-User Installation
+1. Use CodeGraph.
+2. Locate relevant symbols.
+3. Trace callers and callees.
+4. Inspect existing implementations.
+5. Search for existing patterns.
+6. Search for tests.
+7. Search for documentation.
 
-Document these two installation methods for users:
+Do not assume a system does not exist until it has been verified.
 
-**Claude Code:**
-```bash
-cp -r skills/{skill-name} ~/.claude/skills/
-```
+Understand the current implementation before proposing a replacement.
 
-**claude.ai:**
-Add the skill to project knowledge or paste SKILL.md contents into the conversation.
+---
 
-If the skill requires network access, instruct users to add required domains at `claude.ai/settings/capabilities`.
+# Development Workflow
+
+When implementing a change:
+
+1. Understand the problem.
+2. Understand the existing implementation.
+3. Identify ownership boundaries.
+4. Reuse existing systems where possible.
+5. Minimize complexity.
+6. Update documentation when required.
+
+Prefer modifying an existing system over creating a new one.
+
+---
+
+# Design Principles
+
+## Simplicity Wins
+
+Prefer:
+
+* simpler systems
+* fewer abstractions
+* fewer dependencies
+* fewer moving parts
+
+Avoid complexity unless it provides clear user value.
+
+---
+
+## Deletion Is A Feature
+
+Before adding anything ask:
+
+1. Can existing code solve this?
+2. Can code be removed?
+3. Can complexity be reduced?
+
+Prefer deletion over addition whenever practical.
+
+---
+
+## Optimize For One Developer
+
+The system is intentionally optimized for:
+
+* solo development
+* AI-assisted development
+* maintainability
+* understandability
+
+Do not optimize for hypothetical future teams.
+
+---
+
+## Prefer Existing Patterns
+
+Use existing repository patterns whenever reasonable.
+
+Avoid introducing new architectural styles, frameworks, abstractions, or infrastructure without strong justification.
+
+---
+
+# Architecture Rules
+
+Detailed architecture documentation lives in ARCHITECTURE.md.
+
+Important rules:
+
+* PostgreSQL is authoritative.
+* The Go API owns business logic.
+* React Query owns server state.
+* Zustand owns UI interaction state.
+* The browser is not authoritative.
+
+Consult ARCHITECTURE.md before making architectural decisions.
+
+---
+
+# Nutrition Domain Rules
+
+Nutrition calculations are high-risk functionality.
+
+Changes affecting:
+
+* nutrient calculations
+* serving calculations
+* BMI
+* BMR
+* TDEE
+* dietary compliance
+* health metrics
+
+require careful validation.
+
+Consult NUTRITION_DOMAIN.md before making domain changes.
+
+Incorrect nutrition calculations are product defects.
+
+---
+
+# Refactoring Rules
+
+Prefer:
+
+* fewer files
+* clearer ownership
+* explicit behavior
+* simpler implementations
+
+Avoid:
+
+* speculative abstractions
+* enterprise patterns
+* unnecessary indirection
+* future-proofing without evidence
+
+A simpler system is usually a better system.
+
+---
+
+# Documentation Requirements
+
+Documentation is part of implementation.
+
+## Architecture Changes
+
+Update:
+
+* ARCHITECTURE.md
+* DECISIONS.md
+
+## Domain Changes
+
+Update:
+
+* NUTRITION_DOMAIN.md
+
+## Product Changes
+
+Update:
+
+* PROJECT.md
+
+## API Changes
+
+Update:
+
+* API documentation
+* API contracts
+
+---
+
+# Change Checklist
+
+Before implementing a significant change:
+
+## Product
+
+* What user problem is being solved?
+* Which workflow improves?
+
+## Architecture
+
+* Who owns the data?
+* Where does the business logic belong?
+* Does this introduce unnecessary complexity?
+
+## Existing Systems
+
+* Can existing code solve this?
+* Is a new abstraction actually necessary?
+
+## Maintenance
+
+* Will future contributors understand this?
+* Does this make the system easier or harder to maintain?
+
+If the answers are unclear, reconsider the approach.
+
+---
+
+# Success Criteria
+
+Successful changes:
+
+* improve user value
+* preserve correctness
+* reduce complexity
+* improve maintainability
+* respect ownership boundaries
+
+Unsuccessful changes:
+
+* increase complexity without clear value
+* duplicate existing functionality
+* introduce unnecessary infrastructure
+* solve hypothetical future problems
+
+Favor simplicity, correctness, and maintainability.
