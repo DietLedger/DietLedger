@@ -54,7 +54,7 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
       setFormBPDiastolic('');
       setFormMeasurementContext('');
     }
-  }, [open, fetchProfiles]);
+  }, [open]);
 
   useEffect(() => {
     if (open && profiles.length > 0 && !selectedProfileId) {
