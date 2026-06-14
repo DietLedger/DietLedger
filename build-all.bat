@@ -16,7 +16,28 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/4] Syncing version...
+echo [1/5] Running tests...
+echo       Frontend...
+call npm run test
+if %errorlevel% neq 0 (
+    echo ERROR: Frontend tests failed
+    pause
+    exit /b 1
+)
+echo       Backend...
+pushd "%BASE_DIR%sync-server"
+go test ./...
+if %errorlevel% neq 0 (
+    echo ERROR: Backend tests failed
+    popd
+    pause
+    exit /b 1
+)
+popd
+echo      All tests passed
+echo.
+
+echo [2/5] Syncing version...
 call node "%BASE_DIR%scripts\version-sync.js" bump
 if %errorlevel% neq 0 (
     echo ERROR: version sync failed
@@ -27,7 +48,7 @@ for /f "delims=" %%v in ('node -e "console.log(require('./package.json').version
 echo      Version: %VERSION%
 echo.
 
-echo [2/4] Building images (parallel via buildx bake)...
+echo [3/5] Building images (parallel via buildx bake)...
 set DOCKER_BUILDKIT=1
 set "APP_VERSION=%VERSION%"
 
@@ -42,7 +63,7 @@ echo.
 
 if not exist "%OUTPUT%" mkdir "%OUTPUT%"
 
-echo [3/4] Saving images to tar...
+echo [4/5] Saving images to tar...
 set "TAR_FILE=%OUTPUT%\dietledger-%VERSION%.tar"
 docker save -o "%TAR_FILE%" recipetool-dietledger recipetool-api
 if %errorlevel% neq 0 (
@@ -53,31 +74,41 @@ if %errorlevel% neq 0 (
 for %%f in ("%TAR_FILE%") do echo      Saved: %%~nxf (%%~zf bytes)
 echo.
 
-echo [4/4] Copying deployment files...
+echo [5/5] Copying deployment files...
 copy /Y "%BASE_DIR%docker-compose.yml" "%OUTPUT%\docker-compose.yml" >nul
 
 (
 echo # DietLedger %VERSION% - Deployment Configuration
 echo # Copy this to .env and fill in values for your host
 echo.
-echo # PostgreSQL
+echo # ── PostgreSQL ───────────────────────────────────────────────────
 echo POSTGRES_DB=dietledger
 echo POSTGRES_USER=dietledger
-echo POSTGRES_PASSWORD=CHANGE_ME
+echo POSTGRES_PASSWORD=CHANGE_ME_TO_A_STRONG_PASSWORD
 echo.
-echo # Ports
+echo # ── Ports ────────────────────────────────────────────────────────
 echo PORT=3000
 echo API_PORT=8080
 echo.
-echo # API server
+echo # ── Go API Server ────────────────────────────────────────────────
+echo # JWT signing secret — set to a long random string in production
+echo # If unset, a random secret is generated each restart ^(tokens won't survive^)
+echo HMAC_SECRET=CHANGE_ME_TO_A_LONG_RANDOM_STRING
+echo.
+echo # CORS allowed origins ^(comma-separated^)
 echo CORS_ORIGIN=http://localhost:3000
+echo.
+echo # FDA FoodData Central API key ^(DEMO_KEY = 30 req/hr^)
 echo FDA_API_KEY=DEMO_KEY
 echo.
-echo # Mode: leave commented for server mode, or set true for local-only
-echo # NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false
+echo # Max request body size in MB ^(default: 10^)
+echo # MAX_BODY_MB=10
 echo.
-echo # JWT signing secret
-echo # HMAC_SECRET=change-me-to-a-long-random-string
+echo # RSA private key PEM file path for JWT signing ^(optional, HMAC used if unset^)
+echo # JWT_SIGNING_KEY_PATH=/path/to/private.pem
+echo.
+echo # Public API URL for browser ^(optional — frontend proxies /api/* by default^)
+echo # NEXT_PUBLIC_API_URL=http://your-host:8080
 ) > "%OUTPUT%\.env.example"
 
 if not exist "%OUTPUT%\.env" (
