@@ -27,8 +27,11 @@ Browser -> Next.js frontend -> Go API server -> PostgreSQL
 | `CORS_ORIGIN` | No | `*` | Comma-separated allowed CORS origins |
 | `HMAC_SECRET` | **Yes** | (generated) | Secret for JWT signing. Generated randomly if unset; tokens will not survive restarts. |
 | `JWT_SIGNING_KEY_PATH` | No | - | Path to RSA PEM private key for RS256 signing |
-| `FDA_API_KEY` | No | `DEMO_KEY` | FDA FoodData Central API key |
 | `MAX_BODY_MB` | No | `10` | Maximum request body size in megabytes |
+
+> **USDA FoodData Central API key:** configured per-user in the app Settings
+> (stored encrypted in the database). There is no server-level environment
+> variable for it.
 
 ---
 
@@ -140,7 +143,6 @@ Environment=PORT=8080
 Environment=DATABASE_URL=postgres://dietledger:password@localhost:5432/dietledger?sslmode=disable
 Environment=CORS_ORIGIN=https://dietledger.example.com
 Environment=HMAC_SECRET=your-long-random-secret
-Environment=FDA_API_KEY=DEMO_KEY
 Restart=always
 RestartSec=5
 

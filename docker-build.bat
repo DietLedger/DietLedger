@@ -69,7 +69,6 @@ echo API_PORT=8080
 echo.
 echo # API server
 echo CORS_ORIGIN=http://localhost:3000
-echo FDA_API_KEY=DEMO_KEY
 echo.
 echo # Mode: leave commented for server mode, or set true for local-only
 echo # NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false

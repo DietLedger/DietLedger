@@ -67,7 +67,6 @@ API_PORT=8080
 
 # API server
 CORS_ORIGIN=http://localhost:3000
-FDA_API_KEY=DEMO_KEY
 
 # Mode: leave commented for server mode, or set true for local-only
 # NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false

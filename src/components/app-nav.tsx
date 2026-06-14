@@ -175,7 +175,9 @@ export default function AppNav() {
               <Tabs defaultValue="general" className="mt-2 flex flex-col min-h-0 flex-1 overflow-hidden">
                 <TabsList className="w-full justify-start shrink-0 flex-wrap h-auto">
                   <TabsTrigger value="general" className="text-xs gap-1"><Settings className="w-3 h-3" />General</TabsTrigger>
-                  <TabsTrigger value="food-database" className="text-xs gap-1"><Database className="w-3 h-3" />Food Database</TabsTrigger>
+                  {user?.isAdmin && (
+                    <TabsTrigger value="food-database" className="text-xs gap-1"><Database className="w-3 h-3" />Food Database</TabsTrigger>
+                  )}
                   <TabsTrigger value="categories" className="text-xs gap-1"><FolderOpen className="w-3 h-3" />Categories</TabsTrigger>
                   <TabsTrigger value="staples" className="text-xs gap-1"><Package className="w-3 h-3" />Staples</TabsTrigger>
                   <TabsTrigger value="custom-foods" className="text-xs gap-1"><Package className="w-3 h-3" />Custom Foods</TabsTrigger>

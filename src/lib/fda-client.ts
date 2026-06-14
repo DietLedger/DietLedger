@@ -64,14 +64,23 @@ function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
 
 export async function searchFDAFoods(query: string): Promise<FDASearchResponse> {
   try {
+    const headers: Record<string, string> = {};
+    const token = typeof window !== 'undefined' ? localStorage.getItem('dietledger_access_token') : null;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(
-      `/api/foods/search?query=${encodeURIComponent(query)}`
+      `/api/foods/search?query=${encodeURIComponent(query)}`,
+      { headers }
     );
     if (response.ok) {
       const data = await response.json();
       if (data.foods && data.foods.length > 0) {
         const foods = data.foods.map(mapFoodItemToFDASearchResult);
         return { foods, source: data.source || 'local' };
+      }
+      // Server returned no matches — if it didn't go to the live API, fall
+      // through to the built-in fallback list below.
+      if (data.source === 'fda') {
+        return { foods: [], source: 'fda' };
       }
     }
   } catch {

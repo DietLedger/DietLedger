@@ -957,7 +957,7 @@ function RecipePage() {
                           <TabsContent value="fda" className="flex-1 flex flex-col min-h-0 gap-3 mt-4 overflow-hidden">
                             {searchSource === 'fallback' && (
                               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex-shrink-0">
-                                <strong>Note:</strong> Network API is currently rate-limited. Showing results from built-in food database.
+                                <strong>No matches</strong> in the local database or via USDA. Showing built-in sample foods. Add a USDA API key in Settings for live lookups.
                               </div>
                             )}
                             {searchSource === 'local' && (

@@ -83,7 +83,7 @@ export interface AuthResult {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
-  user: { id: string; email: string; displayName: string };
+  user: { id: string; email: string; displayName: string; isAdmin?: boolean };
 }
 
 export interface ApiClient {

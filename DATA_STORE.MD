@@ -1187,7 +1187,6 @@ Two implementations:
 | `DB_PATH` | `./sync.db` | SQLite file path for Go server |
 | `NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY` | `false` | Frontend: use local IndexedDB/Prisma vs. Go API |
 | `HMAC_SECRET` | random UUID | JWT signing key |
-| `FDA_API_KEY` | `DEMO_KEY` | USDA FoodData Central API key |
 | `CORS_ORIGIN` | `*` | Allowed CORS origins |
 | `MAX_BODY_MB` | `10` | Max request body size |
 

@@ -56,7 +56,6 @@ PostgreSQL may be a managed database service, host-level PostgreSQL, or the opti
 | `CORS_ORIGIN` | No | `*` | Allowed CORS origins (comma-separated) |
 | `HMAC_SECRET` | **Yes** | (generated) | JWT signing secret. If unset, a random secret is generated on each restart and tokens will not survive restarts. |
 | `JWT_SIGNING_KEY_PATH` | No | - | Path to RSA PEM key for RS256 JWT signing. If unset, HS256 with HMAC_SECRET is used. |
-| `FDA_API_KEY` | No | `DEMO_KEY` | FDA FoodData Central API key |
 | `MAX_BODY_MB` | No | `10` | Maximum request body size in megabytes |
 
 ### Frontend Server
@@ -66,7 +65,10 @@ PostgreSQL may be a managed database service, host-level PostgreSQL, or the opti
 | `PORT` | No | `3000` | Frontend listen port |
 | `API_URL` | No | - | Internal API URL for server-side requests (e.g., `http://dietledger-api:8080`) |
 | `NEXT_PUBLIC_API_URL` | No | - | Public API URL for browser requests. If unset, the frontend proxies `/api/*` to the Go API. |
-| `FDA_API_KEY` | No | `DEMO_KEY` | FDA API key for server-side food search |
+
+> **USDA FoodData Central API key:** configured per-user in the app Settings
+> (stored encrypted in the database). There is no server-level environment
+> variable for it.
 
 ---
 

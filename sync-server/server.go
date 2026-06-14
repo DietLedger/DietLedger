@@ -45,9 +45,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/profiles/", s.requireAuth(s.profileRoutes))
 	mux.HandleFunc("/api/profiles", s.requireAuth(s.profilesRouter))
 
-	mux.HandleFunc("/api/foods/search", s.foodSearchHandler)
-	mux.HandleFunc("/api/foods/", s.foodRoutes)
-	mux.HandleFunc("/api/foods", s.foodSearchHandler)
+	mux.HandleFunc("/api/foods/search", s.requireAuth(s.foodSearchHandler))
+	mux.HandleFunc("/api/foods/", s.requireAuth(s.foodRoutes))
+	mux.HandleFunc("/api/foods", s.requireAuth(s.foodSearchHandler))
 
 	mux.HandleFunc("/api/meal-plans/", s.requireAuth(s.mealPlanRoutes))
 	mux.HandleFunc("/api/meal-plans", s.requireAuth(s.mealPlansRouter))
@@ -145,6 +145,23 @@ func (s *Server) profileRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) foodRoutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/foods/")
+	// Dataset imports and cache management are administrator-only. The food
+	// data itself is shared and read-only for everyone else.
+	if strings.HasPrefix(path, "seed") || strings.HasPrefix(path, "cache") {
+		s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.foodAdminRoutes(w, r, path)
+		})).ServeHTTP(w, r)
+		return
+	}
+	if path == "stats" || path == "stats/" {
+		s.foodStatsHandler(w, r)
+		return
+	}
+	s.foodItemHandler(w, r, path)
+}
+
+// foodAdminRoutes dispatches the administrator-only food management paths.
+func (s *Server) foodAdminRoutes(w http.ResponseWriter, r *http.Request, path string) {
 	if path == "seed" || path == "seed/" {
 		s.foodSeedRouter(w, r)
 		return
@@ -159,15 +176,11 @@ func (s *Server) foodRoutes(w http.ResponseWriter, r *http.Request) {
 		s.foodSeedItemRouter(w, r, jobID)
 		return
 	}
-	if path == "stats" || path == "stats/" {
-		s.foodStatsHandler(w, r)
-		return
-	}
 	if path == "cache" || path == "cache/" {
 		s.foodCacheHandler(w, r)
 		return
 	}
-	s.foodItemHandler(w, r, path)
+	writeError(w, http.StatusNotFound, "not found")
 }
 
 func (s *Server) entryRoutes(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +343,21 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 		}
 
 		writeError(w, http.StatusUnauthorized, "invalid Authorization format, use: Bearer <token>")
+	}
+}
+
+// requireAdmin wraps a handler that already passed requireAuth, rejecting
+// non-administrators. It must be used inside requireAuth (which sets the user
+// in context), e.g. s.requireAuth(s.requireAdmin(handler)).
+func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		user := getUserFromContext(r)
+		if user == nil || !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required")
+			return
+		}
+		h.ServeHTTP(w, r)
 	}
 }
 

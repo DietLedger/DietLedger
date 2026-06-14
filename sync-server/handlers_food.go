@@ -25,6 +25,19 @@ func (s *Server) foodSearchHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to search foods")
 		return
 	}
+	source := "local"
+
+	// Local miss: try the live USDA API using the user's FDA key, then cache
+	// the results so subsequent searches are served locally.
+	if total == 0 && q != "" && page == 1 {
+		liveFoods, src := s.tryUSDAFallback(r, q)
+		if len(liveFoods) > 0 {
+			foods = liveFoods
+			total = len(liveFoods)
+			source = src
+		}
+	}
+
 	if foods == nil {
 		foods = []FoodItem{}
 	}
@@ -32,7 +45,47 @@ func (s *Server) foodSearchHandler(w http.ResponseWriter, r *http.Request) {
 	if total%perPage > 0 {
 		totalPages++
 	}
-	writeJSON(w, http.StatusOK, FoodSearchResult{Foods: foods, Total: total, Page: page, PerPage: perPage, TotalPages: totalPages})
+	writeJSON(w, http.StatusOK, FoodSearchResult{Foods: foods, Total: total, Page: page, PerPage: perPage, TotalPages: totalPages, Source: source})
+}
+
+// tryUSDAFallback resolves the requesting user's FDA API key, queries the live
+// USDA FoodData Central API, and caches the results into the shared food table.
+// It returns the foods and the source label ("fda"). On any failure it returns
+// a nil slice (caller keeps local results).
+func (s *Server) tryUSDAFallback(r *http.Request, query string) ([]FoodItem, string) {
+	user := getUserFromContext(r)
+	if user == nil {
+		return nil, ""
+	}
+	enc, err := s.store.GetSecret(user.ID, "fda-api-key")
+	if err != nil || len(enc) == 0 {
+		return nil, ""
+	}
+	decrypted, err := decryptSecret(enc, s.auth.SecretKey())
+	if err != nil {
+		log.Printf("Error decrypting FDA key: %v", err)
+		return nil, ""
+	}
+	apiKey := string(decrypted)
+	if apiKey == "" || apiKey == "DEMO_KEY" {
+		return nil, ""
+	}
+
+	liveFoods, err := searchUSDALive(query, apiKey, 50)
+	if err != nil {
+		log.Printf("USDA live search failed for %q: %v", query, err)
+		return nil, ""
+	}
+	if len(liveFoods) == 0 {
+		return nil, ""
+	}
+
+	// Cache into the shared local DB so future searches are local. Errors are
+	// non-fatal — we still return the live results to the caller.
+	if _, err := s.store.CreateFoodItems(liveFoods); err != nil {
+		log.Printf("Warning: failed to cache USDA results: %v", err)
+	}
+	return liveFoods, "fda"
 }
 
 func (s *Server) foodItemHandler(w http.ResponseWriter, r *http.Request, path string) {

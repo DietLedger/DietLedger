@@ -98,9 +98,6 @@ echo.
 echo # CORS allowed origins ^(comma-separated^)
 echo CORS_ORIGIN=http://localhost:3000
 echo.
-echo # FDA FoodData Central API key ^(DEMO_KEY = 30 req/hr^)
-echo FDA_API_KEY=DEMO_KEY
-echo.
 echo # Max request body size in MB ^(default: 10^)
 echo # MAX_BODY_MB=10
 echo.

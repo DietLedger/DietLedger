@@ -9,7 +9,6 @@
  * Environment variables:
  *   PORT         - Server port (default: 3000)
  *   HOSTNAME     - Server bind address (default: 127.0.0.1)
- *   FDA_API_KEY  - FDA FoodData Central API key
  */
 
 const path = require("path");
@@ -38,13 +37,6 @@ const APP_VERSION = (() => {
 console.log(`[DietLedger] Version: ${APP_VERSION}`);
 console.log(`[DietLedger] Node: ${process.version}`);
 console.log(`[DietLedger] Environment: ${process.env.DOCKER ? "docker" : "native"}`);
-
-if (!process.env.FDA_API_KEY) {
-  process.env.FDA_API_KEY = "DEMO_KEY";
-  console.warn(
-    "[DietLedger] FDA_API_KEY not set — using DEMO_KEY (rate-limited to 30 req/hour)"
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Resolve the server root directory

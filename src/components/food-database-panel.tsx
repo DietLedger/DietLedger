@@ -22,6 +22,14 @@ import {
   FileArchive,
 } from 'lucide-react';
 import { fmt } from '@/lib/format';
+import { useAuth } from '@/hooks/use-auth';
+
+// Attach the Bearer token to requests hitting auth-required food endpoints.
+function authHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('dietledger_access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 interface DatasetStatus {
   key: string;
@@ -100,7 +108,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/foods/seed/${jobId}`);
+        const res = await fetch(`/api/foods/seed/${jobId}`, { headers: authHeaders() });
         if (res.ok) {
           const json = await res.json();
           const data: JobStatus = json.data ?? json;
@@ -125,7 +133,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
   const handleCancel = useCallback(async () => {
     if (!jobId) return;
     try {
-      await fetch(`/api/foods/seed/${jobId}`, { method: 'DELETE' });
+      await fetch(`/api/foods/seed/${jobId}`, { method: 'DELETE', headers: authHeaders() });
       setJob(null);
       onJobDone();
     } catch {
@@ -196,6 +204,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
 });
 
 export default function FoodDatabasePanel() {
+  const { user } = useAuth();
   const [datasets, setDatasets] = useState<DatasetStatus[]>([]);
   const [stats, setStats] = useState<DBStats | null>(null);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
@@ -212,8 +221,8 @@ export default function FoodDatabasePanel() {
   const fetchData = useCallback(async () => {
     try {
       const [seedRes, statsRes] = await Promise.all([
-        fetch('/api/foods/seed'),
-        fetch('/api/foods/stats'),
+        fetch('/api/foods/seed', { headers: authHeaders() }),
+        fetch('/api/foods/stats', { headers: authHeaders() }),
       ]);
       if (seedRes.ok) {
         const seedJson = await seedRes.json();
@@ -244,7 +253,7 @@ export default function FoodDatabasePanel() {
     try {
       const res = await fetch('/api/foods/seed', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ dataset: datasetKey }),
       });
       if (res.ok) {
@@ -263,7 +272,7 @@ export default function FoodDatabasePanel() {
       const formData = new FormData();
       formData.append('file', uploadFile);
       formData.append('dataType', uploadDataType);
-      const res = await fetch('/api/foods/seed/upload', { method: 'POST', body: formData });
+      const res = await fetch('/api/foods/seed/upload', { method: 'POST', body: formData, headers: authHeaders() });
       if (res.ok) {
         const json = await res.json();
         setActiveJobId((json.data ?? json).jobId);
@@ -280,7 +289,7 @@ export default function FoodDatabasePanel() {
     if (!testQuery.trim()) return;
     setTestSearching(true);
     try {
-      const res = await fetch(`/api/foods/search?query=${encodeURIComponent(testQuery)}&limit=10`);
+      const res = await fetch(`/api/foods/search?query=${encodeURIComponent(testQuery)}&limit=10`, { headers: authHeaders() });
       if (res.ok) {
         const json = await res.json();
         const data = json.data ?? json;
@@ -314,6 +323,19 @@ export default function FoodDatabasePanel() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+      </div>
+    );
+  }
+
+  if (!user?.isAdmin) {
+    return (
+      <div className="text-center py-10 px-4">
+        <Database className="w-8 h-8 mx-auto mb-3 text-stone-300" />
+        <p className="text-sm font-medium text-stone-600">Administrator access required</p>
+        <p className="text-xs text-stone-400 mt-1">
+          USDA dataset imports are managed by the administrator. The shared food
+          database is available to everyone for searching.
+        </p>
       </div>
     );
   }
@@ -523,7 +545,7 @@ export default function FoodDatabasePanel() {
                         size="sm"
                         className="h-7 text-xs"
                         onClick={async () => {
-                          await fetch('/api/foods/cache', { method: 'DELETE' });
+                          await fetch('/api/foods/cache', { method: 'DELETE', headers: authHeaders() });
                           setClearConfirm(false);
                           fetchData();
                         }}

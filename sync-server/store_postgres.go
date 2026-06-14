@@ -62,26 +62,35 @@ func (s *PostgresStore) CreateUser(email, password, displayName string) (*User, 
 	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
+	// The first registered user becomes the administrator.
+	isAdmin := false
+	var userCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+	if userCount == 0 {
+		isAdmin = true
+	}
 	_, err = s.db.Exec(
-		`INSERT INTO users (id, email, display_name, password_hash, api_key, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
-		id, email, displayName, string(hash), apiKey, now,
+		`INSERT INTO users (id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
+		id, email, displayName, string(hash), apiKey, isAdmin, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
-	return &User{ID: id, Email: email, DisplayName: displayName, PasswordHash: string(hash), APIKey: apiKey, CreatedAt: now, UpdatedAt: now}, nil
+	return &User{ID: id, Email: email, DisplayName: displayName, PasswordHash: string(hash), APIKey: apiKey, IsAdmin: isAdmin, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) GetUserByAPIKey(apiKey string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE api_key = $1`, apiKey)
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE api_key = $1`, apiKey)
 }
 
 func (s *PostgresStore) GetUserByID(id string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE id = $1`, id)
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE id = $1`, id)
 }
 
 func (s *PostgresStore) GetUserByEmail(email string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, created_at, updated_at FROM users WHERE email = $1`, email)
+	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE email = $1`, email)
 }
 
 func (s *PostgresStore) UpdateUserLastLogin(id string) error {
@@ -91,7 +100,7 @@ func (s *PostgresStore) UpdateUserLastLogin(id string) error {
 
 func (s *PostgresStore) scanUser(query string, args ...interface{}) (*User, error) {
 	u := &User{}
-	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.APIKey, &u.CreatedAt, &u.UpdatedAt)
+	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.APIKey, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

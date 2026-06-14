@@ -11,6 +11,7 @@ type User struct {
 	DisplayName  string    `json:"displayName"`
 	PasswordHash string    `json:"-"`
 	APIKey       string    `json:"-"`
+	IsAdmin      bool      `json:"isAdmin"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -618,6 +619,7 @@ type FoodSearchResult struct {
 	Page       int        `json:"page"`
 	PerPage    int        `json:"perPage"`
 	TotalPages int        `json:"totalPages"`
+	Source     string     `json:"source"`
 }
 
 
