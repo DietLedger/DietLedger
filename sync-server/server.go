@@ -70,7 +70,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/keys", s.requireAuth(s.apiKeysRouter))
 
 	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
-	mux.HandleFunc("/api/share/", s.requireAuth(s.shareItemRouter))
+	mux.HandleFunc("/api/share/", s.shareItemRouter)
 	mux.HandleFunc("/api/community", s.communitySearch)
 	mux.HandleFunc("/api/community/categories", s.communityCategories)
 

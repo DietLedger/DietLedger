@@ -20,6 +20,7 @@ import type {
   TemplateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
+  SharedRecipeRecord,
 } from './types';
 
 export type {
@@ -44,6 +45,7 @@ export type {
   TemplateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
+  SharedRecipeRecord,
 } from './types';
 
 export interface FDAFood {
@@ -257,6 +259,18 @@ export interface ApiClient {
   deleteCustomFood(id: string): Promise<void>;
   shareCustomFood(id: string): Promise<void>;
   getCommunityFoods(page?: number, perPage?: number): Promise<PaginatedResult<CustomFoodRecord>>;
+
+  // Sharing
+  createShare(data: {
+    recipeId: string;
+    title: string;
+    description?: string;
+    category?: string;
+    tags?: string;
+    recipeData: string;
+    isPublic: boolean;
+  }): Promise<SharedRecipeRecord>;
+  updateSharePublic(id: string, isPublic: boolean): Promise<void>;
 
   // Food Search
   searchFoods(query: string, page?: number, perPage?: number): Promise<PaginatedResult<FDAFood>>;

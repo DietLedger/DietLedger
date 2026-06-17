@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +10,9 @@ import { Separator } from '@/components/ui/separator';
 import { Download, Star, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getApiClient } from '@/lib/api-client';
-import { detectAllergens, inferDietaryTags } from '@/lib/dietary-rules';
+import { queryKeys } from '@/lib/query-keys';
+import { serializeInstructions } from '@/lib/recipe-types';
+import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { DietaryBadges } from '@/components/recipe/dietary-badges';
 import Link from 'next/link';
 
@@ -28,20 +31,23 @@ interface SharedRecipeData {
 }
 
 function SharedRecipePageInner() {
-  const searchParams = useSearchParams();
-  const pathParts = typeof window !== 'undefined' ? window.location.pathname.split('/') : [];
-  const shareId = pathParts[pathParts.length - 1] || '';
+  const params = useParams();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const shareId = (params?.shareId as string) || '';
 
   const [recipe, setRecipe] = useState<SharedRecipeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useSetBreadcrumbLabel(`/share/${shareId}`, recipe?.title);
+
   useEffect(() => {
     if (!shareId) return;
     async function fetchRecipe() {
       try {
-        const res = await fetch(`/api/community/${shareId}`);
+        const res = await fetch(`/api/share/${shareId}`);
         if (!res.ok) throw new Error('Recipe not found');
         const data = await res.json();
         setRecipe(data);
@@ -59,14 +65,28 @@ function SharedRecipePageInner() {
     setImporting(true);
     try {
       const parsed = JSON.parse(recipe.recipeData);
-      await getApiClient().createRecipe(parsed.name || recipe.title);
+      const newRecipe = await getApiClient().createRecipe(parsed.name || recipe.title);
+      const instructions = serializeInstructions({
+        steps: parsed.instructionSteps || [],
+        groups: parsed.instructionGroups || [],
+      });
+      await getApiClient().updateRecipe(newRecipe.id, {
+        servings: parsed.servings || 1,
+        servingName: parsed.servingName || 'serving',
+        instructions: instructions || '',
+        leftoverStorage: parsed.leftoverStorage,
+        ingredients: parsed.ingredients || [],
+        ingredientGroups: parsed.ingredientGroups || [],
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.lists() });
       toast.success('Recipe imported to your collection!');
+      router.push('/recipes');
     } catch {
       toast.error('Failed to import recipe');
     } finally {
       setImporting(false);
     }
-  }, [recipe]);
+  }, [recipe, router, queryClient]);
 
   if (loading) {
     return (
@@ -100,7 +120,7 @@ function SharedRecipePageInner() {
                 <p className="text-sm text-muted-foreground mt-1">{recipe.description}</p>
               )}
             </div>
-            <Button onClick={handleImport} disabled={importing}>
+            <Button type="button" onClick={handleImport} disabled={importing}>
               <Download className="h-4 w-4 mr-1" />
               {importing ? 'Importing...' : 'Import to My Recipes'}
             </Button>
@@ -147,7 +167,7 @@ function SharedRecipePageInner() {
               Want to organize your own recipes?
             </p>
             <Button variant="outline" asChild>
-              <Link href="/recipes">Get RecipeTool</Link>
+              <Link href="/recipes">Get DietLedger</Link>
             </Button>
           </div>
         </CardContent>
@@ -157,9 +177,5 @@ function SharedRecipePageInner() {
 }
 
 export default function SharedRecipePage() {
-  return (
-    <Suspense>
-      <SharedRecipePageInner />
-    </Suspense>
-  );
+  return <SharedRecipePageInner />;
 }

@@ -13,6 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY *.go ./
 COPY migrations/ ./migrations/
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${BUILD_VERSION}" -o dietledger-api .
 
 FROM alpine:3.20

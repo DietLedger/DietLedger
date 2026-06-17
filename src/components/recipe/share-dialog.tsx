@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Copy, Eye, Download, Share2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { detectAllergens } from '@/lib/dietary-rules';
+import { getApiClient } from '@/lib/api-client';
 
 interface ShareableRecipe {
   id: string;
@@ -26,10 +27,12 @@ interface ShareDialogProps {
 
 export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
   const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareId, setShareId] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState(true);
   const [creating, setCreating] = useState(false);
   const [viewCount, setViewCount] = useState(0);
   const [importCount, setImportCount] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const shareUrl = shareToken ? `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${shareToken}` : '';
 
@@ -39,23 +42,18 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
       const recipeData = JSON.stringify(recipe);
       const detections = detectAllergens(recipe.ingredients);
 
-      const res = await fetch('/api/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipeId: recipe.id,
-          title: recipe.name,
-          description: '',
-          category: '',
-          tags: detections.map((d) => d.allergen).join(','),
-          recipeData,
-          isPublic,
-        }),
+      const data = await getApiClient().createShare({
+        recipeId: recipe.id,
+        title: recipe.name,
+        description: '',
+        category: '',
+        tags: detections.map((d) => d.allergen).join(','),
+        recipeData,
+        isPublic,
       });
 
-      if (!res.ok) throw new Error('Failed to create share');
-      const data = await res.json();
       setShareToken(data.shareToken);
+      setShareId(data.id);
       setViewCount(0);
       setImportCount(0);
       toast.success('Share link created');
@@ -67,10 +65,27 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
   }, [recipe, isPublic]);
 
   const copyLink = useCallback(() => {
-    if (shareUrl) {
-      navigator.clipboard.writeText(shareUrl);
-      toast.success('Link copied to clipboard');
+    if (!shareUrl) return;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(shareUrl).then(
+        () => toast.success('Link copied to clipboard'),
+        () => toast.error('Failed to copy link')
+      );
+      return;
     }
+
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      input.select();
+      try {
+        document.execCommand('copy');
+        toast.success('Link copied to clipboard');
+        return;
+      } catch {}
+    }
+    toast.error('Failed to copy link');
   }, [shareUrl]);
 
   return (
@@ -114,8 +129,8 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
               </div>
 
               <div className="flex items-center gap-2">
-                <Input value={shareUrl} readOnly className="text-xs" />
-                <Button variant="outline" size="icon" onClick={copyLink}>
+                <Input ref={inputRef} value={shareUrl} readOnly className="text-xs" />
+                <Button type="button" variant="outline" size="icon" onClick={copyLink}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -132,7 +147,15 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
               <div className="flex items-center gap-2">
                 <Switch
                   checked={isPublic}
-                  onCheckedChange={setIsPublic}
+                  onCheckedChange={(checked) => {
+                    setIsPublic(checked);
+                    if (shareId) {
+                      getApiClient().updateSharePublic(shareId, checked).catch(() => {
+                        setIsPublic(!checked);
+                        toast.error('Failed to update visibility');
+                      });
+                    }
+                  }}
                 />
                 <Label>Public in community gallery</Label>
               </div>

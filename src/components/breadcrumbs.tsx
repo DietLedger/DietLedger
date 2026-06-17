@@ -18,6 +18,8 @@ const PATH_LABELS: Record<string, string> = {
   books: 'Books',
   'meal-plans': 'Meal Plans',
   edit: 'Edit',
+  share: 'Shared Recipe',
+  community: 'Community',
 };
 
 export default function AppBreadcrumbs() {

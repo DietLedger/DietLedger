@@ -57,7 +57,7 @@ export function CommunitySearch({
       <Select value={category} onValueChange={onCategoryChange}>
         <SelectTrigger className="w-[140px]"><SelectValue placeholder="Category" /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="">All Categories</SelectItem>
+          <SelectItem value="all">All Categories</SelectItem>
           {categories.map((c) => (
             <SelectItem key={c.id} value={c.slug}>{c.name}</SelectItem>
           ))}
@@ -67,7 +67,6 @@ export function CommunitySearch({
         <SelectTrigger className="w-[130px]"><SelectValue placeholder="Sort by" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="newest">Newest</SelectItem>
-          <SelectItem value="rating">Top Rated</SelectItem>
           <SelectItem value="most_imported">Most Imported</SelectItem>
         </SelectContent>
       </Select>

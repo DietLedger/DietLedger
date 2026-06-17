@@ -31,7 +31,7 @@ export default function CommunityPage() {
   const [recipes, setRecipes] = useState<PublicRecipe[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('newest');
   const [importingId, setImportingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ export default function CommunityPage() {
     try {
       const params = new URLSearchParams();
       if (query) params.set('q', query);
-      if (category) params.set('category', category);
+      if (category && category !== 'all') params.set('category', category);
       if (sort) params.set('sort', sort);
       const res = await fetch(`/api/community?${params.toString()}`);
       if (res.ok) {

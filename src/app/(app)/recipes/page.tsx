@@ -1704,6 +1704,7 @@ function RecipePage() {
 
       {activeRecipe && (
         <ShareDialog
+          key={activeRecipe.id}
           open={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
           recipe={activeRecipe as any}

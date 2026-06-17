@@ -48,8 +48,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(USER_KEY);
       setUser(null);
     };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY && !e.newValue) {
+        queryClient.clear();
+        setUser(null);
+      }
+    };
     window.addEventListener('dietledger:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('dietledger:unauthorized', handleUnauthorized);
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('dietledger:unauthorized', handleUnauthorized);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string) => {

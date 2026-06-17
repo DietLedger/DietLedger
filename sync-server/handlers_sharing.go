@@ -19,15 +19,22 @@ func (s *Server) shareRouter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) shareItemRouter(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/share/")
+	id = strings.TrimSuffix(id, "/")
 	if id == "" {
-		s.shareRouter(w, r)
+		s.requireAuth(s.shareRouter).ServeHTTP(w, r)
 		return
 	}
 	switch r.Method {
 	case "GET":
 		s.getShareByToken(w, r, id)
+	case "PUT":
+		s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.updateShare(w, r, id)
+		})).ServeHTTP(w, r)
 	case "DELETE":
-		s.deleteShare(w, r, id)
+		s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.deleteShare(w, r, id)
+		})).ServeHTTP(w, r)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -83,6 +90,21 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request, id string) {
 	if err := s.store.DeleteSharedRecipe(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete share")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+func (s *Server) updateShare(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		IsPublic bool `json:"isPublic"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.store.SetSharedRecipePublic(id, req.IsPublic); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update share")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})

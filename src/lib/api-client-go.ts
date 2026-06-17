@@ -23,6 +23,7 @@ import type {
   TemplateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
+  SharedRecipeRecord,
 } from './api-client';
 
 const TOKEN_KEY = 'dietledger_access_token';
@@ -1022,5 +1023,23 @@ export class GoApiClient implements ApiClient {
   }
   async deleteSecret(id: string): Promise<void> {
     await this.request('DELETE', `/api/secrets/${id}`);
+  }
+
+  // ── Sharing ──────────────────────────────────────────────────────
+
+  async createShare(data: {
+    recipeId: string;
+    title: string;
+    description?: string;
+    category?: string;
+    tags?: string;
+    recipeData: string;
+    isPublic: boolean;
+  }): Promise<SharedRecipeRecord> {
+    return this.request<SharedRecipeRecord>('POST', '/api/share', data);
+  }
+
+  async updateSharePublic(id: string, isPublic: boolean): Promise<void> {
+    await this.request('PUT', `/api/share/${id}`, { isPublic });
   }
 }
