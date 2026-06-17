@@ -270,6 +270,8 @@ export function buildRescaledIngredientUpdate(ingredient: Ingredient, data: { na
   const updateData: Record<string, unknown> = {
     amount: newAmount,
     unit: newUnit,
+    groupId: ingredient.groupId,
+    linkedRecipeId: ingredient.linkedRecipeId,
   };
 
   if (data.description !== undefined) updateData.description = data.description;
