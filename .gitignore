@@ -37,7 +37,6 @@ yarn-error.log*
 !.env.example
 
 package-lock.json
-package.json 
 sync-server/dietledger-api.exe
 
 # vercel
