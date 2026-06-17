@@ -1,0 +1,362 @@
+id,gi,keyword
+1,100,glucose
+1,100,dextrose
+2,105,maltose
+3,75,white bread
+3,75,wonder bread
+4,71,whole wheat bread
+4,71,wholemeal bread
+5,53,sourdough bread
+6,55,rye bread
+6,55,pumpernickel
+7,72,bagel
+8,95,baguette
+8,95,french bread
+9,52,tortilla
+9,52,flour tortilla
+10,46,corn tortilla
+11,71,naan
+12,68,pita bread
+13,67,croissant
+14,73,white rice
+14,73,jasmine rice
+15,68,brown rice
+16,58,basmati rice
+17,57,wild rice
+18,73,rice
+18,73,cooked rice
+19,87,instant rice
+20,86,sushi rice
+21,69,risotto
+22,58,white pasta
+22,58,spaghetti
+22,58,linguine
+22,58,fettuccine
+22,58,penne
+23,42,whole wheat pasta
+23,42,whole grain pasta
+24,44,al dente pasta
+25,57,noodles
+25,57,egg noodles
+26,55,udon noodles
+27,56,soba noodles
+27,56,buckwheat noodles
+28,53,rice noodles
+29,55,ramen noodles
+30,65,couscous
+31,53,quinoa
+32,55,oatmeal
+32,55,rolled oats
+32,55,porridge
+33,42,steel cut oats
+34,83,instant oatmeal
+34,83,quick oats
+35,81,cornflakes
+35,81,corn flakes
+36,42,bran cereal
+36,42,all-bran
+37,56,granola
+38,57,muesli
+39,68,cheerios
+40,82,rice krispies
+41,71,weetabix
+42,52,corn
+42,52,sweet corn
+43,68,cornmeal
+43,68,polenta
+44,65,popcorn
+45,85,potato
+45,85,white potato
+45,85,baked potato
+45,85,mashed potato
+46,78,boiled potato
+47,57,new potato
+47,57,baby potato
+48,63,sweet potato
+48,63,yam
+49,64,french fries
+49,64,fries
+49,64,chips
+50,87,instant mashed potato
+51,55,taro
+52,46,yucca
+52,46,cassava
+53,55,plantain
+54,51,banana
+55,62,ripe banana
+56,38,apple
+57,43,orange
+58,38,pear
+59,42,peach
+60,46,grape
+61,56,mango
+62,59,pineapple
+63,76,watermelon
+64,65,melon
+64,65,cantaloupe
+64,65,honeydew
+65,50,kiwi
+65,50,kiwifruit
+66,56,papaya
+67,34,apricot
+68,22,cherry
+69,39,plum
+70,25,strawberry
+70,25,strawberries
+71,34,blueberry
+71,34,blueberries
+72,25,raspberry
+72,25,raspberries
+73,42,cranberry
+73,42,cranberries
+74,42,dates
+75,61,fig
+75,61,figs
+76,64,raisin
+76,64,raisins
+77,29,prune
+77,29,prunes
+78,55,dried fruit
+79,41,fruit juice
+79,41,apple juice
+80,50,orange juice
+81,39,carrot
+81,39,carrots
+82,16,raw carrot
+83,39,pea
+83,39,peas
+83,39,green peas
+84,28,chickpea
+84,28,chickpeas
+84,28,garbanzo
+85,29,lentil
+85,29,lentils
+85,29,red lentil
+86,30,black bean
+86,30,black beans
+87,29,kidney bean
+87,29,kidney beans
+88,39,pinto bean
+88,39,pinto beans
+89,31,navy bean
+89,31,navy beans
+90,40,baked beans
+91,16,soybean
+91,16,soybeans
+91,16,edamame
+92,32,lima bean
+92,32,butter bean
+93,6,hummus
+94,30,bean
+94,30,beans
+95,61,beet
+95,61,beets
+95,61,beetroot
+96,75,pumpkin
+97,51,squash
+97,51,butternut squash
+98,62,turnip
+99,52,parsnip
+100,15,spinach
+101,15,broccoli
+102,15,cauliflower
+103,15,lettuce
+104,15,tomato
+105,15,cucumber
+106,15,zucchini
+106,15,courgette
+107,15,eggplant
+107,15,aubergine
+108,15,celery
+109,15,onion
+109,15,onions
+110,15,garlic
+111,15,mushroom
+111,15,mushrooms
+112,15,pepper
+112,15,bell pepper
+113,15,asparagus
+114,15,green bean
+114,15,green beans
+114,15,string bean
+115,15,cabbage
+116,15,kale
+117,15,brussels sprout
+118,15,avocado
+119,15,artichoke
+120,63,sugar
+120,63,white sugar
+120,63,sucrose
+120,63,table sugar
+121,58,honey
+122,54,maple syrup
+123,15,agave
+123,15,agave nectar
+123,15,agave syrup
+124,55,molasses
+125,54,coconut sugar
+126,64,brown sugar
+127,62,high fructose corn syrup
+127,62,hfcs
+128,15,fructose
+129,46,lactose
+130,31,milk
+130,31,whole milk
+131,37,skim milk
+131,37,nonfat milk
+131,37,fat-free milk
+132,34,soy milk
+133,25,almond milk
+134,69,oat milk
+135,86,rice milk
+136,41,coconut milk
+137,36,yogurt
+137,36,yoghurt
+138,11,greek yogurt
+139,57,ice cream
+140,42,chocolate
+140,42,dark chocolate
+141,50,milk chocolate
+142,0,chicken
+143,0,beef
+144,0,pork
+145,0,lamb
+146,0,turkey
+147,0,fish
+147,0,salmon
+147,0,tuna
+147,0,cod
+147,0,tilapia
+148,0,shrimp
+148,0,prawn
+149,0,egg
+149,0,eggs
+150,0,cheese
+151,0,butter
+152,0,olive oil
+152,0,oil
+152,0,vegetable oil
+152,0,canola oil
+152,0,coconut oil
+153,15,tofu
+154,15,tempeh
+155,25,seitan
+156,7,peanut
+156,7,peanuts
+157,0,almond
+157,0,almonds
+158,0,walnut
+158,0,walnuts
+159,22,cashew
+159,22,cashews
+160,0,pecan
+160,0,pecans
+161,18,pistachio
+161,18,pistachios
+162,0,macadamia
+163,0,hazelnut
+163,0,hazelnuts
+164,13,peanut butter
+165,0,almond butter
+166,18,sunflower seed
+166,18,sunflower seeds
+167,0,chia seed
+167,0,chia seeds
+168,0,flaxseed
+168,0,flax seed
+168,0,linseed
+169,15,pumpkin seed
+169,15,pumpkin seeds
+170,15,sesame
+170,15,sesame seed
+170,15,tahini
+171,70,wheat flour
+171,70,all-purpose flour
+171,70,white flour
+171,70,plain flour
+172,58,whole wheat flour
+172,58,wholemeal flour
+173,70,bread flour
+174,67,cake flour
+175,59,pastry flour
+176,78,rice flour
+177,0,almond flour
+178,31,coconut flour
+179,55,oat flour
+180,70,corn flour
+180,70,cornstarch
+180,70,corn starch
+181,70,tapioca
+181,70,tapioca flour
+181,70,tapioca starch
+182,75,potato flour
+182,75,potato starch
+183,28,barley
+183,28,pearled barley
+184,53,millet
+185,62,sorghum
+186,73,amaranth
+187,57,teff
+188,49,buckwheat
+189,55,spelt
+190,47,farro
+191,48,kamut
+192,59,semolina
+193,74,cracker
+193,74,saltine
+194,82,rice cake
+195,83,pretzel
+196,60,cookie
+196,60,biscuit
+197,56,cake
+198,76,donut
+198,76,doughnut
+199,62,muffin
+200,67,pancake
+200,67,waffle
+201,60,pizza
+202,52,taco shell
+203,49,burrito
+204,42,nacho
+205,36,soup
+205,36,broth
+206,38,tomato soup
+207,29,lentil soup
+208,33,black bean soup
+209,39,minestrone
+210,57,ketchup
+211,55,bbq sauce
+211,55,barbecue sauce
+212,44,teriyaki sauce
+213,0,soy sauce
+214,32,mustard
+215,0,mayonnaise
+215,0,mayo
+216,0,vinegar
+217,20,lemon
+217,20,lemon juice
+218,24,lime
+218,24,lime juice
+219,78,beer
+220,78,lager
+221,56,stout
+221,56,guinness
+222,15,wine
+222,15,red wine
+222,15,white wine
+223,63,soda
+223,63,cola
+223,63,soft drink
+223,63,coca-cola
+223,63,pepsi
+224,78,sports drink
+224,78,gatorade
+225,70,energy drink
+226,0,tea
+227,0,coffee
+228,35,protein powder
+228,35,whey protein
+229,38,protein bar
+230,55,granola bar
+231,57,dark bread
+231,57,dark rye
