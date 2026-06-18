@@ -55,3 +55,20 @@ func validateRequired(fields map[string]string) error {
 	}
 	return nil
 }
+
+// Share visibility tiers.
+const (
+	VisibilityPrivate = "private"
+	VisibilityUsers   = "users"
+	VisibilityPublic  = "public"
+)
+
+// normalizeVisibility returns a valid visibility tier, defaulting to public
+// when the supplied value is empty or unrecognized.
+func normalizeVisibility(v string) string {
+	switch v {
+	case VisibilityPrivate, VisibilityUsers, VisibilityPublic:
+		return v
+	}
+	return VisibilityPublic
+}

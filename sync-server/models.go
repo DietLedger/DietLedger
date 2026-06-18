@@ -362,7 +362,7 @@ type SharedRecipe struct {
 	UserID        string    `json:"userId"`
 	RecipeID      string    `json:"recipeId"`
 	ShareToken    string    `json:"shareToken"`
-	IsPublic      bool      `json:"isPublic"`
+	Visibility    string    `json:"visibility"`
 	Title         string    `json:"title"`
 	Description   string    `json:"description,omitempty"`
 	Category      string    `json:"category,omitempty"`
@@ -598,7 +598,7 @@ type ShareRecipeRequest struct {
 	Category    string `json:"category,omitempty"`
 	Tags        string `json:"tags,omitempty"`
 	RecipeData  string `json:"recipeData"`
-	IsPublic    bool   `json:"isPublic"`
+	Visibility  string `json:"visibility"`
 }
 
 type RateRecipeRequest struct {

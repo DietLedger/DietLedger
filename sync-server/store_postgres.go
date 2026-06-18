@@ -1439,25 +1439,26 @@ func (s *PostgresStore) DeleteAPIKey(userID, id string) error {
 
 // ── Sharing (from existing store) ────────────────────────────────────
 
-func (s *PostgresStore) CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData string, isPublic bool) (*SharedRecipe, error) {
+func (s *PostgresStore) CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData, visibility string) (*SharedRecipe, error) {
 	id := uuid.New().String()
 	shareToken := uuid.New().String()
 	now := time.Now().UTC()
+	visibility = normalizeVisibility(visibility)
 	_, err := s.db.Exec(
-		`INSERT INTO shared_recipes (id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
-		id, userID, recipeID, shareToken, isPublic, title, description, category, tags, recipeData, now,
+		`INSERT INTO shared_recipes (id, user_id, recipe_id, share_token, visibility, title, description, category, tags, recipe_data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
+		id, userID, recipeID, shareToken, visibility, title, description, category, tags, recipeData, now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &SharedRecipe{ID: id, UserID: userID, RecipeID: recipeID, ShareToken: shareToken, IsPublic: isPublic, Title: title, Description: description, Category: category, Tags: tags, RecipeData: recipeData, CreatedAt: now, UpdatedAt: now}, nil
+	return &SharedRecipe{ID: id, UserID: userID, RecipeID: recipeID, ShareToken: shareToken, Visibility: visibility, Title: title, Description: description, Category: category, Tags: tags, RecipeData: recipeData, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) GetSharedRecipeByToken(shareToken string) (*SharedRecipe, error) {
 	r := &SharedRecipe{}
 	err := s.db.QueryRow(
-		`SELECT id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE share_token = $1`, shareToken,
-	).Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt)
+		`SELECT id, user_id, recipe_id, share_token, visibility, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE share_token = $1`, shareToken,
+	).Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.Visibility, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1469,7 +1470,7 @@ func (s *PostgresStore) GetSharedRecipeByToken(shareToken string) (*SharedRecipe
 
 func (s *PostgresStore) GetSharedRecipesByUser(userID string) ([]SharedRecipe, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, recipe_id, share_token, is_public, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE user_id = $1 ORDER BY updated_at DESC`, userID,
+		`SELECT id, user_id, recipe_id, share_token, visibility, title, description, category, tags, recipe_data, view_count, import_count, average_rating, rating_count, created_at, updated_at FROM shared_recipes WHERE user_id = $1 ORDER BY updated_at DESC`, userID,
 	)
 	if err != nil {
 		return nil, err
@@ -1478,7 +1479,7 @@ func (s *PostgresStore) GetSharedRecipesByUser(userID string) ([]SharedRecipe, e
 	var recipes []SharedRecipe
 	for rows.Next() {
 		var r SharedRecipe
-		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.Visibility, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		recipes = append(recipes, r)
@@ -1486,13 +1487,13 @@ func (s *PostgresStore) GetSharedRecipesByUser(userID string) ([]SharedRecipe, e
 	return recipes, nil
 }
 
-func (s *PostgresStore) SetSharedRecipePublic(id string, isPublic bool) error {
-	_, err := s.db.Exec(`UPDATE shared_recipes SET is_public = $1, updated_at = NOW() WHERE id = $2`, isPublic, id)
+func (s *PostgresStore) SetSharedRecipeVisibility(id string, visibility string) error {
+	_, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2`, normalizeVisibility(visibility), id)
 	return err
 }
 
 func (s *PostgresStore) DeleteSharedRecipe(id string) error {
-	_, err := s.db.Exec(`UPDATE shared_recipes SET is_public = FALSE, updated_at = NOW() WHERE id = $1`, id)
+	_, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2`, VisibilityPrivate, id)
 	return err
 }
 
@@ -1528,7 +1529,7 @@ func (s *PostgresStore) recalcAverageRating(recipeID string) error {
 	return err
 }
 
-func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, page, perPage int) ([]SharedRecipe, error) {
+func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, authenticated bool, page, perPage int) ([]SharedRecipe, error) {
 	if perPage <= 0 {
 		perPage = 20
 	}
@@ -1543,7 +1544,11 @@ func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, pag
 	case "most_imported":
 		orderClause = "ORDER BY s.import_count DESC"
 	}
-	whereClause := "WHERE s.is_public = TRUE"
+	visibilityFilter := "s.visibility = 'public'"
+	if authenticated {
+		visibilityFilter = "s.visibility IN ('public','users')"
+	}
+	whereClause := "WHERE " + visibilityFilter
 	args := []interface{}{}
 	argN := 1
 	if query != "" {
@@ -1558,7 +1563,7 @@ func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, pag
 	}
 	args = append(args, perPage, offset)
 	rows, err := s.db.Query(
-		fmt.Sprintf(`SELECT s.id, s.user_id, s.recipe_id, s.share_token, s.is_public, s.title, s.description, s.category, s.tags, '' as recipe_data, s.view_count, s.import_count, s.average_rating, s.rating_count, s.created_at, s.updated_at FROM shared_recipes s %s %s LIMIT $%d OFFSET $%d`, whereClause, orderClause, argN, argN+1),
+		fmt.Sprintf(`SELECT s.id, s.user_id, s.recipe_id, s.share_token, s.visibility, s.title, s.description, s.category, s.tags, '' as recipe_data, s.view_count, s.import_count, s.average_rating, s.rating_count, s.created_at, s.updated_at FROM shared_recipes s %s %s LIMIT $%d OFFSET $%d`, whereClause, orderClause, argN, argN+1),
 		args...,
 	)
 	if err != nil {
@@ -1568,7 +1573,7 @@ func (s *PostgresStore) SearchCommunityRecipes(query, category, sort string, pag
 	var recipes []SharedRecipe
 	for rows.Next() {
 		var r SharedRecipe
-		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.IsPublic, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.RecipeID, &r.ShareToken, &r.Visibility, &r.Title, &r.Description, &r.Category, &r.Tags, &r.RecipeData, &r.ViewCount, &r.ImportCount, &r.AverageRating, &r.RatingCount, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		recipes = append(recipes, r)

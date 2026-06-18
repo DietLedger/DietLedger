@@ -136,14 +136,14 @@ type Store interface {
 	DeleteAPIKey(userID, id string) error
 
 	// Sharing (existing)
-	CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData string, isPublic bool) (*SharedRecipe, error)
+	CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData, visibility string) (*SharedRecipe, error)
 	GetSharedRecipeByToken(shareToken string) (*SharedRecipe, error)
 	GetSharedRecipesByUser(userID string) ([]SharedRecipe, error)
-	SetSharedRecipePublic(id string, isPublic bool) error
+	SetSharedRecipeVisibility(id string, visibility string) error
 	DeleteSharedRecipe(id string) error
 	IncrementSharedRecipeViews(id string) error
 	IncrementSharedRecipeImports(id string) error
-	SearchCommunityRecipes(query, category, sort string, page, perPage int) ([]SharedRecipe, error)
+	SearchCommunityRecipes(query, category, sort string, authenticated bool, page, perPage int) ([]SharedRecipe, error)
 	GetCommunityCategories() ([]CommunityCategory, error)
 	UpsertRecipeRating(recipeID, userID string, rating int) error
 	SeedCategories() error

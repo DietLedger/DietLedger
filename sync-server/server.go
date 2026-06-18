@@ -71,7 +71,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
 	mux.HandleFunc("/api/share/", s.shareItemRouter)
-	mux.HandleFunc("/api/community", s.communitySearch)
+	mux.HandleFunc("/api/community", s.optionalAuth(s.communitySearch))
 	mux.HandleFunc("/api/community/categories", s.communityCategories)
 
 	mux.HandleFunc("/api/settings", s.requireAuth(s.settingsRouter))
@@ -343,6 +343,37 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 		}
 
 		writeError(w, http.StatusUnauthorized, "invalid Authorization format, use: Bearer <token>")
+	}
+}
+
+// optionalAuth attempts to authenticate the request but does not reject it
+// when no token is present. If a valid token is supplied the user is stored
+// in the request context; otherwise the request proceeds unauthenticated.
+// Used for endpoints that behave differently for logged-in vs anonymous
+// users (e.g. share visibility tiers, community gallery).
+func (s *Server) optionalAuth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			userID, err := s.auth.ValidateAccessToken(token)
+			if err == nil {
+				user, err := s.store.GetUserByID(userID)
+				if err == nil && user != nil {
+					ctx := context.WithValue(r.Context(), userContextKey, user)
+					r = r.WithContext(ctx)
+				}
+			} else {
+				user, err2 := s.store.GetUserByAPIKey(token)
+				if err2 == nil && user != nil {
+					ctx := context.WithValue(r.Context(), userContextKey, user)
+					r = r.WithContext(ctx)
+				}
+			}
+		}
+		h.ServeHTTP(w, r)
 	}
 }
 
