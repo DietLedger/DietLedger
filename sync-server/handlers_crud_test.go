@@ -75,7 +75,7 @@ func TestCommunitySearch(t *testing.T) {
 
 	w = env.doRequest("POST", "/api/share", map[string]interface{}{
 		"recipeId": recipeID, "title": "Community Recipe",
-		"recipeData": `{"name":"Community Recipe"}`, "isPublic": true,
+		"recipeData": `{"name":"Community Recipe"}`, "visibility": "public",
 	})
 	if w.Code != 201 {
 		t.Fatalf("share: status = %d", w.Code)
@@ -89,6 +89,123 @@ func TestCommunitySearch(t *testing.T) {
 	w = env.doRequestNoAuth("GET", "/api/community/categories", nil)
 	if w.Code != 200 {
 		t.Fatalf("community categories: status = %d", w.Code)
+	}
+}
+
+func TestShareVisibilityTiers(t *testing.T) {
+	env := newTestEnv(t)
+
+	// Create a recipe to share.
+	w := env.doRequest("POST", "/api/recipes", map[string]interface{}{
+		"name": "Tier Test", "servings": 2, "servingName": "plate",
+	})
+	m := decodeJSON(t, w)
+	recipeID := m["data"].(map[string]interface{})["id"].(string)
+
+	// Register a second user.
+	resp2, err := env.auth.Register("other@test.com", "Password123", "Other")
+	if err != nil {
+		t.Fatalf("register second user: %v", err)
+	}
+
+	// --- users tier ---
+	w = env.doRequest("POST", "/api/share", map[string]interface{}{
+		"recipeId": recipeID, "title": "Users Only",
+		"recipeData": `{"name":"Tier Test"}`, "visibility": "users",
+	})
+	if w.Code != 201 {
+		t.Fatalf("create users share: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	usersToken := m["shareToken"].(string)
+
+	// anon → 401
+	w = env.doRequestNoAuth("GET", "/api/share/"+usersToken, nil)
+	if w.Code != 401 {
+		t.Fatalf("users share anon: status = %d, want 401", w.Code)
+	}
+
+	// other authed user → 200
+	req := httptest.NewRequest("GET", "/api/share/"+usersToken, nil)
+	req.Header.Set("Authorization", "Bearer "+resp2.AccessToken)
+	rec := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("users share authed: status = %d, want 200", rec.Code)
+	}
+
+	// --- private tier ---
+	w = env.doRequest("POST", "/api/share", map[string]interface{}{
+		"recipeId": recipeID, "title": "Private",
+		"recipeData": `{"name":"Tier Test"}`, "visibility": "private",
+	})
+	if w.Code != 201 {
+		t.Fatalf("create private share: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	privateToken := m["shareToken"].(string)
+
+	// anon → 403
+	w = env.doRequestNoAuth("GET", "/api/share/"+privateToken, nil)
+	if w.Code != 403 {
+		t.Fatalf("private share anon: status = %d, want 403", w.Code)
+	}
+
+	// other authed user → 403
+	req = httptest.NewRequest("GET", "/api/share/"+privateToken, nil)
+	req.Header.Set("Authorization", "Bearer "+resp2.AccessToken)
+	rec = httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("private share other user: status = %d, want 403", rec.Code)
+	}
+
+	// owner → 200
+	w = env.doRequest("GET", "/api/share/"+privateToken, nil)
+	if w.Code != 200 {
+		t.Fatalf("private share owner: status = %d, want 200", w.Code)
+	}
+}
+
+func TestCommunitySearchVisibility(t *testing.T) {
+	env := newTestEnv(t)
+
+	w := env.doRequest("POST", "/api/recipes", map[string]interface{}{
+		"name": "Vis Community", "servings": 2, "servingName": "plate",
+	})
+	m := decodeJSON(t, w)
+	recipeID := m["data"].(map[string]interface{})["id"].(string)
+
+	// Share as public and as users.
+	env.doRequest("POST", "/api/share", map[string]interface{}{
+		"recipeId": recipeID, "title": "Public One",
+		"recipeData": `{}`, "visibility": "public",
+	})
+	env.doRequest("POST", "/api/share", map[string]interface{}{
+		"recipeId": recipeID, "title": "Users One",
+		"recipeData": `{}`, "visibility": "users",
+	})
+
+	// anon sees only public.
+	w = env.doRequestNoAuth("GET", "/api/community", nil)
+	if w.Code != 200 {
+		t.Fatalf("anon community: status = %d", w.Code)
+	}
+	var anonItems []interface{}
+	json.NewDecoder(w.Body).Decode(&anonItems)
+	if len(anonItems) != 1 {
+		t.Fatalf("anon community: expected 1 result, got %d", len(anonItems))
+	}
+
+	// authed sees public + users.
+	w = env.doRequest("GET", "/api/community", nil)
+	if w.Code != 200 {
+		t.Fatalf("authed community: status = %d", w.Code)
+	}
+	var authedItems []interface{}
+	json.NewDecoder(w.Body).Decode(&authedItems)
+	if len(authedItems) != 2 {
+		t.Fatalf("authed community: expected 2 results, got %d", len(authedItems))
 	}
 }
 
