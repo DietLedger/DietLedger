@@ -28,20 +28,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { fmt } from '@/lib/format';
 import { STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 import Link from 'next/link';
-
-interface SharedRecipeData {
-  id: string;
-  shareToken: string;
-  title: string;
-  description?: string;
-  category?: string;
-  tags?: string;
-  recipeData: string;
-  viewCount: number;
-  importCount: number;
-  averageRating: number;
-  ratingCount: number;
-}
+import type { SharedRecipeRecord } from '@/lib/types';
 
 interface ParsedRecipe {
   name: string;
@@ -93,7 +80,7 @@ function SharedRecipePageInner() {
   const { isAuthenticated } = useAuth();
   const shareId = (params?.shareId as string) || '';
 
-  const [recipe, setRecipe] = useState<SharedRecipeData | null>(null);
+  const [recipe, setRecipe] = useState<SharedRecipeRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,9 +91,7 @@ function SharedRecipePageInner() {
     if (!shareId) return;
     async function fetchRecipe() {
       try {
-        const res = await fetch(`/api/share/${shareId}`);
-        if (!res.ok) throw new Error('Recipe not found');
-        const data = await res.json();
+        const data = await getApiClient().getSharedRecipe(shareId);
         setRecipe(data);
       } catch {
         setError('This shared recipe could not be found.');
@@ -119,6 +104,10 @@ function SharedRecipePageInner() {
 
   const handleImport = useCallback(async () => {
     if (!recipe) return;
+    if (!isAuthenticated) {
+      router.push('/login');
+      return;
+    }
     setImporting(true);
     try {
       const parsed = JSON.parse(recipe.recipeData);
@@ -143,7 +132,7 @@ function SharedRecipePageInner() {
     } finally {
       setImporting(false);
     }
-  }, [recipe, router, queryClient]);
+  }, [recipe, isAuthenticated, router, queryClient]);
 
   const parsed = useMemo<ParsedRecipe>(() => {
     const fallback: ParsedRecipe = {

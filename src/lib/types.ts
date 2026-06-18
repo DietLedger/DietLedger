@@ -237,15 +237,18 @@ export interface AllergenRuleRecord {
   updatedAt: string;
 }
 
+export type ShareVisibility = 'private' | 'users' | 'public';
+
 export interface SharedRecipeRecord {
   id: string;
   recipeId: string;
   shareToken: string;
-  isPublic: boolean;
+  visibility: ShareVisibility;
   title: string;
   description?: string;
   category?: string;
-  tags: string[];
+  tags: string;
+  recipeData: string;
   viewCount: number;
   importCount: number;
   averageRating: number;

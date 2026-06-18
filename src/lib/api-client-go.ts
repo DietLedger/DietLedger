@@ -24,6 +24,7 @@ import type {
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
+  ShareVisibility,
 } from './api-client';
 
 const TOKEN_KEY = 'dietledger_access_token';
@@ -1034,12 +1035,37 @@ export class GoApiClient implements ApiClient {
     category?: string;
     tags?: string;
     recipeData: string;
-    isPublic: boolean;
+    visibility: ShareVisibility;
   }): Promise<SharedRecipeRecord> {
     return this.request<SharedRecipeRecord>('POST', '/api/share', data);
   }
 
-  async updateSharePublic(id: string, isPublic: boolean): Promise<void> {
-    await this.request('PUT', `/api/share/${id}`, { isPublic });
+  async updateShareVisibility(id: string, visibility: ShareVisibility): Promise<void> {
+    await this.request('PUT', `/api/share/${id}`, { visibility });
+  }
+
+  async getSharedRecipe(shareToken: string): Promise<SharedRecipeRecord> {
+    return this.request<SharedRecipeRecord>('GET', `/api/share/${shareToken}`);
+  }
+
+  async searchCommunity(params: {
+    q?: string;
+    category?: string;
+    sort?: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<SharedRecipeRecord[]> {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    if (params.category) query.set('category', params.category);
+    if (params.sort) query.set('sort', params.sort);
+    if (params.page) query.set('page', String(params.page));
+    if (params.perPage) query.set('perPage', String(params.perPage));
+    const qs = query.toString();
+    return this.request<SharedRecipeRecord[]>('GET', `/api/community${qs ? `?${qs}` : ''}`);
+  }
+
+  async getCommunityCategories(): Promise<{ id: string; name: string; slug: string }[]> {
+    return this.request('GET', '/api/community/categories');
   }
 }

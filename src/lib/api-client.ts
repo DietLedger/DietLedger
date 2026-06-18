@@ -21,6 +21,7 @@ import type {
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
+  ShareVisibility,
 } from './types';
 
 export type {
@@ -46,6 +47,7 @@ export type {
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
+  ShareVisibility,
 } from './types';
 
 export interface FDAFood {
@@ -268,9 +270,18 @@ export interface ApiClient {
     category?: string;
     tags?: string;
     recipeData: string;
-    isPublic: boolean;
+    visibility: ShareVisibility;
   }): Promise<SharedRecipeRecord>;
-  updateSharePublic(id: string, isPublic: boolean): Promise<void>;
+  updateShareVisibility(id: string, visibility: ShareVisibility): Promise<void>;
+  getSharedRecipe(shareToken: string): Promise<SharedRecipeRecord>;
+  searchCommunity(params: {
+    q?: string;
+    category?: string;
+    sort?: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<SharedRecipeRecord[]>;
+  getCommunityCategories(): Promise<{ id: string; name: string; slug: string }[]>;
 
   // Food Search
   searchFoods(query: string, page?: number, perPage?: number): Promise<PaginatedResult<FDAFood>>;

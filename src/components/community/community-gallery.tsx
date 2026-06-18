@@ -8,21 +8,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Download, Star } from 'lucide-react';
 import { toast } from 'sonner';
+import type { SharedRecipeRecord } from '@/lib/types';
 
 import Link from 'next/link';
-
-interface PublicRecipe {
-  id: string;
-  shareToken: string;
-  title: string;
-  description?: string;
-  category?: string;
-  tags?: string;
-  viewCount: number;
-  importCount: number;
-  averageRating: number;
-  ratingCount: number;
-}
 
 interface CommunitySearchProps {
   query: string;
@@ -75,8 +63,8 @@ export function CommunitySearch({
 }
 
 interface RecipeCardPublicProps {
-  recipe: PublicRecipe;
-  onImport: (recipe: PublicRecipe) => void;
+  recipe: SharedRecipeRecord;
+  onImport: (recipe: SharedRecipeRecord) => void;
   importing: boolean;
 }
 
@@ -126,8 +114,8 @@ export function RecipeCardPublic({ recipe, onImport, importing }: RecipeCardPubl
 }
 
 interface CommunityGalleryProps {
-  recipes: PublicRecipe[];
-  onImport: (recipe: PublicRecipe) => void;
+  recipes: SharedRecipeRecord[];
+  onImport: (recipe: SharedRecipeRecord) => void;
   importingId: string | null;
 }
 

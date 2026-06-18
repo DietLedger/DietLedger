@@ -4,14 +4,13 @@ import { useState, useCallback, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Copy, Eye, Download, Share2, Loader2 } from 'lucide-react';
+import { Copy, Eye, Download, Share2, Loader2, Lock, Users, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { detectAllergens } from '@/lib/dietary-rules';
 import { getApiClient } from '@/lib/api-client';
+import type { ShareVisibility } from '@/lib/types';
 
 interface ShareableRecipe {
   id: string;
@@ -28,7 +27,7 @@ interface ShareDialogProps {
 export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareId, setShareId] = useState<string | null>(null);
-  const [isPublic, setIsPublic] = useState(true);
+  const [visibility, setVisibility] = useState<ShareVisibility>('public');
   const [creating, setCreating] = useState(false);
   const [viewCount, setViewCount] = useState(0);
   const [importCount, setImportCount] = useState(0);
@@ -49,7 +48,7 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
         category: '',
         tags: detections.map((d) => d.allergen).join(','),
         recipeData,
-        isPublic,
+        visibility,
       });
 
       setShareToken(data.shareToken);
@@ -62,7 +61,7 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
     } finally {
       setCreating(false);
     }
-  }, [recipe, isPublic]);
+  }, [recipe, visibility]);
 
   const copyLink = useCallback(() => {
     if (!shareUrl) return;
@@ -103,13 +102,30 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
 
           {!shareToken && (
             <>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="public-toggle"
-                  checked={isPublic}
-                  onCheckedChange={setIsPublic}
-                />
-                <Label htmlFor="public-toggle">Public (visible in community)</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Who can view this recipe?</Label>
+                {([
+                  { value: 'public' as const, icon: Globe, label: 'Public', desc: 'Anyone with the link + community gallery' },
+                  { value: 'users' as const, icon: Users, label: 'DietLedger users', desc: 'Any logged-in user with the link' },
+                  { value: 'private' as const, icon: Lock, label: 'Private', desc: 'Only you can open this link' },
+                ]).map(({ value, icon: Icon, label, desc }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setVisibility(value)}
+                    className={`flex items-start gap-3 w-full rounded-lg border p-3 text-left transition-colors ${
+                      visibility === value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium">{label}</div>
+                      <div className="text-xs text-muted-foreground">{desc}</div>
+                    </div>
+                  </button>
+                ))}
               </div>
 
               <Button className="w-full" onClick={handleShare} disabled={creating}>
@@ -144,20 +160,36 @@ export function ShareDialog({ open, onOpenChange, recipe }: ShareDialogProps) {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={isPublic}
-                  onCheckedChange={(checked) => {
-                    setIsPublic(checked);
-                    if (shareId) {
-                      getApiClient().updateSharePublic(shareId, checked).catch(() => {
-                        setIsPublic(!checked);
-                        toast.error('Failed to update visibility');
-                      });
-                    }
-                  }}
-                />
-                <Label>Public in community gallery</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Who can view this recipe?</Label>
+                {([
+                  { value: 'public' as const, icon: Globe, label: 'Public' },
+                  { value: 'users' as const, icon: Users, label: 'DietLedger users' },
+                  { value: 'private' as const, icon: Lock, label: 'Private' },
+                ]).map(({ value, icon: Icon, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      const prev = visibility;
+                      setVisibility(value);
+                      if (shareId) {
+                        getApiClient().updateShareVisibility(shareId, value).catch(() => {
+                          setVisibility(prev);
+                          toast.error('Failed to update visibility');
+                        });
+                      }
+                    }}
+                    className={`flex items-center gap-2 w-full rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      visibility === value
+                        ? 'border-primary bg-primary/5 font-medium'
+                        : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
+                  </button>
+                ))}
               </div>
             </>
           )}
