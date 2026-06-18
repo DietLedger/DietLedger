@@ -585,6 +585,53 @@ Negative:
 
 ---
 
+# ADR: Three-Tier Recipe Share Visibility
+
+## Status
+
+Accepted
+
+## Decision
+
+Recipe share links use a three-tier visibility model stored in the
+`shared_recipes.visibility` column (`private`, `users`, `public`), replacing
+the former binary `is_public` boolean.
+
+* **public** — anyone can open the share link; appears in the community gallery
+  for both authenticated and anonymous users.
+* **users** — any authenticated DietLedger user can open the link; appears in the
+  community gallery only for authenticated users. Anonymous users receive 401.
+* **private** — only the owner can open the link; never appears in the community
+  gallery. Non-owners receive 403. Soft-deleting a share sets visibility to
+  `private`.
+
+## Rationale
+
+* The binary public/private model was too coarse — it didn't support sharing
+  within the DietLedger community without exposing recipes to the entire internet.
+* A single `visibility` column is simpler than separate boolean flags and maps
+  cleanly to a WHERE clause for the community gallery query.
+* `optionalAuth` middleware allows public endpoints to behave differently for
+  authenticated vs anonymous users without requiring a separate route.
+
+## Consequences
+
+Positive:
+
+* Users can share recipes with the DietLedger community without making them
+  fully public.
+* The community gallery and share pages work for unauthenticated visitors
+  (public-tier recipes only), widening product reach.
+
+Negative:
+
+* `/api/share/<token>` and `/api/community` use `optionalAuth` instead of
+  `requireAuth` or no-auth, adding one indirection layer.
+* Frontend must attach auth headers on public routes for logged-in users to
+  see users-tier content (handled by the API client automatically).
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:

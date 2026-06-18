@@ -336,6 +336,24 @@ DietLedger operates as a single application with a single API and a single prima
 
 ---
 
+## Recipe Share Visibility
+
+Shared recipes use a three-tier visibility model (`private`, `users`, `public`)
+enforced server-side by the Go API:
+
+* `public` — anyone can view; appears in community gallery
+* `users` — any authenticated DietLedger user can view; appears in gallery for logged-in users
+* `private` — owner only; never in gallery
+
+The `/api/share/<token>` GET and `/api/community` endpoints use `optionalAuth`
+middleware: they accept requests without a token (anonymous) but attach the user
+to context when a valid token is present, enabling visibility-tier enforcement.
+
+Frontend public routes (`/share/*`, `/community`) bypass the `(app)/layout.tsx`
+auth redirect so unauthenticated visitors can view public-tier content.
+
+---
+
 # Historical Decisions
 
 The following systems were intentionally removed:
