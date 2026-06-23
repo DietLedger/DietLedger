@@ -27,12 +27,9 @@ export function computeSynergies(
 
   if (mealPlanIngredients.size === 0) return [];
 
-  const mealPlanIdSet = new Set(mealPlanRecipeIds);
   const results: SynergyResult[] = [];
 
   for (const recipe of allRecipes) {
-    if (mealPlanIdSet.has(recipe.id)) continue;
-
     const shared: string[] = [];
     for (const ing of recipe.ingredients) {
       const name = ing.name.toLowerCase().trim();
