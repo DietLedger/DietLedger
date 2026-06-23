@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   addDays,
   format,
@@ -19,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWeekPlan, useEnsureMealPlan, useAddRecipeToSlot, useAddFoodToSlot, useRemoveEntry, useMoveEntry, useUpdateServings, useCreateMealGroup, useAddToGroup, useRemoveFromGroup, useDeleteMealGroupAndUngroup, useToggleLeftover, useUpdateSlotTimes, useReorderEntries } from '@/hooks/use-meal-plans';
+import { queryKeys } from '@/lib/query-keys';
 import { useRecipes, type Recipe } from '@/hooks/use-recipes';
 import { toPublicRecipe } from '@/lib/recipe-types';
 import { useAppSettings } from '@/hooks/use-settings';
@@ -49,17 +51,12 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDraggable,
+  useDroppable,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: 'Morning',
@@ -83,6 +80,7 @@ export default function WeeklyPlanPage() {
   }, [weekStart]);
 
   const { data: weekData, isLoading } = useWeekPlan(weekStart);
+  const qc = useQueryClient();
   const activeMealPlan = weekData?.plan ?? null;
   const dayEntries = weekData?.entries ?? [];
   const mealGroups = weekData?.groups ?? [];
@@ -286,36 +284,68 @@ export default function WeeklyPlanPage() {
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setDragActiveId(null);
-    if (!over || active.id === over.id) return;
+    if (!over || !activeMealPlan) return;
 
     const activeEntry = dayEntries.find((e) => e.id === active.id);
     if (!activeEntry) return;
 
     const overId = over.id as string;
-    const overEntry = dayEntries.find((e) => e.id === overId);
+    const api = getApiClient();
 
-    if (overEntry) {
-      if (activeEntry.slot === overEntry.slot && activeEntry.date === overEntry.date) {
-        const slotUngrouped = dayEntries
-          .filter((e) => e.date === activeEntry.date && e.slot === activeEntry.slot && !e.groupId)
-          .sort((a, b) => a.position - b.position);
-        const oldIdx = slotUngrouped.findIndex((e) => e.id === active.id);
-        const newIdx = slotUngrouped.findIndex((e) => e.id === overId);
-        if (oldIdx !== -1 && newIdx !== -1) {
-          const reordered = arrayMove(slotUngrouped, oldIdx, newIdx);
-          reorderEntriesMutation.mutate({
-            slot: activeEntry.slot,
-            date: activeEntry.date,
-            entryIds: reordered.map((e) => e.id),
-            planId: activeMealPlan!.id,
-            weekStart,
-          });
-        }
-      } else {
-        moveEntryMutation.mutate({ entryId: active.id as string, toSlot: overEntry.slot, toPosition: overEntry.position, weekStart });
-      }
+    if (overId.startsWith('slot-')) {
+      const targetSlot = overId.replace('slot-', '') as DaySlot;
+      if (targetSlot === activeEntry.slot) return;
+      const position = dayEntries.filter((e) => e.date === activeEntry.date && e.slot === targetSlot).length;
+      moveEntryMutation.mutate({
+        entryId: active.id as string,
+        toSlot: targetSlot,
+        toPosition: position,
+        weekStart,
+      });
+      return;
     }
-  }, [dayEntries, moveEntryMutation, reorderEntriesMutation, activeMealPlan, weekStart]);
+
+    if (overId.startsWith('entry-')) {
+      const targetId = overId.replace('entry-', '');
+      const targetEntry = dayEntries.find((e) => e.id === targetId);
+      if (!targetEntry || targetEntry.id === activeEntry.id) return;
+      if (activeEntry.groupId && targetEntry.groupId === activeEntry.groupId) return;
+
+      (async () => {
+        let groupId: string;
+        let groupSlot = targetEntry.slot;
+        let groupDate = targetEntry.date;
+
+        if (!activeEntry.groupId && !targetEntry.groupId) {
+          const groups = await api.getMealGroupsByMealPlanId(activeMealPlan.id);
+          const group = await api.createMealGroup(
+            activeMealPlan.id,
+            targetEntry.date,
+            targetEntry.slot,
+            'Meal',
+            groups.filter((g) => g.date === targetEntry.date && g.slot === targetEntry.slot).length,
+          );
+          groupId = group.id;
+          await api.updateDayPlanEntry(targetEntry.id, { groupId } as any);
+        } else {
+          groupId = (targetEntry.groupId || activeEntry.groupId)!;
+          const group = mealGroups.find((g) => g.id === groupId);
+          if (group) {
+            groupSlot = group.slot;
+            groupDate = group.date;
+          }
+        }
+
+        await api.updateDayPlanEntry(active.id as string, {
+          slot: groupSlot,
+          date: groupDate,
+          groupId,
+        } as any);
+
+        qc.invalidateQueries({ queryKey: queryKeys.mealPlans.byWeek(weekStart) });
+      })();
+    }
+  }, [dayEntries, moveEntryMutation, activeMealPlan, weekStart, mealGroups, qc]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(event.active.id as string);
@@ -659,11 +689,8 @@ export default function WeeklyPlanPage() {
                       </div>
                     </div>
 
-                    <SortableContext
-                      items={ungroupedEntries.map((e) => e.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <div className="space-y-1.5">
+                    <DroppableSlot slotId={`slot-${slot}`}>
+                      <div className="space-y-1.5 min-h-[2rem]">
                         {slotGroups.map((group) => {
                           const groupEnts = groupedEntries.filter(
                             (e) => e.groupId === group.id
@@ -711,13 +738,9 @@ export default function WeeklyPlanPage() {
                                 </div>
                               </div>
                               <div className="ml-5 mt-1 space-y-1">
-                                {groupEnts.map((entry) => {
-                                  const recipe = recipes.find(
-                                    (r) => r.id === entry.recipeId
-                                  );
-                                  return (
+                                {groupEnts.map((entry) => (
+                                  <DroppableEntry key={entry.id} entryId={`entry-${entry.id}`}>
                                     <EntryRow
-                                      key={entry.id}
                                       entry={entry}
                                       recipeName={getEntryName(entry)}
                                       isDragOverlay={false}
@@ -725,8 +748,8 @@ export default function WeeklyPlanPage() {
                                       onRemoveFromGroup={() => removeFromGroupMutation.mutate({ entryId: entry.id, weekStart })}
                                       isCompleted={completedRecipeMap[entry.recipeId ?? ''] === entry.date}
                                     />
-                                  );
-                                })}
+                                  </DroppableEntry>
+                                ))}
                               </div>
                             </div>
                           );
@@ -753,8 +776,8 @@ export default function WeeklyPlanPage() {
                                 setSelectedGroupId(null);
                               }
                             }}
-onRemove={() => removeEntryMutation.mutate({ entryId: entry.id, weekStart })}
-                    onRemoveFromGroup={() => removeFromGroupMutation.mutate({ entryId: entry.id, weekStart })}
+                            onRemove={() => removeEntryMutation.mutate({ entryId: entry.id, weekStart })}
+                            onRemoveFromGroup={() => removeFromGroupMutation.mutate({ entryId: entry.id, weekStart })}
                             onToggleLeftover={() => toggleLeftoverMutation.mutate({ entryId: entry.id, isLeftover: !entry.isLeftover, weekStart })}
                             egl={getEntryGL(entry)}
                           />
@@ -766,7 +789,7 @@ onRemove={() => removeEntryMutation.mutate({ entryId: entry.id, weekStart })}
                           </p>
                         )}
                       </div>
-                    </SortableContext>
+                    </DroppableSlot>
 
                     <DragOverlay>
                       {dragActiveId ? (
@@ -1194,17 +1217,26 @@ function SortableEntryRow({
   isCompleted?: boolean;
   egl?: GLResult | null;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: entry.id,
   });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `entry-${entry.id}`,
+  });
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative',
   };
 
   const isInGroupSelection = selectedForGroup.includes(entry.id);
 
   return (
+    <div
+      ref={setDropRef}
+      className={isOver ? 'ring-2 ring-emerald-300 rounded-md' : ''}
+    >
     <div
       ref={setNodeRef}
       style={style}
@@ -1262,6 +1294,25 @@ function SortableEntryRow({
           </Button>
         </>
       )}
+    </div>
+    </div>
+  );
+}
+
+function DroppableSlot({ slotId, children }: { slotId: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: slotId });
+  return (
+    <div ref={setNodeRef} className={isOver ? 'rounded-lg bg-emerald-50/50 transition-colors' : ''}>
+      {children}
+    </div>
+  );
+}
+
+function DroppableEntry({ entryId, children }: { entryId: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: entryId });
+  return (
+    <div ref={setNodeRef} className={isOver ? 'ring-2 ring-emerald-300 rounded-md' : ''}>
+      {children}
     </div>
   );
 }
