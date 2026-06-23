@@ -244,6 +244,94 @@ func TestMealPlanHandlerCRUD(t *testing.T) {
 	}
 }
 
+func TestDayPlanEntryPartialUpdate(t *testing.T) {
+	env := newTestEnv(t)
+
+	// Create a meal plan
+	w := env.doRequest("POST", "/api/meal-plans", map[string]interface{}{
+		"name": "Week 1", "weekStart": "2025-01-13",
+	})
+	if w.Code != 201 {
+		t.Fatalf("create plan: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m := decodeJSON(t, w)
+	planID := m["data"].(map[string]interface{})["id"].(string)
+
+	// Create an entry with full data
+	w = env.doRequest("POST", "/api/meal-plans/"+planID+"/entries", map[string]interface{}{
+		"date": "2025-01-13", "slot": "morning", "sourceType": "recipe",
+		"position": 0, "servings": 2,
+	})
+	if w.Code != 201 {
+		t.Fatalf("create entry: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	entryID := m["data"].(map[string]interface{})["id"].(string)
+
+	// Partial PUT: only groupId (simulates grouping)
+	w = env.doRequest("PUT", "/api/entries/"+entryID, map[string]interface{}{
+		"groupId": "grp-123",
+	})
+	if w.Code != 200 {
+		t.Fatalf("partial update (groupId): status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	data := m["data"].(map[string]interface{})
+	if data["date"] != "2025-01-13" {
+		t.Errorf("date overwritten: got %v, want 2025-01-13", data["date"])
+	}
+	if data["slot"] != "morning" {
+		t.Errorf("slot overwritten: got %v, want morning", data["slot"])
+	}
+	if data["servings"] != float64(2) {
+		t.Errorf("servings overwritten: got %v, want 2", data["servings"])
+	}
+	if data["groupId"] != "grp-123" {
+		t.Errorf("groupId not set: got %v, want grp-123", data["groupId"])
+	}
+
+	// Partial PUT: only slot + position (simulates drag-to-move)
+	w = env.doRequest("PUT", "/api/entries/"+entryID, map[string]interface{}{
+		"slot": "noon", "position": 3,
+	})
+	if w.Code != 200 {
+		t.Fatalf("partial update (move): status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	data = m["data"].(map[string]interface{})
+	if data["date"] != "2025-01-13" {
+		t.Errorf("date overwritten on move: got %v, want 2025-01-13", data["date"])
+	}
+	if data["slot"] != "noon" {
+		t.Errorf("slot not updated: got %v, want noon", data["slot"])
+	}
+	if data["position"] != float64(3) {
+		t.Errorf("position not updated: got %v, want 3", data["position"])
+	}
+	if data["servings"] != float64(2) {
+		t.Errorf("servings overwritten on move: got %v, want 2", data["servings"])
+	}
+	if data["groupId"] != "grp-123" {
+		t.Errorf("groupId lost on move: got %v, want grp-123", data["groupId"])
+	}
+
+	// Partial PUT: groupId=null (simulates ungrouping)
+	w = env.doRequest("PUT", "/api/entries/"+entryID, map[string]interface{}{
+		"groupId": nil,
+	})
+	if w.Code != 200 {
+		t.Fatalf("partial update (ungroup): status = %d, body = %s", w.Code, w.Body.String())
+	}
+	m = decodeJSON(t, w)
+	data = m["data"].(map[string]interface{})
+	if _, exists := data["groupId"]; exists {
+		t.Errorf("groupId should be unset, got %v", data["groupId"])
+	}
+	if data["slot"] != "noon" {
+		t.Errorf("slot overwritten on ungroup: got %v, want noon", data["slot"])
+	}
+}
+
 func TestBookHandlerCRUD(t *testing.T) {
 	env := newTestEnv(t)
 

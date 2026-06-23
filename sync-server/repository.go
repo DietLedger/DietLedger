@@ -65,6 +65,7 @@ type Store interface {
 
 	// Day plan entries
 	ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, error)
+	GetDayPlanEntryByID(id string) (*DayPlanEntry, error)
 	CreateDayPlanEntry(mealPlanID string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
 	UpdateDayPlanEntry(id string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
 	DeleteDayPlanEntry(id string) error

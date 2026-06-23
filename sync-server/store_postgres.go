@@ -865,6 +865,20 @@ func (s *PostgresStore) ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, e
 	return entries, nil
 }
 
+func (s *PostgresStore) GetDayPlanEntryByID(id string) (*DayPlanEntry, error) {
+	var e DayPlanEntry
+	err := s.db.QueryRow(
+		`SELECT id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM day_plan_entries WHERE id = $1`, id,
+	).Scan(&e.ID, &e.MealPlanID, &e.Date, &e.Slot, &e.RecipeID, &e.Position, &e.GroupID, &e.Servings, &e.IsLeftover, &e.SourceType, &e.FoodName, &e.Calories, &e.TotalFat, &e.SaturatedFat, &e.TransFat, &e.Cholesterol, &e.Sodium, &e.TotalCarbs, &e.DietaryFiber, &e.TotalSugars, &e.AddedSugars, &e.Protein, &e.VitaminD, &e.Calcium, &e.Iron, &e.Potassium, &e.CreatedAt, &e.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 func (s *PostgresStore) CreateDayPlanEntry(mealPlanID string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()

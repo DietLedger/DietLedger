@@ -648,7 +648,20 @@ func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, me
 func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, id string) {
 	switch r.Method {
 	case "PUT":
+		existing, err := s.store.GetDayPlanEntryByID(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get entry")
+			return
+		}
+		if existing == nil {
+			writeError(w, http.StatusNotFound, "entry not found")
+			return
+		}
+		// Seed request with existing values so a partial body only overwrites
+		// the fields it actually provides (PATCH semantics over PUT).
 		var req CreateDayPlanEntryRequest
+		base, _ := json.Marshal(existing)
+		json.Unmarshal(base, &req)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
