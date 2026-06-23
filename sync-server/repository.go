@@ -135,6 +135,7 @@ type Store interface {
 	ReorderBookLevelItems(bookID string, items []BookLevelItem) error
 	ReorderChapterItems(chapterID string, items []ChapterItem) error
 	MoveRecipeBetweenChapters(chapterRecipeID, targetChapterID string, position int) error
+	MovePageBetweenChapters(pageID, targetChapterID string, position int) error
 	ConvertChapterPageToBookPage(pageID, bookID string, position int) (*BookPage, error)
 	ConvertBookPageToChapterPage(pageID, chapterID string, position int) (*ChapterPage, error)
 

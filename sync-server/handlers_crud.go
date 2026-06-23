@@ -1060,6 +1060,32 @@ func (s *Server) moveChapterRecipeHandler(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, APIResponse{OK: true})
 }
 
+// movePageBetweenChaptersHandler moves a chapter page from one chapter to
+// another, addressed by POST /api/pages/{pageID}/move.
+func (s *Server) movePageBetweenChaptersHandler(w http.ResponseWriter, r *http.Request, pageID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		TargetChapterID string `json:"targetChapterId"`
+		Position        int    `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.TargetChapterID == "" {
+		writeError(w, http.StatusBadRequest, "targetChapterId is required")
+		return
+	}
+	if err := s.store.MovePageBetweenChapters(pageID, req.TargetChapterID, req.Position); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to move page")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true})
+}
+
 // convertPageToBookHandler moves a chapter page to the book level,
 // addressed by POST /api/pages/{pageID}/to-book.
 func (s *Server) convertPageToBookHandler(w http.ResponseWriter, r *http.Request, pageID string) {

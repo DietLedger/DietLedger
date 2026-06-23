@@ -468,6 +468,10 @@ export class GoApiClient implements ApiClient {
     });
   }
 
+  async movePageBetweenChapters(pageId: string, targetChapterId: string, position: number): Promise<void> {
+    await this.request('POST', `/api/pages/${pageId}/move`, { targetChapterId, position });
+  }
+
   async convertChapterPageToBookPage(pageId: string, bookId: string, position: number): Promise<void> {
     await this.request('POST', `/api/pages/${pageId}/to-book`, { bookId, position });
   }

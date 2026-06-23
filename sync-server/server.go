@@ -283,6 +283,9 @@ func (s *Server) pageRoutes(w http.ResponseWriter, r *http.Request) {
 		case "to-chapter":
 			s.convertPageToChapterHandler(w, r, pageID)
 			return
+		case "move":
+			s.movePageBetweenChaptersHandler(w, r, pageID)
+			return
 		}
 	}
 	s.chapterPageItemRouter(w, r, pageID)

@@ -1463,6 +1463,24 @@ func (s *PostgresStore) MoveRecipeBetweenChapters(chapterRecipeID, targetChapter
 	return tx.Commit()
 }
 
+func (s *PostgresStore) MovePageBetweenChapters(pageID, targetChapterID string, position int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	// Make room at the insertion index in the target chapter.
+	if _, err := tx.Exec(`UPDATE chapter_pages SET position = position + 1 WHERE chapter_id = $1 AND position >= $2 AND id <> $3`, targetChapterID, position, pageID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	// Move the page into the target chapter at the requested position.
+	if _, err := tx.Exec(`UPDATE chapter_pages SET chapter_id = $1, position = $2 WHERE id = $3`, targetChapterID, position, pageID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *PostgresStore) ConvertChapterPageToBookPage(pageID, bookID string, position int) (*BookPage, error) {
 	tx, err := s.db.Begin()
 	if err != nil {

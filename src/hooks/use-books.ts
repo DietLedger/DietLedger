@@ -277,3 +277,14 @@ export function useMovePageToChapter() {
     },
   });
 }
+
+export function useMovePageBetweenChapters() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pageId, targetChapterId, position, bookId }: { pageId: string; targetChapterId: string; position: number; bookId: string }) =>
+      getApiClient().movePageBetweenChapters(pageId, targetChapterId, position),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
+    },
+  });
+}

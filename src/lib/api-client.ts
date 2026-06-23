@@ -167,6 +167,7 @@ export interface ApiClient {
     items: Array<{ type: 'recipe'; recipeId: string } | { type: 'page'; pageId: string }>
   ): Promise<void>;
   moveRecipeBetweenChapters(chapterRecipeId: string, targetChapterId: string, position: number): Promise<void>;
+  movePageBetweenChapters(pageId: string, targetChapterId: string, position: number): Promise<void>;
   convertChapterPageToBookPage(pageId: string, bookId: string, position: number): Promise<void>;
   convertBookPageToChapterPage(pageId: string, chapterId: string, position: number): Promise<void>;
 

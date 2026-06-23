@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useAddRecipeToChapter } from '@/hooks/use-books';
+import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useMovePageBetweenChapters, useAddRecipeToChapter } from '@/hooks/use-books';
 import { useRecipes } from '@/hooks/use-recipes';
 import type { RecipeRecord } from '@/lib/types';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
@@ -267,6 +267,7 @@ export default function BookDetailPage() {
   const moveRecipeToChapterMutation = useMoveRecipeToChapter();
   const movePageToBookLevelMutation = useMovePageToBookLevel();
   const movePageToChapterMutation = useMovePageToChapter();
+  const movePageBetweenChaptersMutation = useMovePageBetweenChapters();
   const addRecipeToChapterMutation = useAddRecipeToChapter();
 
   useSetBreadcrumbLabel(`/books/${bookId}`, activeBook?.title);
@@ -383,11 +384,10 @@ export default function BookDetailPage() {
       const overIdx = targetItems ? targetItems.findIndex(i => i.sortableId === over.id) : -1;
       const targetPos = overIdx >= 0 ? overIdx : (targetItems ? targetItems.length : 0);
       if (aData.pageId) {
-        await movePageToBookLevelMutation.mutateAsync({ pageId: aData.pageId, bookId, position: bookLevelItems.length });
-        await movePageToChapterMutation.mutateAsync({ pageId: aData.pageId, chapterId: oContainer, position: targetPos, bookId });
+        await movePageBetweenChaptersMutation.mutateAsync({ pageId: aData.pageId, targetChapterId: oContainer, position: targetPos, bookId });
       }
     }
-  }, [activeBook, bookId, bookLevelItems, chapterItemsMap, reorderBookLevelItemsMutation, reorderChapterItemsMutation, moveRecipeToChapterMutation, movePageToBookLevelMutation, movePageToChapterMutation]);
+  }, [activeBook, bookId, bookLevelItems, chapterItemsMap, reorderBookLevelItemsMutation, reorderChapterItemsMutation, moveRecipeToChapterMutation, movePageToBookLevelMutation, movePageToChapterMutation, movePageBetweenChaptersMutation]);
 
   const handleAddChapter = useCallback(async () => {
     if (!newChapterTitle.trim() || !bookId) return;
