@@ -296,13 +296,13 @@ export default function WeeklyPlanPage() {
 
     if (overEntry) {
       if (activeEntry.slot === overEntry.slot && activeEntry.date === overEntry.date) {
-        const slotEntries = dayEntries
-          .filter((e) => e.date === activeEntry.date && e.slot === activeEntry.slot)
+        const slotUngrouped = dayEntries
+          .filter((e) => e.date === activeEntry.date && e.slot === activeEntry.slot && !e.groupId)
           .sort((a, b) => a.position - b.position);
-        const oldIdx = slotEntries.findIndex((e) => e.id === active.id);
-        const newIdx = slotEntries.findIndex((e) => e.id === overId);
+        const oldIdx = slotUngrouped.findIndex((e) => e.id === active.id);
+        const newIdx = slotUngrouped.findIndex((e) => e.id === overId);
         if (oldIdx !== -1 && newIdx !== -1) {
-          const reordered = arrayMove(slotEntries, oldIdx, newIdx);
+          const reordered = arrayMove(slotUngrouped, oldIdx, newIdx);
           reorderEntriesMutation.mutate({
             slot: activeEntry.slot,
             date: activeEntry.date,
@@ -660,7 +660,7 @@ export default function WeeklyPlanPage() {
                     </div>
 
                     <SortableContext
-                      items={slotEntries.map((e) => e.id)}
+                      items={ungroupedEntries.map((e) => e.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="space-y-1.5">
@@ -722,6 +722,7 @@ export default function WeeklyPlanPage() {
                                       recipeName={getEntryName(entry)}
                                       isDragOverlay={false}
                                       onToggleLeftover={() => toggleLeftoverMutation.mutate({ entryId: entry.id, isLeftover: !entry.isLeftover, weekStart })}
+                                      onRemoveFromGroup={() => removeFromGroupMutation.mutate({ entryId: entry.id, weekStart })}
                                       isCompleted={completedRecipeMap[entry.recipeId ?? ''] === entry.date}
                                     />
                                   );
@@ -1265,7 +1266,7 @@ function SortableEntryRow({
   );
 }
 
-function EntryRow({ entry, recipeName, isDragOverlay, onToggleLeftover, isCompleted }: { entry: DayPlanEntryRecord; recipeName: string; isDragOverlay: boolean; onToggleLeftover?: () => void; isCompleted?: boolean }) {
+function EntryRow({ entry, recipeName, isDragOverlay, onToggleLeftover, onRemoveFromGroup, isCompleted }: { entry: DayPlanEntryRecord; recipeName: string; isDragOverlay: boolean; onToggleLeftover?: () => void; onRemoveFromGroup?: () => void; isCompleted?: boolean }) {
   if (isDragOverlay) {
     return (
       <div className="flex items-center gap-2 px-2 py-1 text-sm text-stone-600">
@@ -1289,6 +1290,17 @@ function EntryRow({ entry, recipeName, isDragOverlay, onToggleLeftover, isComple
       )}
       {entry.servings > 1 && (
         <Badge variant="secondary" className="text-xs h-4">×{entry.servings}</Badge>
+      )}
+      {onRemoveFromGroup && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 w-5 p-0 text-stone-400 hover:text-amber-500"
+          onClick={(e) => { e.stopPropagation(); onRemoveFromGroup(); }}
+          title="Remove from group"
+        >
+          <Minus className="w-3 h-3" />
+        </Button>
       )}
       <Button
         variant="ghost"
