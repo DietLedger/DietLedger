@@ -130,6 +130,14 @@ type Store interface {
 	UpdateBookPage(id, title, content string, position int) (*BookPage, error)
 	DeleteBookPage(id string) error
 
+	// Book/chapter ordering & moves (the book level interleaves chapters and
+	// book pages by position; a chapter interleaves recipes and pages).
+	ReorderBookLevelItems(bookID string, items []BookLevelItem) error
+	ReorderChapterItems(chapterID string, items []ChapterItem) error
+	MoveRecipeBetweenChapters(chapterRecipeID, targetChapterID string, position int) error
+	ConvertChapterPageToBookPage(pageID, bookID string, position int) (*BookPage, error)
+	ConvertBookPageToChapterPage(pageID, chapterID string, position int) (*ChapterPage, error)
+
 	// API keys
 	ListAPIKeys(userID string) ([]ApiKey, error)
 	CreateAPIKey(userID, name, permissions string) (*ApiKey, string, error)

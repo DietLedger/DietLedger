@@ -331,6 +331,21 @@ type BookPage struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// BookLevelItem is one entry in a book's top-level ordering. The book level
+// interleaves chapters and standalone book pages, ranked by a shared position.
+type BookLevelItem struct {
+	ID   string `json:"id"`
+	Type string `json:"type"` // "chapter" | "book-page"
+}
+
+// ChapterItem is one entry in a chapter's ordering. A chapter interleaves its
+// recipes and pages, ranked by a shared position.
+type ChapterItem struct {
+	Type     string `json:"type"` // "recipe" | "page"
+	RecipeID string `json:"recipeId,omitempty"`
+	PageID   string `json:"pageId,omitempty"`
+}
+
 type ApiKey struct {
 	ID          string     `json:"id"`
 	UserID      string     `json:"userId"`

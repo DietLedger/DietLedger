@@ -168,6 +168,23 @@ Consult ARCHITECTURE.md before making architectural decisions.
 
 ---
 
+# Deployment Rules
+
+The backend (Go API) and frontend (Next.js) both run as Docker containers on a
+remote host (`deploy.example.invalid`). A local `go build` / `npm run build` does NOT update
+the running services — only a rebuilt Docker image deployed to the host does.
+
+When producing a deployable tar, follow the conventions in `build-all.bat`:
+
+* Build both images via `docker buildx bake --load -f docker-compose.build.yml`.
+* Save a **single combined tar**: `docker save -o docker-build/dietledger-{VERSION}.tar recipetool-dietledger recipetool-api` (VERSION from `package.json`).
+* Copy `docker-compose.yml` into `docker-build/`.
+* Remote deployment is operator-managed; remote-operation tooling is not included.
+
+Do not invent alternative tar names, locations, or single-image tars.
+
+---
+
 # Nutrition Domain Rules
 
 Nutrition calculations are high-risk functionality.

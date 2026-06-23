@@ -57,6 +57,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/books/", s.requireAuth(s.bookRoutes))
 	mux.HandleFunc("/api/books", s.requireAuth(s.booksRouter))
 
+	mux.HandleFunc("/api/chapters/", s.requireAuth(s.chapterRoutes))
+	mux.HandleFunc("/api/pages/", s.requireAuth(s.pageRoutes))
+	mux.HandleFunc("/api/chapter-recipes/", s.requireAuth(s.chapterRecipeItemRoutes))
+
 	mux.HandleFunc("/api/categories/", s.requireAuth(s.categoryRoutes))
 	mux.HandleFunc("/api/categories", s.requireAuth(s.categoriesRouter))
 
@@ -226,6 +230,80 @@ func (s *Server) mealPlanRoutes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) bookRoutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/books/")
 	s.bookItemRouter(w, r, path)
+}
+
+// chapterRoutes dispatches the flat chapter routes addressed directly by
+// chapter ID. Chapters have globally unique IDs, so chapter-scoped operations
+// (recipes, pages, update, delete) do not require the parent book ID. These
+// mirror the nested /api/books/{bookID}/chapters/... routes.
+func (s *Server) chapterRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/chapters/")
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "chapter id is required")
+		return
+	}
+	parts := strings.SplitN(path, "/", 3)
+	chapterID := parts[0]
+	if len(parts) == 1 {
+		s.chapterItemRouter(w, r, chapterID)
+		return
+	}
+	switch parts[1] {
+	case "recipes":
+		s.chapterRecipesRouter(w, r, chapterID)
+		return
+	case "pages":
+		s.chapterPagesRouter(w, r, chapterID)
+		return
+	case "items":
+		s.chapterItemsReorderHandler(w, r, chapterID)
+		return
+	}
+	writeError(w, http.StatusNotFound, "not found")
+}
+
+// pageRoutes dispatches the flat chapter-page routes addressed directly by
+// page ID (update/delete of a single chapter page, or conversion between
+// chapter pages and book pages).
+func (s *Server) pageRoutes(w http.ResponseWriter, r *http.Request) {
+	pagePath := strings.TrimPrefix(r.URL.Path, "/api/pages/")
+	pagePath = strings.TrimSuffix(pagePath, "/")
+	parts := strings.SplitN(pagePath, "/", 2)
+	pageID := parts[0]
+	if pageID == "" {
+		writeError(w, http.StatusBadRequest, "page id is required")
+		return
+	}
+	if len(parts) >= 2 {
+		switch parts[1] {
+		case "to-book":
+			s.convertPageToBookHandler(w, r, pageID)
+			return
+		case "to-chapter":
+			s.convertPageToChapterHandler(w, r, pageID)
+			return
+		}
+	}
+	s.chapterPageItemRouter(w, r, pageID)
+}
+
+// chapterRecipeItemRoutes dispatches operations on a single chapter-recipe join
+// row addressed by its own ID (e.g. moving it between chapters).
+func (s *Server) chapterRecipeItemRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/chapter-recipes/")
+	path = strings.TrimSuffix(path, "/")
+	parts := strings.SplitN(path, "/", 2)
+	chapterRecipeID := parts[0]
+	if chapterRecipeID == "" {
+		writeError(w, http.StatusBadRequest, "chapter recipe id is required")
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "move" {
+		s.moveChapterRecipeHandler(w, r, chapterRecipeID)
+		return
+	}
+	writeError(w, http.StatusNotFound, "not found")
 }
 
 func (s *Server) categoryRoutes(w http.ResponseWriter, r *http.Request) {

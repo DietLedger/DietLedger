@@ -767,6 +767,11 @@ func (s *Server) bookItemRouter(w http.ResponseWriter, r *http.Request, id strin
 		s.bookPagesRouter(w, r, bookID)
 		return
 	}
+	if strings.HasSuffix(path, "/items/reorder") {
+		bookID := strings.SplitN(id, "/", 2)[0]
+		s.bookItemsReorderHandler(w, r, bookID)
+		return
+	}
 	switch r.Method {
 	case "GET":
 		book, err := s.store.GetBook(user.ID, id)
@@ -816,28 +821,7 @@ func (s *Server) chaptersRouter(w http.ResponseWriter, r *http.Request, bookID s
 				return
 			}
 		}
-		switch r.Method {
-		case "PUT":
-			var req CreateChapterRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid JSON")
-				return
-			}
-			ch, err := s.store.UpdateChapter(chapterID, &req)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to update chapter")
-				return
-			}
-			writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: ch})
-		case "DELETE":
-			if err := s.store.DeleteChapter(chapterID); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to delete chapter")
-				return
-			}
-			writeJSON(w, http.StatusOK, APIResponse{OK: true})
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		}
+		s.chapterItemRouter(w, r, chapterID)
 		return
 	}
 	switch r.Method {
@@ -863,6 +847,31 @@ func (s *Server) chaptersRouter(w http.ResponseWriter, r *http.Request, bookID s
 			return
 		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: ch})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) chapterItemRouter(w http.ResponseWriter, r *http.Request, chapterID string) {
+	switch r.Method {
+	case "PUT":
+		var req CreateChapterRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		ch, err := s.store.UpdateChapter(chapterID, &req)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update chapter")
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: ch})
+	case "DELETE":
+		if err := s.store.DeleteChapter(chapterID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete chapter")
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{OK: true})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -896,6 +905,12 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 	case "DELETE":
 		recipeID := r.URL.Query().Get("recipeId")
 		if recipeID == "" {
+			// Fall back to a path segment: .../recipes/{recipeId}
+			if idx := strings.LastIndex(r.URL.Path, "/recipes/"); idx >= 0 {
+				recipeID = strings.TrimSuffix(r.URL.Path[idx+len("/recipes/"):], "/")
+			}
+		}
+		if recipeID == "" {
 			writeError(w, http.StatusBadRequest, "recipeId is required")
 			return
 		}
@@ -912,33 +927,7 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 func (s *Server) chapterPagesRouter(w http.ResponseWriter, r *http.Request, chapterID string) {
 	parts := strings.Split(r.URL.Path, "/pages/")
 	if len(parts) > 1 && parts[1] != "" {
-		pageID := parts[1]
-		switch r.Method {
-		case "PUT":
-			var req struct {
-				Title    string `json:"title"`
-				Content  string `json:"content"`
-				Position int    `json:"position"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid JSON")
-				return
-			}
-			p, err := s.store.UpdateChapterPage(pageID, req.Title, req.Content, req.Position)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to update page")
-				return
-			}
-			writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
-		case "DELETE":
-			if err := s.store.DeleteChapterPage(pageID); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to delete page")
-				return
-			}
-			writeJSON(w, http.StatusOK, APIResponse{OK: true})
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		}
+		s.chapterPageItemRouter(w, r, parts[1])
 		return
 	}
 	switch r.Method {
@@ -969,6 +958,160 @@ func (s *Server) chapterPagesRouter(w http.ResponseWriter, r *http.Request, chap
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// chapterPageItemRouter handles update/delete of a single chapter page by ID.
+func (s *Server) chapterPageItemRouter(w http.ResponseWriter, r *http.Request, pageID string) {
+	switch r.Method {
+	case "PUT":
+		var req struct {
+			Title    string `json:"title"`
+			Content  string `json:"content"`
+			Position int    `json:"position"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		p, err := s.store.UpdateChapterPage(pageID, req.Title, req.Content, req.Position)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update page")
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
+	case "DELETE":
+		if err := s.store.DeleteChapterPage(pageID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete page")
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{OK: true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// ── Ordering & moves ─────────────────────────────────────────────────
+
+// bookItemsReorderHandler reorders the interleaved book-level list
+// (chapters + book pages) addressed by PUT /api/books/{bookID}/items/reorder.
+func (s *Server) bookItemsReorderHandler(w http.ResponseWriter, r *http.Request, bookID string) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Items []BookLevelItem `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := s.store.ReorderBookLevelItems(bookID, req.Items); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder book items")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true})
+}
+
+// chapterItemsReorderHandler reorders the interleaved chapter list
+// (recipes + pages) addressed by PUT /api/chapters/{chapterID}/items/reorder.
+func (s *Server) chapterItemsReorderHandler(w http.ResponseWriter, r *http.Request, chapterID string) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Items []ChapterItem `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := s.store.ReorderChapterItems(chapterID, req.Items); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder chapter items")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true})
+}
+
+// moveChapterRecipeHandler moves a recipe from one chapter to another,
+// addressed by POST /api/chapter-recipes/{chapterRecipeID}/move.
+func (s *Server) moveChapterRecipeHandler(w http.ResponseWriter, r *http.Request, chapterRecipeID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		TargetChapterID string `json:"targetChapterId"`
+		Position        int    `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.TargetChapterID == "" {
+		writeError(w, http.StatusBadRequest, "targetChapterId is required")
+		return
+	}
+	if err := s.store.MoveRecipeBetweenChapters(chapterRecipeID, req.TargetChapterID, req.Position); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to move recipe")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true})
+}
+
+// convertPageToBookHandler moves a chapter page to the book level,
+// addressed by POST /api/pages/{pageID}/to-book.
+func (s *Server) convertPageToBookHandler(w http.ResponseWriter, r *http.Request, pageID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		BookID   string `json:"bookId"`
+		Position int    `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.BookID == "" {
+		writeError(w, http.StatusBadRequest, "bookId is required")
+		return
+	}
+	p, err := s.store.ConvertChapterPageToBookPage(pageID, req.BookID, req.Position)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to convert page")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
+}
+
+// convertPageToChapterHandler moves a book page into a chapter,
+// addressed by POST /api/pages/{pageID}/to-chapter.
+func (s *Server) convertPageToChapterHandler(w http.ResponseWriter, r *http.Request, pageID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		ChapterID string `json:"chapterId"`
+		Position  int    `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.ChapterID == "" {
+		writeError(w, http.StatusBadRequest, "chapterId is required")
+		return
+	}
+	p, err := s.store.ConvertBookPageToChapterPage(pageID, req.ChapterID, req.Position)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to convert page")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
 }
 
 func (s *Server) bookPagesRouter(w http.ResponseWriter, r *http.Request, bookID string) {

@@ -441,6 +441,41 @@ export class GoApiClient implements ApiClient {
     await this.request('DELETE', `/api/book-pages/${id}`);
   }
 
+  // ── Book/chapter ordering & moves ─────────────────────────────────
+
+  async reorderBookLevelItems(
+    bookId: string,
+    items: Array<{ id: string; type: 'chapter' | 'book-page' }>
+  ): Promise<void> {
+    await this.request('PUT', `/api/books/${bookId}/items/reorder`, { items });
+  }
+
+  async reorderChapterItems(
+    chapterId: string,
+    items: Array<{ type: 'recipe'; recipeId: string } | { type: 'page'; pageId: string }>
+  ): Promise<void> {
+    await this.request('PUT', `/api/chapters/${chapterId}/items/reorder`, { items });
+  }
+
+  async moveRecipeBetweenChapters(
+    chapterRecipeId: string,
+    targetChapterId: string,
+    position: number
+  ): Promise<void> {
+    await this.request('POST', `/api/chapter-recipes/${chapterRecipeId}/move`, {
+      targetChapterId,
+      position,
+    });
+  }
+
+  async convertChapterPageToBookPage(pageId: string, bookId: string, position: number): Promise<void> {
+    await this.request('POST', `/api/pages/${pageId}/to-book`, { bookId, position });
+  }
+
+  async convertBookPageToChapterPage(pageId: string, chapterId: string, position: number): Promise<void> {
+    await this.request('POST', `/api/pages/${pageId}/to-chapter`, { chapterId, position });
+  }
+
   // ── Categories ───────────────────────────────────────────────────
 
   async getCategories(): Promise<CategoryRecord[]> {

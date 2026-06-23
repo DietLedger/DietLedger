@@ -9,6 +9,7 @@ const PROXY_ROUTES = [
   '/api/books',
   '/api/chapters/',
   '/api/pages/',
+  '/api/chapter-recipes/',
   '/api/book-pages/',
   '/api/categories',
   '/api/meal-plans',

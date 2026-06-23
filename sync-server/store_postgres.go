@@ -1388,6 +1388,149 @@ func (s *PostgresStore) DeleteBookPage(id string) error {
 	return err
 }
 
+// ── Book/chapter ordering & moves ────────────────────────────────────
+//
+// Positions only need to reflect relative order; gaps are harmless because
+// every list query uses ORDER BY position. Reorders rewrite positions across
+// the interleaved tables by index; moves shift items at/after the insertion
+// index to make room, then place the moved row.
+
+func (s *PostgresStore) ReorderBookLevelItems(bookID string, items []BookLevelItem) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for i, item := range items {
+		switch item.Type {
+		case "chapter":
+			if _, err := tx.Exec(`UPDATE chapters SET position = $1 WHERE id = $2 AND book_id = $3`, i, item.ID, bookID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		case "book-page":
+			if _, err := tx.Exec(`UPDATE book_pages SET position = $1 WHERE id = $2 AND book_id = $3`, i, item.ID, bookID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) ReorderChapterItems(chapterID string, items []ChapterItem) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for i, item := range items {
+		switch item.Type {
+		case "recipe":
+			if item.RecipeID == "" {
+				continue
+			}
+			if _, err := tx.Exec(`UPDATE chapter_recipes SET position = $1 WHERE chapter_id = $2 AND recipe_id = $3`, i, chapterID, item.RecipeID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		case "page":
+			if item.PageID == "" {
+				continue
+			}
+			if _, err := tx.Exec(`UPDATE chapter_pages SET position = $1 WHERE id = $2 AND chapter_id = $3`, i, item.PageID, chapterID); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) MoveRecipeBetweenChapters(chapterRecipeID, targetChapterID string, position int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	// Make room at the insertion index in the target chapter.
+	if _, err := tx.Exec(`UPDATE chapter_recipes SET position = position + 1 WHERE chapter_id = $1 AND position >= $2 AND id <> $3`, targetChapterID, position, chapterRecipeID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	// Move the recipe into the target chapter at the requested position.
+	if _, err := tx.Exec(`UPDATE chapter_recipes SET chapter_id = $1, position = $2 WHERE id = $3`, targetChapterID, position, chapterRecipeID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) ConvertChapterPageToBookPage(pageID, bookID string, position int) (*BookPage, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	var title, content string
+	if err := tx.QueryRow(`SELECT title, content FROM chapter_pages WHERE id = $1`, pageID).Scan(&title, &content); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	// Make room at the insertion index across the merged book-level list.
+	if _, err := tx.Exec(`UPDATE chapters SET position = position + 1 WHERE book_id = $1 AND position >= $2`, bookID, position); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE book_pages SET position = position + 1 WHERE book_id = $1 AND position >= $2`, bookID, position); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM chapter_pages WHERE id = $1`, pageID); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.Exec(`INSERT INTO book_pages (id, book_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, pageID, bookID, title, content, position, now); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &BookPage{ID: pageID, BookID: bookID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *PostgresStore) ConvertBookPageToChapterPage(pageID, chapterID string, position int) (*ChapterPage, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	var title, content string
+	if err := tx.QueryRow(`SELECT title, content FROM book_pages WHERE id = $1`, pageID).Scan(&title, &content); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	// Make room at the insertion index across the merged chapter list.
+	if _, err := tx.Exec(`UPDATE chapter_recipes SET position = position + 1 WHERE chapter_id = $1 AND position >= $2`, chapterID, position); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE chapter_pages SET position = position + 1 WHERE chapter_id = $1 AND position >= $2`, chapterID, position); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM book_pages WHERE id = $1`, pageID); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.Exec(`INSERT INTO chapter_pages (id, chapter_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, pageID, chapterID, title, content, position, now); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &ChapterPage{ID: pageID, ChapterID: chapterID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
+}
+
 // ── API Keys ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListAPIKeys(userID string) ([]ApiKey, error) {

@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useAddRecipeToChapter } from '@/hooks/use-books';
 import { useRecipes } from '@/hooks/use-recipes';
-import { getApiClient } from '@/lib/api-client';
 import type { RecipeRecord } from '@/lib/types';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
@@ -20,6 +19,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
@@ -230,13 +230,31 @@ function SortableChapterCard({ chapter, chapterRecipes, children, onAddPage, onA
   );
 }
 
+function ChapterDropZone({ chapterId }: { chapterId: string }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `chapter-drop-${chapterId}`,
+    data: { containerId: chapterId, itemType: 'chapter', dbId: chapterId } satisfies SortableData,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[3rem] rounded-md flex items-center justify-center transition-colors ${isOver ? 'bg-brand-50 ring-1 ring-brand-200' : ''}`}
+    >
+      <p className="text-xs text-stone-400 text-center py-4">Drag items here or add pages and recipes.</p>
+    </div>
+  );
+}
+
 export default function BookDetailPage() {
   const params = useParams();
   const router = useRouter();
   const bookId = params.id as string;
 
   const { data: bookDetail, isLoading: bookLoading } = useBookDetail(bookId);
-  const activeBook = bookDetail ? { ...bookDetail.book, chapters: bookDetail.chapters, bookPages: bookDetail.bookPages } : null;
+  const activeBook = useMemo(
+    () => (bookDetail ? { ...bookDetail.book, chapters: bookDetail.chapters, bookPages: bookDetail.bookPages } : null),
+    [bookDetail],
+  );
   const addChapterMutation = useAddChapter();
   const deleteChapterMutation = useDeleteChapter();
   const removeRecipeFromChapterMutation = useRemoveRecipeFromChapter();
@@ -255,7 +273,6 @@ export default function BookDetailPage() {
 
   const { data: recipes = [] } = useRecipes();
 
-  const [chapterRecipes, setChapterRecipes] = useState<Map<string, ChapterRecipeInfo[]>>(new Map());
   const [addChapterOpen, setAddChapterOpen] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [addRecipeChapterId, setAddRecipeChapterId] = useState<string | null>(null);
@@ -274,23 +291,6 @@ export default function BookDetailPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  useEffect(() => {
-    if (!activeBook) return;
-    const load = async () => {
-      const map = new Map<string, ChapterRecipeInfo[]>();
-      for (const ch of activeBook.chapters) {
-        const infos: ChapterRecipeInfo[] = [];
-        for (const cr of ch.chapterRecipes) {
-          const recipe = await getApiClient().getRecipe(cr.recipeId).catch(() => undefined);
-          infos.push({ chapterRecipeId: cr.id, recipeId: cr.recipeId, recipe: recipe || null });
-        }
-        map.set(ch.id, infos);
-      }
-      setChapterRecipes(map);
-    };
-    load();
-  }, [activeBook]);
 
   const bookLevelItems = useMemo((): BookLevelItem[] => {
     if (!activeBook) return [];
@@ -379,19 +379,12 @@ export default function BookDetailPage() {
         await movePageToChapterMutation.mutateAsync({ pageId: aData.dbId, chapterId: oContainer, position: targetPos, bookId });
       }
     } else if (aData.itemType === 'page' && oContainer !== 'book-level' && aContainer !== oContainer) {
-      const targetChapter = activeBook.chapters.find(ch => ch.id === oContainer);
       const targetItems = chapterItemsMap.get(oContainer);
       const overIdx = targetItems ? targetItems.findIndex(i => i.sortableId === over.id) : -1;
       const targetPos = overIdx >= 0 ? overIdx : (targetItems ? targetItems.length : 0);
-      const bookLevelOverIdx = bookLevelItems.findIndex(i => i.sortableId === over.id);
-      const finalPos = bookLevelOverIdx >= 0 ? bookLevelOverIdx : bookLevelItems.length;
       if (aData.pageId) {
-        await movePageToBookLevelMutation.mutateAsync({ pageId: aData.pageId, bookId, position: finalPos });
-        const newPages = [...activeBook.bookPages, { id: '__temp__', title: '', content: '', bookId, position: 0, createdAt: '', updatedAt: '' }];
-        const bookPage = newPages[newPages.length - 1];
-        if (bookPage) {
-          await movePageToChapterMutation.mutateAsync({ pageId: bookPage.id, chapterId: oContainer, position: targetPos, bookId });
-        }
+        await movePageToBookLevelMutation.mutateAsync({ pageId: aData.pageId, bookId, position: bookLevelItems.length });
+        await movePageToChapterMutation.mutateAsync({ pageId: aData.pageId, chapterId: oContainer, position: targetPos, bookId });
       }
     }
   }, [activeBook, bookId, bookLevelItems, chapterItemsMap, reorderBookLevelItemsMutation, reorderChapterItemsMutation, moveRecipeToChapterMutation, movePageToBookLevelMutation, movePageToChapterMutation]);
@@ -571,7 +564,7 @@ export default function BookDetailPage() {
 
                 const chapter = activeBook.chapters.find(ch => ch.id === item.id);
                 if (!chapter) return null;
-                const chRecipes = chapterRecipes.get(chapter.id) || [];
+                const chRecipes: ChapterRecipeInfo[] = chapter.chapterRecipes.map(cr => ({ chapterRecipeId: cr.id, recipeId: cr.recipeId, recipe: cr.recipe }));
                 const chItems = chapterItemsMap.get(chapter.id) || [];
 
                 return (
@@ -586,7 +579,7 @@ export default function BookDetailPage() {
                     onDeleteChapterCancel={() => setDeleteChapterConfirmId(null)}
                   >
                     {chItems.length === 0 ? (
-                      <p className="text-xs text-stone-400 text-center py-4">Drag items here or add pages and recipes.</p>
+                      <ChapterDropZone chapterId={chapter.id} />
                     ) : (
                       <SortableContext items={chItems.map(i => i.sortableId)} strategy={verticalListSortingStrategy}>
                         <div className="space-y-1.5">

@@ -9,12 +9,13 @@ import type {
   ChapterRecipeRecord,
   ChapterPageRecord,
   BookPageRecord,
+  RecipeRecord,
 } from '@/lib/types';
 
 interface BookDetail {
   book: BookRecord;
   chapters: (ChapterRecord & {
-    chapterRecipes: ChapterRecipeRecord[];
+    chapterRecipes: (ChapterRecipeRecord & { recipe: RecipeRecord | null })[];
     chapterPages: ChapterPageRecord[];
   })[];
   bookPages: BookPageRecord[];
@@ -38,11 +39,17 @@ export function useBookDetail(id: string) {
       if (!book) throw new Error('Book not found');
       const chapters = await api.getChaptersByBook(id);
       const chaptersWithRecipes = await Promise.all(
-        chapters.map(async (ch) => ({
-          ...ch,
-          chapterRecipes: await api.getChapterRecipes(ch.id),
-          chapterPages: await api.getChapterPages(ch.id),
-        }))
+        chapters.map(async (ch) => {
+          const chapterRecipes = await api.getChapterRecipes(ch.id);
+          const chapterPages = await api.getChapterPages(ch.id);
+          const chapterRecipesWithRecipe = await Promise.all(
+            chapterRecipes.map(async (cr) => ({
+              ...cr,
+              recipe: await api.getRecipe(cr.recipeId).catch(() => null),
+            })),
+          );
+          return { ...ch, chapterRecipes: chapterRecipesWithRecipe, chapterPages };
+        }),
       );
       const bookPages = await api.getBookPages(id);
       return { book, chapters: chaptersWithRecipes, bookPages };
@@ -220,7 +227,7 @@ export function useReorderBookLevelItems() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ bookId, items }: { bookId: string; items: Array<{ id: string; type: 'chapter' | 'book-page' }> }) =>
-      (getApiClient() as any).reorderBookLevelItems(bookId, items),
+      getApiClient().reorderBookLevelItems(bookId, items),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
     },
@@ -231,7 +238,7 @@ export function useReorderChapterItems() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ chapterId, items, bookId }: { chapterId: string; items: Array<{ type: 'recipe'; recipeId: string } | { type: 'page'; pageId: string }>; bookId: string }) =>
-      (getApiClient() as any).reorderChapterItems(chapterId, items),
+      getApiClient().reorderChapterItems(chapterId, items),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
     },
@@ -242,7 +249,7 @@ export function useMoveRecipeToChapter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ chapterRecipeId, targetChapterId, position, bookId }: { chapterRecipeId: string; targetChapterId: string; position: number; bookId: string }) =>
-      (getApiClient() as any).moveRecipeBetweenChapters(chapterRecipeId, targetChapterId, position),
+      getApiClient().moveRecipeBetweenChapters(chapterRecipeId, targetChapterId, position),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
     },
@@ -253,7 +260,7 @@ export function useMovePageToBookLevel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ pageId, bookId, position }: { pageId: string; bookId: string; position: number }) =>
-      (getApiClient() as any).convertChapterPageToBookPage(pageId, bookId, position),
+      getApiClient().convertChapterPageToBookPage(pageId, bookId, position),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
     },
@@ -264,7 +271,7 @@ export function useMovePageToChapter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ pageId, chapterId, position, bookId }: { pageId: string; chapterId: string; position: number; bookId: string }) =>
-      (getApiClient() as any).convertBookPageToChapterPage(pageId, chapterId, position),
+      getApiClient().convertBookPageToChapterPage(pageId, chapterId, position),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.books.detail(variables.bookId) });
     },

@@ -160,6 +160,16 @@ export interface ApiClient {
   updateBookPage(id: string, data: Partial<Pick<BookPageRecord, 'title' | 'content' | 'position'>>): Promise<BookPageRecord>;
   deleteBookPage(id: string): Promise<void>;
 
+  // Book/chapter ordering & moves
+  reorderBookLevelItems(bookId: string, items: Array<{ id: string; type: 'chapter' | 'book-page' }>): Promise<void>;
+  reorderChapterItems(
+    chapterId: string,
+    items: Array<{ type: 'recipe'; recipeId: string } | { type: 'page'; pageId: string }>
+  ): Promise<void>;
+  moveRecipeBetweenChapters(chapterRecipeId: string, targetChapterId: string, position: number): Promise<void>;
+  convertChapterPageToBookPage(pageId: string, bookId: string, position: number): Promise<void>;
+  convertBookPageToChapterPage(pageId: string, chapterId: string, position: number): Promise<void>;
+
   // Categories
   getCategories(): Promise<CategoryRecord[]>;
   createCategory(name: string, parentId?: string | null): Promise<CategoryRecord>;
