@@ -153,6 +153,7 @@ export default function HistoryPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         profileId={activeProfileId ?? ''}
+        defaultDate={new Date().toISOString().split('T')[0]}
         editEntry={editEntry}
       />
     </main>

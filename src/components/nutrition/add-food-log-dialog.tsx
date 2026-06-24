@@ -210,7 +210,7 @@ export function AddFoodLogDialog({
   const recipeNutrition = useCallback((recipe: RecipeRecord): Record<string, number> => {
     const totals: Record<string, number> = {};
     for (const f of NUTRIENT_FIELDS) totals[f.key] = 0;
-    for (const ing of recipe.ingredients) {
+    for (const ing of recipe.ingredients ?? []) {
       for (const f of NUTRIENT_FIELDS) {
         totals[f.key] += (ing as Record<string, number>)[f.key] ?? 0;
       }
@@ -233,10 +233,12 @@ export function AddFoodLogDialog({
     return customFoods.filter((f) => f.name.toLowerCase().includes(q));
   }, [customFoods, searchQuery]);
 
-  const selectRecipe = useCallback((recipe: RecipeRecord) => {
-    const perServing = recipeNutrition(recipe);
-    setSelectedItem({ id: recipe.id, name: recipe.name, type: 'recipe', nutrition: perServing });
-    setName(recipe.name);
+  const selectRecipe = useCallback(async (recipe: RecipeRecord) => {
+    const full = await getApiClient().getRecipe(recipe.id);
+    const r = full ?? recipe;
+    const perServing = recipeNutrition(r);
+    setSelectedItem({ id: r.id, name: r.name, type: 'recipe', nutrition: perServing });
+    setName(r.name);
     const n: Record<string, string> = {};
     for (const f of NUTRIENT_FIELDS) n[f.key] = perServing[f.key]?.toFixed(2) ?? '0';
     setNutrients(n as Record<NutrientKey, string>);
