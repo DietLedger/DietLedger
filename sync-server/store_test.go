@@ -274,8 +274,8 @@ func TestFoodLogCRUD(t *testing.T) {
 
 	entry, err := s.CreateFoodLogEntry(u.ID, p.ID, &CreateFoodLogRequest{
 		Date:       "2025-01-15",
-		MealSlot:   "breakfast",
-		SourceType: "custom",
+		MealSlot:   "morning",
+		SourceType: "manual",
 		Name:       "Oatmeal",
 		Servings:   1,
 		Calories:   150,
@@ -306,8 +306,8 @@ func TestFoodLogCRUD(t *testing.T) {
 
 	updated, err := s.UpdateFoodLogEntry(entry.ID, &CreateFoodLogRequest{
 		Date:       "2025-01-15",
-		MealSlot:   "breakfast",
-		SourceType: "custom",
+		MealSlot:   "morning",
+		SourceType: "manual",
 		Name:       "Oatmeal w/ Honey",
 		Servings:   1,
 		Calories:   200,

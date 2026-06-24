@@ -336,6 +336,7 @@ export function AddFoodLogDialog({
   }), [name, nutrients]);
 
   const handleSubmit = useCallback(async () => {
+    if (!profileId) return;
     const servingsNum = parseFloat(servings) || 1;
     const nutritionData: Record<string, number> = {};
     for (const f of NUTRIENT_FIELDS) {

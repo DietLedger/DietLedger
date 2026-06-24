@@ -403,6 +403,10 @@ func (s *Server) profileItemRouter(w http.ResponseWriter, r *http.Request, id st
 
 func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID string) {
 	user := getUserFromContext(r)
+	if profileID == "" {
+		writeError(w, http.StatusBadRequest, "profile id is required")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		date := r.URL.Query().Get("date")
@@ -429,12 +433,13 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		if err := validateRequired(map[string]string{"date": req.Date, "name": req.Name, "mealSlot": req.MealSlot}); err != nil {
+		if err := validateRequired(map[string]string{"date": req.Date, "name": req.Name, "mealSlot": req.MealSlot, "sourceType": req.SourceType}); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		entry, err := s.store.CreateFoodLogEntry(user.ID, profileID, &req)
 		if err != nil {
+			log.Printf("Error creating food log entry (profileID=%s, sourceType=%s, mealSlot=%s): %v", profileID, req.SourceType, req.MealSlot, err)
 			writeError(w, http.StatusInternalServerError, "failed to create food log entry")
 			return
 		}
