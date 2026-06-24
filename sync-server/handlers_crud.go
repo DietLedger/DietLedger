@@ -594,7 +594,20 @@ func (s *Server) mealPlanItemRouter(w http.ResponseWriter, r *http.Request, id s
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: plan})
 	case "PUT":
+		existing, err := s.store.GetMealPlan(user.ID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get meal plan")
+			return
+		}
+		if existing == nil {
+			writeError(w, http.StatusNotFound, "meal plan not found")
+			return
+		}
+		// Seed request with existing values so a partial body only overwrites
+		// the fields it actually provides (PATCH semantics over PUT).
 		var req CreateMealPlanRequest
+		base, _ := json.Marshal(existing)
+		json.Unmarshal(base, &req)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return

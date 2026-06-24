@@ -189,13 +189,13 @@ type WeightEntry struct {
 }
 
 type MealPlan struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Name      string    `json:"name"`
-	WeekStart string    `json:"weekStart"`
-	SlotTimes *string   `json:"slotTimes,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string          `json:"id"`
+	UserID    string          `json:"userId"`
+	Name      string          `json:"name"`
+	WeekStart string          `json:"weekStart"`
+	SlotTimes json.RawMessage `json:"slotTimes,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
+	UpdatedAt time.Time       `json:"updatedAt"`
 }
 
 type DayPlanEntry struct {
@@ -537,9 +537,9 @@ type CreateWeightEntryRequest struct {
 }
 
 type CreateMealPlanRequest struct {
-	Name      string  `json:"name"`
-	WeekStart string  `json:"weekStart"`
-	SlotTimes *string `json:"slotTimes,omitempty"`
+	Name      string          `json:"name"`
+	WeekStart string          `json:"weekStart"`
+	SlotTimes json.RawMessage `json:"slotTimes,omitempty"`
 }
 
 type CreateDayPlanEntryRequest struct {

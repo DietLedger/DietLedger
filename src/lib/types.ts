@@ -122,6 +122,7 @@ export interface MealPlanRecord {
   id: string;
   name: string;
   weekStart: string;
+  slotTimes?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }

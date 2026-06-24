@@ -783,9 +783,11 @@ func (s *PostgresStore) ListMealPlans(userID string) ([]MealPlan, error) {
 	var plans []MealPlan
 	for rows.Next() {
 		var p MealPlan
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var slotTimes sql.NullString
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &slotTimes, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
+		p.SlotTimes = json.RawMessage(slotTimes.String)
 		plans = append(plans, p)
 	}
 	return plans, nil
@@ -793,32 +795,43 @@ func (s *PostgresStore) ListMealPlans(userID string) ([]MealPlan, error) {
 
 func (s *PostgresStore) GetMealPlan(userID, id string) (*MealPlan, error) {
 	p := &MealPlan{}
-	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND id = $2`, userID, id).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt)
+	var slotTimes sql.NullString
+	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND id = $2`, userID, id).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &slotTimes, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	p.SlotTimes = json.RawMessage(slotTimes.String)
 	return p, nil
 }
 
 func (s *PostgresStore) GetMealPlanByWeekStart(userID, weekStart string) (*MealPlan, error) {
 	p := &MealPlan{}
-	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND week_start = $2`, userID, weekStart).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &p.SlotTimes, &p.CreatedAt, &p.UpdatedAt)
+	var slotTimes sql.NullString
+	err := s.db.QueryRow(`SELECT id, user_id, name, week_start, slot_times, created_at, updated_at FROM meal_plans WHERE user_id = $1 AND week_start = $2`, userID, weekStart).Scan(&p.ID, &p.UserID, &p.Name, &p.WeekStart, &slotTimes, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	p.SlotTimes = json.RawMessage(slotTimes.String)
 	return p, nil
+}
+
+func slotTimesString(r json.RawMessage) string {
+	if len(r) == 0 || string(r) == "null" {
+		return ""
+	}
+	return string(r)
 }
 
 func (s *PostgresStore) CreateMealPlan(userID string, req *CreateMealPlanRequest) (*MealPlan, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO meal_plans (id, user_id, name, week_start, slot_times, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Name, req.WeekStart, req.SlotTimes, now)
+	_, err := s.db.Exec(`INSERT INTO meal_plans (id, user_id, name, week_start, slot_times, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Name, req.WeekStart, slotTimesString(req.SlotTimes), now)
 	if err != nil {
 		return nil, err
 	}
@@ -826,7 +839,7 @@ func (s *PostgresStore) CreateMealPlan(userID string, req *CreateMealPlanRequest
 }
 
 func (s *PostgresStore) UpdateMealPlan(userID, id string, req *CreateMealPlanRequest) (*MealPlan, error) {
-	_, err := s.db.Exec(`UPDATE meal_plans SET name=$1, slot_times=$2, updated_at=NOW() WHERE user_id=$3 AND id=$4`, req.Name, req.SlotTimes, userID, id)
+	_, err := s.db.Exec(`UPDATE meal_plans SET name=$1, slot_times=$2, updated_at=NOW() WHERE user_id=$3 AND id=$4`, req.Name, slotTimesString(req.SlotTimes), userID, id)
 	if err != nil {
 		return nil, err
 	}

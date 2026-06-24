@@ -562,7 +562,7 @@ export class GoApiClient implements ApiClient {
 
   async updateMealPlan(
     id: string,
-    data: Partial<Pick<MealPlanRecord, 'name'>>
+    data: Partial<Pick<MealPlanRecord, 'name' | 'slotTimes'>>
   ): Promise<MealPlanRecord> {
     const resp = await this.request<{ ok: boolean; data: MealPlanRecord }>('PUT', `/api/meal-plans/${id}`, data);
     return this.unwrap(resp);
