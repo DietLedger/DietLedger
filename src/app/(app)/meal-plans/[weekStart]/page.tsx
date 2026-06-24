@@ -631,10 +631,11 @@ export default function WeeklyPlanPage() {
                   >
                     {groupingMode ? 'Cancel' : 'Create Meal'}
                   </Button>
-                  {groupingMode && selectedForGroup.length >= 2 && (
+                  {groupingMode && (
                     <Button
                       size="sm"
                       className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
+                      disabled={selectedForGroup.length < 2}
                       onClick={() => setGroupDialogOpen(true)}
                     >
                       Create Meal
@@ -766,11 +767,19 @@ export default function WeeklyPlanPage() {
                             isCompleted={completedRecipeMap[entry.recipeId ?? ''] === entry.date}
                             onSelect={() => {
                               if (groupingMode) {
-                                setSelectedForGroup((prev) =>
-                                  prev.includes(entry.id)
-                                    ? prev.filter((id) => id !== entry.id)
-                                    : [...prev, entry.id]
-                                );
+                                setSelectedForGroup((prev) => {
+                                  if (prev.includes(entry.id)) {
+                                    return prev.filter((id) => id !== entry.id);
+                                  }
+                                  const prevFromOtherSlot = prev.some((id) => {
+                                    const e = dayEntries.find((d) => d.id === id);
+                                    return e && e.slot !== entry.slot;
+                                  });
+                                  if (prevFromOtherSlot) {
+                                    return [entry.id];
+                                  }
+                                  return [...prev, entry.id];
+                                });
                               } else {
                                 setSelectedEntryId(entry.id);
                                 setSelectedGroupId(null);
