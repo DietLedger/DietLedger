@@ -120,7 +120,7 @@ export function AddFoodLogDialog({
   const updateEntry = useUpdateFoodLogEntry();
   const [tab, setTab] = useState('recipes');
   const [mealSlot, setMealSlot] = useState<MealSlot>(defaultMealSlot ?? 'noon');
-  const [date, setDate] = useState(defaultDate ?? new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(defaultDate ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })());
   const [time, setTime] = useState(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -185,7 +185,7 @@ export function AddFoodLogDialog({
   const resetForm = useCallback(() => {
     setName('');
     setMealSlot(defaultMealSlot ?? 'noon');
-    setDate(defaultDate ?? new Date().toISOString().split('T')[0]);
+    setDate(defaultDate ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })());
     const now = new Date();
     setTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
     setServings('1');

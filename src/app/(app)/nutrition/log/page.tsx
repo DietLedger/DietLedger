@@ -16,7 +16,7 @@ const MEAL_SLOTS: MealSlot[] = ['morning', 'midMorning', 'noon', 'afternoon', 'e
 
 export default function FoodLogPage() {
   const { profiles, activeProfileId } = useNutritionProfiles();
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
   const { data: foodLog = [] } = useFoodLogByDate(activeProfileId ?? '', date);
   const deleteMutation = useDeleteFoodLogEntry();
 
