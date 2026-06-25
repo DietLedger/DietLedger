@@ -1,0 +1,1 @@
+ALTER TABLE weight_entries DROP CONSTRAINT IF EXISTS weight_entries_profile_id_date_key;

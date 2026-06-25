@@ -39,6 +39,24 @@ export function BmiCalorieStats({ profile, latestWeight, caloriesConsumedToday }
     ? Math.floor((Date.now() - new Date(profile.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
     : null;
 
+  const missingFields: string[] = [];
+  if (!weightKg) missingFields.push('weight');
+  if (!profile.heightCm) missingFields.push('height');
+  if (!profile.sex) missingFields.push('sex');
+
+  if (missingFields.length > 0) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card className="md:col-span-5">
+          <CardContent className="p-3 text-center text-sm text-amber-600">
+            Complete your profile to see BMI and calorie calculations. Missing: {missingFields.join(', ')}.
+            Update your <a href="/nutrition/profiles" className="underline">profile</a> or log a weight entry.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const bmrResult = calculateFullBmr({
     weightKg: weightKg ?? null,
     heightCm: profile.heightCm,

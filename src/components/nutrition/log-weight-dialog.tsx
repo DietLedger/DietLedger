@@ -73,13 +73,13 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
   }, [system]);
 
   const handleSave = useCallback(async () => {
-    if (!selectedProfileId || formWeightKg === null) return;
+    if (!selectedProfileId) return;
     setSaving(true);
     try {
       const data: Record<string, unknown> = {
         profileId: selectedProfileId,
-        date: formWeightDate || new Date().toISOString().split('T')[0],
-        weightKg: formWeightKg,
+        date: formWeightDate || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(),
+        weightKg: formWeightKg ?? 0,
         notes: formWeightNotes || null,
         lastSyncedAt: null,
       };
