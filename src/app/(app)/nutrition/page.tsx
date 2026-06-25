@@ -102,9 +102,11 @@ function NutritionDashboard() {
   }, [foodLog, period, selectedDate]);
 
   const todayEntries = useMemo(() => {
-    const today = formatDateForDB(new Date());
-    return foodLog.filter((e) => e.date === today);
-  }, [foodLog]);
+    const dateStr = period === 'today' || period === 'day'
+      ? formatDateForDB(periodDates.start)
+      : formatDateForDB(new Date());
+    return foodLog.filter((e) => e.date === dateStr);
+  }, [foodLog, period, periodDates]);
 
   const caloriesToday = useMemo(
     () => todayEntries.reduce((sum, e) => sum + e.calories, 0),
@@ -189,15 +191,17 @@ function NutritionDashboard() {
   }, [todayEntries, defaultMealSlotTimes, recipes]);
 
   const todayGlucoseReadings = useMemo(() => {
-    const today = formatDateForDB(new Date());
+    const dateStr = period === 'today' || period === 'day'
+      ? formatDateForDB(periodDates.start)
+      : formatDateForDB(new Date());
     return weights
-      .filter((w) => w.date === today && w.bloodSugar != null)
+      .filter((w) => w.date === dateStr && w.bloodSugar != null)
       .map((w) => {
         const created = new Date(w.createdAt);
         return { time: created.getHours() * 60 + created.getMinutes(), glucose: w.bloodSugar! };
       })
       .sort((a, b) => a.time - b.time);
-  }, [weights]);
+  }, [weights, period, periodDates]);
 
   const handleDeleteEntry = useCallback(async (id: string) => {
     if (!activeProfileId) return;
@@ -211,7 +215,7 @@ function NutritionDashboard() {
 
   const handleExportPdf = useCallback(async () => {
     if (!exportRef.current) return;
-    const periodLabels: Record<Period, string> = { today: 'Today', week: 'This Week', month: 'This Month', year: 'This Year' };
+    const periodLabels: Record<Period, string> = { today: 'Today', week: 'This Week', month: 'This Month', year: 'This Year', day: '' };
     const { start, end } = getPeriodDates(period);
     const dateRange = period === 'today'
       ? start.toLocaleDateString()
