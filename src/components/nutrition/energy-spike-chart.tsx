@@ -222,6 +222,7 @@ export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartPro
             {mealMarkers.map((m, i) => (
               <ReferenceLine
                 key={i}
+                yAxisId="left"
                 x={m.label}
                 stroke="#94a3b8"
                 strokeDasharray="3 3"
