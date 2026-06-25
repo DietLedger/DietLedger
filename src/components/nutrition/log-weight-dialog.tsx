@@ -22,6 +22,16 @@ import { useNutritionProfiles, useLogWeight } from '@/hooks/use-nutrition';
 import { getApiClient } from '@/lib/api-client';
 import { useUnitSystem, lbsToKg, weightUnit, weightPlaceholder } from '@/hooks/use-unit-system';
 
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function nowLocal(): string {
+  const d = new Date();
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
 interface LogWeightDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,7 +45,8 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   const [formWeightDisplay, setFormWeightDisplay] = useState('');
   const [formWeightKg, setFormWeightKg] = useState<number | null>(null);
-  const [formWeightDate, setFormWeightDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [formDate, setFormDate] = useState(todayLocal);
+  const [formTime, setFormTime] = useState(nowLocal);
   const [formWeightNotes, setFormWeightNotes] = useState('');
   const [formBloodSugar, setFormBloodSugar] = useState('');
   const [formBPSystolic, setFormBPSystolic] = useState('');
@@ -47,7 +58,8 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
     if (open) {
       setFormWeightDisplay('');
       setFormWeightKg(null);
-      setFormWeightDate(new Date().toISOString().split('T')[0]);
+      setFormDate(todayLocal());
+      setFormTime(nowLocal());
       setFormWeightNotes('');
       setFormBloodSugar('');
       setFormBPSystolic('');
@@ -78,7 +90,8 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
     try {
       const data: Record<string, unknown> = {
         profileId: selectedProfileId,
-        date: formWeightDate || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(),
+        date: formDate || todayLocal(),
+        time: formTime || null,
         weightKg: formWeightKg ?? 0,
         notes: formWeightNotes || null,
         lastSyncedAt: null,
@@ -92,13 +105,13 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
     } finally {
       setSaving(false);
     }
-  }, [selectedProfileId, formWeightKg, formWeightDate, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeightMutation, onOpenChange]);
+  }, [selectedProfileId, formWeightKg, formDate, formTime, formWeightNotes, formBloodSugar, formBPSystolic, formBPDiastolic, formMeasurementContext, logWeightMutation, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Log Weight</DialogTitle>
+          <DialogTitle>Log Weight &amp; Health Metrics</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           {profiles.length > 0 ? (
@@ -116,9 +129,15 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
           ) : (
             <p className="text-sm text-muted-foreground">No profiles yet. Create one from the People page first.</p>
           )}
-          <div>
-            <Label>Date</Label>
-            <Input type="date" value={formWeightDate} onChange={(e) => setFormWeightDate(e.target.value)} />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <Label>Date</Label>
+              <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
+            </div>
+            <div className="flex-1">
+              <Label>Time</Label>
+              <Input type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
+            </div>
           </div>
           <div>
             <Label>Weight ({weightUnit(system)})</Label>
@@ -165,7 +184,7 @@ export function LogWeightDialog({ open, onOpenChange }: LogWeightDialogProps) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!selectedProfileId || formWeightKg === null || saving}>
+          <Button onClick={handleSave} disabled={!selectedProfileId || saving}>
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>

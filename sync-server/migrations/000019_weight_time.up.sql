@@ -1,0 +1,1 @@
+ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS time TEXT;

@@ -194,8 +194,15 @@ function NutritionDashboard() {
     return weights
       .filter((w) => w.bloodSugar != null)
       .map((w) => {
-        const created = new Date(w.createdAt);
-        return { time: created.getHours() * 60 + created.getMinutes(), glucose: w.bloodSugar! };
+        let minutes: number;
+        if (w.time) {
+          const [h, m] = w.time.split(':').map(Number);
+          minutes = (h || 0) * 60 + (m || 0);
+        } else {
+          const created = new Date(w.createdAt);
+          minutes = created.getHours() * 60 + created.getMinutes();
+        }
+        return { time: minutes, glucose: w.bloodSugar! };
       })
       .sort((a, b) => a.time - b.time);
   }, [weights]);

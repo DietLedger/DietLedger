@@ -709,7 +709,7 @@ func (s *PostgresStore) DeleteFoodLogEntry(id string) error {
 // ── Weight Entries ───────────────────────────────────────────────────
 
 func (s *PostgresStore) ListWeightEntries(profileID, fromDate, toDate string) ([]WeightEntry, error) {
-	query := `SELECT id, user_id, profile_id, date, COALESCE(weight_kg,0), notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at FROM weight_entries WHERE profile_id = $1`
+	query := `SELECT id, user_id, profile_id, date, time, COALESCE(weight_kg,0), notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at FROM weight_entries WHERE profile_id = $1`
 	args := []interface{}{profileID}
 	n := 2
 	if fromDate != "" {
@@ -731,7 +731,7 @@ func (s *PostgresStore) ListWeightEntries(profileID, fromDate, toDate string) ([
 	var entries []WeightEntry
 	for rows.Next() {
 		var e WeightEntry
-		if err := rows.Scan(&e.ID, &e.UserID, &e.ProfileID, &e.Date, &e.WeightKg, &e.Notes, &e.BloodSugar, &e.BloodPressureSystolic, &e.BloodPressureDiastolic, &e.MeasurementContext, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.UserID, &e.ProfileID, &e.Date, &e.Time, &e.WeightKg, &e.Notes, &e.BloodSugar, &e.BloodPressureSystolic, &e.BloodPressureDiastolic, &e.MeasurementContext, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -747,25 +747,25 @@ func (s *PostgresStore) CreateWeightEntry(userID, profileID string, req *CreateW
 		weightVal = nil
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO weight_entries (id, user_id, profile_id, date, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
-		id, userID, profileID, req.Date, weightVal, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, now,
+		`INSERT INTO weight_entries (id, user_id, profile_id, date, time, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		id, userID, profileID, req.Date, req.Time, weightVal, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &WeightEntry{ID: id, UserID: userID, ProfileID: profileID, Date: req.Date, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext, CreatedAt: now, UpdatedAt: now}, nil
+	return &WeightEntry{ID: id, UserID: userID, ProfileID: profileID, Date: req.Date, Time: req.Time, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) UpdateWeightEntry(id string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
 	_, err := s.db.Exec(
-		`UPDATE weight_entries SET date=$1, weight_kg=$2, notes=$3, blood_sugar=$4, blood_pressure_systolic=$5, blood_pressure_diastolic=$6, measurement_context=$7, updated_at=NOW() WHERE id=$8`,
-		req.Date, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id,
+		`UPDATE weight_entries SET date=$1, time=$2, weight_kg=$3, notes=$4, blood_sugar=$5, blood_pressure_systolic=$6, blood_pressure_diastolic=$7, measurement_context=$8, updated_at=NOW() WHERE id=$9`,
+		req.Date, req.Time, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &WeightEntry{ID: id, Date: req.Date, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext}, nil
+	return &WeightEntry{ID: id, Date: req.Date, Time: req.Time, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext}, nil
 }
 
 func (s *PostgresStore) DeleteWeightEntry(id string) error {

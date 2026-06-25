@@ -178,6 +178,7 @@ type WeightEntry struct {
 	UserID                 string    `json:"userId"`
 	ProfileID              string    `json:"profileId"`
 	Date                   string    `json:"date"`
+	Time                   *string   `json:"time,omitempty"`
 	WeightKg               float64   `json:"weightKg"`
 	Notes                  *string   `json:"notes,omitempty"`
 	BloodSugar             *float64  `json:"bloodSugar,omitempty"`
@@ -528,6 +529,7 @@ type CreateFoodLogRequest struct {
 type CreateWeightEntryRequest struct {
 	ProfileID              string   `json:"profileId"`
 	Date                   string   `json:"date"`
+	Time                   *string  `json:"time,omitempty"`
 	WeightKg               float64  `json:"weightKg"`
 	Notes                  *string  `json:"notes,omitempty"`
 	BloodSugar             *float64 `json:"bloodSugar,omitempty"`

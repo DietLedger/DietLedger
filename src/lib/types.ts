@@ -531,6 +531,7 @@ export interface WeightEntryRecord {
   id: string;
   profileId: string;
   date: string;
+  time?: string;
   weightKg: number;
   notes: string | null;
   lastSyncedAt: string | null;
