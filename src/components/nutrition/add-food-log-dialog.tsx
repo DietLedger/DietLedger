@@ -628,8 +628,11 @@ export function AddFoodLogDialog({
         </div>
 
         <DialogFooter>
+          {!profileId && (
+            <p className="text-xs text-red-500 mr-auto self-center">No nutrition profile selected.</p>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={!name.trim()}>
+          <Button onClick={handleSubmit} disabled={!name.trim() || !profileId}>
             {editEntry ? 'Save' : 'Add'}
           </Button>
         </DialogFooter>

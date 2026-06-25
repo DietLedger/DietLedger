@@ -729,6 +729,7 @@ export class GoApiClient implements ApiClient {
   async createFoodLogEntry(
     data: Omit<FoodLogEntryRecord, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<FoodLogEntryRecord> {
+    if (!data.profileId) throw new Error('No nutrition profile selected');
     const resp = await this.request<{ ok: boolean; data: FoodLogEntryRecord }>(
       'POST',
       `/api/profiles/${data.profileId}/log`,
