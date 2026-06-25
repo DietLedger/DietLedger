@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import {
   AreaChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -22,8 +23,14 @@ interface MealEnergyPoint {
   mealName: string;
 }
 
+interface GlucoseReading {
+  time: number;
+  glucose: number;
+}
+
 interface EnergySpikeChartProps {
   meals: MealEnergyPoint[];
+  glucoseReadings?: GlucoseReading[];
 }
 
 interface CurveParams {
@@ -79,9 +86,19 @@ function computeEnergyCurve(
   return points;
 }
 
-export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
+export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartProps) {
+  const hasGlucose = (glucoseReadings?.length ?? 0) > 0;
+
   const chartData = useMemo(() => {
-    if (meals.length === 0) return [];
+    if (meals.length === 0 && !hasGlucose) return [];
+
+    const glucoseMap = new Map<number, number>();
+    if (hasGlucose) {
+      for (const g of glucoseReadings!) {
+        const rounded = Math.round(g.time / 5) * 5;
+        glucoseMap.set(rounded, g.glucose);
+      }
+    }
 
     const timePoints = new Map<number, number>();
     const startHour = 6 * 60;
@@ -118,6 +135,7 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
         time: point.time,
         label: minutesToTimeStr(point.time),
         energy: Math.round((sum / count) * 100) / 100,
+        glucose: glucoseMap.has(point.time) ? glucoseMap.get(point.time)! : null,
       };
     });
 
@@ -141,11 +159,13 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
     return Math.max(1.5, Math.ceil((maxVal * 1.15) / step) * step);
   }, [chartData]);
 
-  if (meals.length === 0) {
+  const chartTitle = hasGlucose ? 'Estimated Energy Response vs. Glucose' : 'Estimated Energy Response';
+
+  if (meals.length === 0 && !hasGlucose) {
     return (
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm">Estimated Energy Response</CardTitle>
+          <CardTitle className="text-sm">{chartTitle}</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <p className="text-xs text-stone-400 py-8 text-center">
@@ -159,11 +179,11 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
   return (
     <Card>
       <CardHeader className="pb-2 pt-4 px-4">
-        <CardTitle className="text-sm">Estimated Energy Response</CardTitle>
+        <CardTitle className="text-sm">{chartTitle}</CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
         <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <AreaChart data={chartData} margin={{ top: 10, right: hasGlucose ? 45 : 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
             <XAxis
               dataKey="label"
@@ -171,14 +191,26 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
               interval={Math.max(0, Math.floor(chartData.length / 12) - 1)}
             />
             <YAxis
+              yAxisId="left"
               domain={[0, yMax]}
               ticks={Array.from({ length: Math.round(yMax / 0.25) + 1 }, (_, i) => i * 0.25).filter(t => t <= yMax)}
               tick={{ fontSize: 9 }}
               tickFormatter={(v: number) => v.toFixed(1)}
             />
+            {hasGlucose && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                domain={[0, 300]}
+                tick={{ fontSize: 9, fill: '#8b5cf6' }}
+                tickFormatter={(v: number) => `${v}`}
+                label={{ value: 'mg/dL', angle: 90, position: 'insideRight', style: { fontSize: 9, fill: '#8b5cf6' } }}
+              />
+            )}
             <Tooltip
               contentStyle={{ fontSize: 11 }}
-              formatter={(value: number) => {
+              formatter={(value: number, name: string) => {
+                if (name === 'glucose') return [`${value} mg/dL`, 'Glucose'];
                 if (value >= 1.5) return [value.toFixed(2), 'Spike zone'];
                 if (value >= 1.0) return [value.toFixed(2), 'Elevated zone'];
                 if (value >= 0.5) return [value.toFixed(2), 'Steady zone'];
@@ -196,11 +228,12 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
                 label={{ value: m.name, position: 'top', fontSize: 9, fill: '#64748b' }}
               />
             ))}
-            <ReferenceLine y={1.5} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} label={{ value: 'Spike', position: 'right', fontSize: 9, fill: '#dc2626' }} />
-            <ReferenceLine y={1.0} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1} label={{ value: 'Elevated', position: 'right', fontSize: 9, fill: '#d97706' }} />
-            <ReferenceLine y={0.5} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1} label={{ value: 'Steady', position: 'right', fontSize: 9, fill: '#16a34a' }} />
-            <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1} />
+            <ReferenceLine yAxisId="left" y={1.5} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1} label={{ value: 'Spike', position: 'right', fontSize: 9, fill: '#dc2626' }} />
+            <ReferenceLine yAxisId="left" y={1.0} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1} label={{ value: 'Elevated', position: 'right', fontSize: 9, fill: '#d97706' }} />
+            <ReferenceLine yAxisId="left" y={0.5} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1} label={{ value: 'Steady', position: 'right', fontSize: 9, fill: '#16a34a' }} />
+            <ReferenceLine yAxisId="left" y={0} stroke="#94a3b8" strokeWidth={1} />
             <Area
+              yAxisId="left"
               type="monotone"
               dataKey="energy"
               stroke="#22c55e"
@@ -210,6 +243,17 @@ export function EnergySpikeChart({ meals }: EnergySpikeChartProps) {
               baseValue={0}
               curve="natural"
             />
+            {hasGlucose && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="glucose"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                connectNulls
+                dot={{ r: 3, fill: '#8b5cf6' }}
+              />
+            )}
             <defs>
               <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#22c55e" stopOpacity={0.4} />

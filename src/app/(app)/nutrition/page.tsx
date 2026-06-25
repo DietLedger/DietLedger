@@ -15,6 +15,7 @@ import { TodaysFoodList } from '@/components/nutrition/todays-food-list';
 import { MostEatenList } from '@/components/nutrition/most-eaten-list';
 import { AddFoodLogDialog } from '@/components/nutrition/add-food-log-dialog';
 import { EnergySpikeChart } from '@/components/nutrition/energy-spike-chart';
+import { BloodPressureChart } from '@/components/nutrition/blood-pressure-chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Plus, Users, History, Heart, FileDown } from 'lucide-react';
@@ -187,6 +188,17 @@ function NutritionDashboard() {
     return entryPoints.sort((a, b) => a.time - b.time);
   }, [todayEntries, defaultMealSlotTimes, recipes]);
 
+  const todayGlucoseReadings = useMemo(() => {
+    const today = formatDateForDB(new Date());
+    return weights
+      .filter((w) => w.date === today && w.bloodSugar != null)
+      .map((w) => {
+        const created = new Date(w.createdAt);
+        return { time: created.getHours() * 60 + created.getMinutes(), glucose: w.bloodSugar! };
+      })
+      .sort((a, b) => a.time - b.time);
+  }, [weights]);
+
   const handleDeleteEntry = useCallback(async (id: string) => {
     if (!activeProfileId) return;
     await deleteFoodLogEntryMutation.mutateAsync({ id, profileId: activeProfileId, date: formatDateForDB(periodDates.start) });
@@ -329,7 +341,11 @@ function NutritionDashboard() {
         </div>
 
         <div className="mb-6">
-          <EnergySpikeChart meals={mealEnergyData} />
+          <EnergySpikeChart meals={mealEnergyData} glucoseReadings={todayGlucoseReadings} />
+        </div>
+
+        <div className="mb-6">
+          <BloodPressureChart entries={weights} />
         </div>
       </div>
 
