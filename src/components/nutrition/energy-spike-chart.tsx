@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import {
-  AreaChart,
+  ComposedChart,
   Area,
   Line,
   XAxis,
@@ -183,7 +183,7 @@ export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartPro
       </CardHeader>
       <CardContent className="px-4 pb-4">
         <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={chartData} margin={{ top: 10, right: hasGlucose ? 45 : 10, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: hasGlucose ? 45 : 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
             <XAxis
               dataKey="label"
@@ -260,7 +260,7 @@ export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartPro
                 <stop offset="100%" stopColor="#22c55e" stopOpacity={0.05} />
               </linearGradient>
             </defs>
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
         <div className="mt-3 grid grid-cols-4 gap-2 text-[10px]">
           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-green-50 border border-green-200 rounded">
