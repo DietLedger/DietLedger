@@ -85,6 +85,19 @@ function NutritionDashboard() {
     return [...weights].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
   }, [weights]);
 
+  const trendDefaults = useMemo(() => {
+    const THRESHOLD_TO_TRACKED: Record<string, string> = {
+      calories: 'calories', protein: 'protein', totalFat: 'totalFat',
+      totalCarbs: 'totalCarbs', sodium: 'sodium', sugar: 'totalSugars', fiber: 'dietaryFiber',
+    };
+    const thresholds = activeDietaryProfile?.nutrientThresholds;
+    if (thresholds?.length) {
+      const mapped = thresholds.map((t) => THRESHOLD_TO_TRACKED[t.nutrient]).filter(Boolean);
+      if (mapped.length > 0) return [...new Set(mapped)];
+    }
+    return ['protein', 'totalFat', 'totalCarbs'];
+  }, [activeDietaryProfile]);
+
   const periodLabel = useMemo(() => {
     const labels: Record<string, string> = { today: "Today's", week: "This Week's", month: "This Month's", year: "This Year's", day: '' };
     if (period === 'day') {
@@ -332,8 +345,10 @@ function NutritionDashboard() {
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <NutrientTrendChart
+                key={activeDietaryProfile?.id ?? 'none'}
                 entries={foodLog}
                 period={period}
+                defaultNutrients={trendDefaults}
                 targets={{
                   calorieTarget: effectiveCalorieTarget,
                   proteinGoalG: activeProfile?.proteinGoalG,

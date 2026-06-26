@@ -19,6 +19,7 @@ import { eachDayOfInterval, eachMonthOfInterval } from 'date-fns';
 interface NutrientTrendChartProps {
   entries: FoodLogEntryRecord[];
   period: Period;
+  defaultNutrients?: string[];
   targets?: {
     calorieTarget?: number | null;
     proteinGoalG?: number | null;
@@ -40,8 +41,8 @@ const TRACKED = [
   { key: 'totalSugars', label: 'Sugars', color: '#ec4899', unit: 'g', targetKey: 'sugarMaxG' },
 ] as const;
 
-export function NutrientTrendChart({ entries, period, targets }: NutrientTrendChartProps) {
-  const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set(['calories', 'protein']));
+export function NutrientTrendChart({ entries, period, defaultNutrients, targets }: NutrientTrendChartProps) {
+  const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set(defaultNutrients ?? ['protein', 'totalFat', 'totalCarbs']));
 
   const chartData = useMemo(() => {
     const { start, end } = getPeriodDates(period);
