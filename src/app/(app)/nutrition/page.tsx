@@ -148,7 +148,7 @@ function NutritionDashboard() {
   }, [bmrResult, latestWeight, activeProfile]);
 
   const effectiveCalorieTarget = useMemo(() => {
-    return activeProfile?.calorieTarget ?? goalCalories ?? bmrResult?.tdee ?? null;
+    return activeProfile?.calorieTarget ?? goalCalories ?? bmrResult?.tdee ?? 2000;
   }, [activeProfile, goalCalories, bmrResult]);
 
   const mealEnergyData = useMemo(() => {
