@@ -748,7 +748,7 @@ func (s *PostgresStore) CreateWeightEntry(userID, profileID string, req *CreateW
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO weight_entries (id, user_id, profile_id, date, time, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`,
 		id, userID, profileID, req.Date, req.Time, weightVal, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, now,
 	)
 	if err != nil {
