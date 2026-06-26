@@ -190,8 +190,14 @@ function NutritionDashboard() {
     return entryPoints.sort((a, b) => a.time - b.time);
   }, [todayEntries, defaultMealSlotTimes, recipes]);
 
+  const periodWeights = useMemo(() => {
+    const startStr = formatDateForDB(periodDates.start);
+    const endStr = formatDateForDB(periodDates.end);
+    return weights.filter((w) => w.date >= startStr && w.date <= endStr);
+  }, [weights, periodDates]);
+
   const glucoseReadings = useMemo(() => {
-    return weights
+    return periodWeights
       .filter((w) => w.bloodSugar != null)
       .map((w) => {
         let minutes: number;
@@ -205,7 +211,7 @@ function NutritionDashboard() {
         return { time: minutes, glucose: w.bloodSugar! };
       })
       .sort((a, b) => a.time - b.time);
-  }, [weights]);
+  }, [periodWeights]);
 
   const handleDeleteEntry = useCallback(async (id: string) => {
     if (!activeProfileId) return;
@@ -353,7 +359,7 @@ function NutritionDashboard() {
         </div>
 
         <div className="mb-6">
-          <BloodPressureChart entries={weights} />
+          <BloodPressureChart entries={periodWeights} />
         </div>
       </div>
 
