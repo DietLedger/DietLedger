@@ -146,7 +146,7 @@ function NutritionDashboard() {
       slotMinutes[slot] = h * 60 + m;
     }
 
-    const entryPoints: { time: number; gl: number; category: GLCategory; mealName: string }[] = [];
+    const entryPoints: { timestamp: number; gl: number; category: GLCategory; mealName: string }[] = [];
 
     for (const entry of periodEntries) {
       let entryGL: number | null = null;
@@ -179,15 +179,17 @@ function NutritionDashboard() {
         minutes = slotMinutes[entry.mealSlot] ?? 720;
       }
 
+      const timestamp = new Date(entry.date + 'T00:00:00').getTime() + minutes * 60000;
+
       entryPoints.push({
-        time: minutes,
+        timestamp,
         gl: Math.round(entryGL * 10) / 10,
         category: glCategory(entryGL),
         mealName: entry.name,
       });
     }
 
-    return entryPoints.sort((a, b) => a.time - b.time);
+    return entryPoints.sort((a, b) => a.timestamp - b.timestamp);
   }, [periodEntries, defaultMealSlotTimes, recipes]);
 
   const periodWeights = useMemo(() => {
@@ -208,9 +210,10 @@ function NutritionDashboard() {
           const created = new Date(w.createdAt);
           minutes = created.getHours() * 60 + created.getMinutes();
         }
-        return { time: minutes, glucose: w.bloodSugar! };
+        const timestamp = new Date(w.date + 'T00:00:00').getTime() + minutes * 60000;
+        return { timestamp, glucose: w.bloodSugar! };
       })
-      .sort((a, b) => a.time - b.time);
+      .sort((a, b) => a.timestamp - b.timestamp);
   }, [periodWeights]);
 
   const handleDeleteEntry = useCallback(async (id: string) => {

@@ -11,20 +11,19 @@ import {
   CartesianGrid,
   ResponsiveContainer,
   ReferenceLine,
-  ReferenceDot,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { GLCategory } from '@/data/glycemic-index';
 
 interface MealEnergyPoint {
-  time: number;
+  timestamp: number;
   gl: number;
   category: GLCategory;
   mealName: string;
 }
 
 interface GlucoseReading {
-  time: number;
+  timestamp: number;
   glucose: number;
 }
 
@@ -47,26 +46,14 @@ const GL_CURVE_PARAMS: Record<GLCategory, CurveParams> = {
   High: { riseStart: 10, peakStart: 30, peakEnd: 60, settleTime: 180 },
 };
 
-function minutesToTimeStr(mins: number): string {
-  const h = Math.floor(mins / 60) % 24;
-  const m = Math.round(mins % 60);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${displayH}:${m.toString().padStart(2, '0')} ${ampm}`;
-}
-
-function computeEnergyCurve(
-  mealTimeMin: number,
-  gl: number,
-  category: GLCategory
-): { time: number; energy: number }[] {
+function computeEnergyCurve(startTs: number, gl: number, category: GLCategory): { ts: number; energy: number }[] {
   const params = GL_CURVE_PARAMS[category];
   const amplitude = Math.min(gl / 20, 1.5);
-  const points: { time: number; energy: number }[] = [];
+  const points: { ts: number; energy: number }[] = [];
   const step = 5;
 
   for (let offset = 0; offset <= params.settleTime + step; offset += step) {
-    const t = mealTimeMin + offset;
+    const ts = startTs + offset * 60000;
     let energy = 0;
 
     if (offset < params.riseStart) {
@@ -81,88 +68,100 @@ function computeEnergyCurve(
       energy = amplitude * (1 - progress);
     }
 
-    points.push({ time: t, energy });
+    points.push({ ts, energy });
   }
 
   return points;
 }
 
+function formatTs(ts: number, multiDay: boolean): string {
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const timeStr = `${displayH}:${m.toString().padStart(2, '0')} ${ampm}`;
+  if (multiDay) {
+    return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${timeStr}`;
+  }
+  return timeStr;
+}
+
 export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = true }: EnergySpikeChartProps) {
   const hasGlucose = (glucoseReadings?.length ?? 0) > 0;
 
-  const chartData = useMemo(() => {
-    if (meals.length === 0 && !hasGlucose) return [];
+  const { chartData, multiDay } = useMemo(() => {
+    if (meals.length === 0 && !hasGlucose) return { chartData: [] as typeof chartData, multiDay: false };
 
     const glucoseMap = new Map<number, number>();
     if (hasGlucose) {
       for (const g of glucoseReadings!) {
-        const rounded = Math.round(g.time / 5) * 5;
-        glucoseMap.set(rounded, g.glucose);
+        glucoseMap.set(g.timestamp, g.glucose);
       }
     }
 
-    const timePoints = new Map<number, number>();
-    const startHour = 6 * 60;
-    const endHour = 24 * 60;
-
-    for (let t = startHour; t <= endHour; t += 5) {
-      timePoints.set(t, 0);
-    }
+    const energyMap = new Map<number, number>();
 
     for (const meal of meals) {
-      const curve = computeEnergyCurve(meal.time, meal.gl, meal.category);
+      const curve = computeEnergyCurve(meal.timestamp, meal.gl, meal.category);
       for (const point of curve) {
-        const rounded = Math.round(point.time / 5) * 5;
-        if (rounded >= startHour && rounded <= endHour) {
-          timePoints.set(rounded, (timePoints.get(rounded) || 0) + point.energy);
-        }
+        const rounded = Math.round(point.ts / 300000) * 300000;
+        energyMap.set(rounded, (energyMap.get(rounded) || 0) + point.energy);
       }
     }
 
-    const raw = Array.from(timePoints.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([time, energy]) => ({ time, energy }));
+    const allTs = [...energyMap.keys(), ...glucoseMap.keys()];
+    if (allTs.length === 0) return { chartData: [], multiDay: false };
+
+    const minTs = Math.min(...allTs);
+    const maxTs = Math.max(...allTs);
+    const spanMin = (maxTs - minTs) / 60000;
+    const step = spanMin > 1440 * 3 ? 3600000 : spanMin > 720 ? 600000 : 300000;
+    const isMultiDay = spanMin > 720;
+
+    const raw = Array.from(energyMap.entries()).sort(([a], [b]) => a - b);
 
     const smoothed = raw.map((point, i) => {
-      const window = 6;
+      const window = 4;
       let sum = 0;
       let count = 0;
       for (let j = Math.max(0, i - window); j <= Math.min(raw.length - 1, i + window); j++) {
         const weight = 1 - Math.abs(j - i) / (window + 1);
-        sum += raw[j].energy * weight;
+        sum += raw[j][1] * weight;
         count += weight;
       }
       return {
-        time: point.time,
-        label: minutesToTimeStr(point.time),
+        ts: point[0],
         energy: Math.round((sum / count) * 100) / 100,
-        glucose: glucoseMap.has(point.time) ? glucoseMap.get(point.time)! : null,
+        glucose: glucoseMap.has(point[0]) ? glucoseMap.get(point[0])! : null,
       };
     });
 
-    return smoothed;
-  }, [meals]);
+    for (const [ts, glucose] of glucoseMap) {
+      if (!smoothed.some((s) => s.ts === ts)) {
+        smoothed.push({ ts, energy: 0, glucose });
+      }
+    }
+
+    smoothed.sort((a, b) => a.ts - b.ts);
+
+    return { chartData: smoothed, multiDay: isMultiDay };
+  }, [meals, hasGlucose, glucoseReadings]);
 
   const mealMarkers = useMemo(() => {
-    return meals.map((m) => ({
-      time: m.time,
-      label: minutesToTimeStr(m.time),
-      name: m.mealName,
-      category: m.category,
-      gl: m.gl,
-    }));
-  }, [meals]);
+    if (!showMealMarkers) return [];
+    return meals.map((m) => ({ ts: m.timestamp, name: m.mealName, category: m.category, gl: m.gl }));
+  }, [meals, showMealMarkers]);
 
   const yMax = useMemo(() => {
     if (chartData.length === 0) return 2;
     const maxVal = Math.max(...chartData.map((d) => d.energy));
-    const step = 0.25;
-    return Math.max(1.5, Math.ceil((maxVal * 1.15) / step) * step);
+    return Math.max(1.5, Math.ceil((maxVal * 1.15) / 0.25) * 0.25);
   }, [chartData]);
 
   const chartTitle = hasGlucose ? 'Estimated Energy Response vs. Glucose' : 'Estimated Energy Response';
 
-  if (meals.length === 0 && !hasGlucose) {
+  if (chartData.length === 0) {
     return (
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
@@ -177,6 +176,8 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
     );
   }
 
+  const tickFormatter = (ts: number) => formatTs(ts, multiDay);
+
   return (
     <Card>
       <CardHeader className="pb-2 pt-4 px-4">
@@ -187,9 +188,13 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
           <ComposedChart data={chartData} margin={{ top: 10, right: hasGlucose ? 45 : 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
             <XAxis
-              dataKey="label"
-              tick={{ fontSize: 10 }}
-              interval={Math.max(0, Math.floor(chartData.length / 12) - 1)}
+              dataKey="ts"
+              type="number"
+              scale="time"
+              domain={['dataMin', 'dataMax']}
+              tickFormatter={tickFormatter}
+              tick={{ fontSize: 9 }}
+              minTickGap={50}
             />
             <YAxis
               yAxisId="left"
@@ -210,6 +215,7 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
             )}
             <Tooltip
               contentStyle={{ fontSize: 11 }}
+              labelFormatter={(ts: number) => formatTs(ts, multiDay)}
               formatter={(value: number, name: string) => {
                 if (name === 'glucose') return [`${value} mg/dL`, 'Glucose'];
                 if (value >= 1.5) return [value.toFixed(2), 'Spike zone'];
@@ -218,13 +224,12 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
                 if (value > 0) return [value.toFixed(2), 'Low energy zone'];
                 return [value.toFixed(2), 'Est. Energy'];
               }}
-              labelFormatter={(label: string) => `Time: ${label}`}
             />
-            {showMealMarkers && mealMarkers.map((m, i) => (
+            {mealMarkers.map((m, i) => (
               <ReferenceLine
                 key={i}
                 yAxisId="left"
-                x={m.label}
+                x={m.ts}
                 stroke="#94a3b8"
                 strokeDasharray="3 3"
                 label={{ value: m.name, position: 'top', fontSize: 9, fill: '#64748b' }}
@@ -270,8 +275,6 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
             <div>
               <span className="font-medium text-green-800">Steady</span>
               <span className="text-green-600 ml-1">0.5 - 1.0</span>
-              <br />
-              <span className="text-green-600">Sustained energy, ideal</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded">
@@ -279,8 +282,6 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
             <div>
               <span className="font-medium text-amber-800">Elevated</span>
               <span className="text-amber-600 ml-1">1.0 - 1.5</span>
-              <br />
-              <span className="text-amber-600">Rising fast, may dip</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded">
@@ -288,8 +289,6 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
             <div>
               <span className="font-medium text-red-800">Spike</span>
               <span className="text-red-600 ml-1">&gt; 1.5</span>
-              <br />
-              <span className="text-red-600">Crash likely in 1-3 hrs</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-stone-50 border border-stone-200 rounded">
@@ -297,26 +296,15 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
             <div>
               <span className="font-medium text-stone-700">Low</span>
               <span className="text-stone-500 ml-1">0 - 0.5</span>
-              <br />
-              <span className="text-stone-500">Minimal energy impact</span>
             </div>
           </div>
         </div>
-        <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-md">
-          <p className="text-[10px] text-amber-700 leading-relaxed">
-            <strong>Note:</strong> This is an estimate based on rules of thumb for glycemic load responses.
-            Individual responses vary based on metabolism, activity level, food combinations, and other factors.
-            Low GL meals give gentle, steady energy over 2-3 hrs. Medium GL meals give moderate rise over 2-4 hrs.
-            High GL meals cause a sharp spike with a likely crash 1.5-3 hrs later. Aim for mostly <strong>Steady</strong> zone throughout the day.
-            This is not medical advice.
-          </p>
-        </div>
-        {showMealMarkers && (
+        {showMealMarkers && mealMarkers.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-stone-500">
             {mealMarkers.map((m, i) => (
               <span key={i} className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-stone-400" />
-                {m.name} ({m.category}, GL {m.gl}) @ {m.label}
+                {m.name} ({m.category}, GL {m.gl})
               </span>
             ))}
           </div>
