@@ -3,13 +3,15 @@ import html2canvas from 'html2canvas';
 import { toCanvas } from 'html-to-image';
 import type { CookbookExportOptions, BrandKit, TemplateTheme } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
+import { parseInstructions } from '@/lib/recipe-types';
 
 interface RecipeData {
   id: string;
   name: string;
   servings: number;
   servingName: string;
-  instructions: string | null;
+  instructionSteps: { id: string; text: string; groupId: string | null }[];
+  instructionGroups: { id: string; title: string }[];
   ingredients: Array<{
     name: string;
     amount: number;
@@ -115,7 +117,7 @@ function renderRecipePageHtml(
 
   const ingredientList = recipe.ingredients.map(i => `<li>${i.amount ? Math.round(i.amount * 100) / 100 : ''} ${i.unit} ${i.name}</li>`).join('');
 
-  const steps = (recipe.instructions ?? '').split('\n').filter(s => s.trim());
+  const steps = (recipe.instructionSteps ?? []).map(s => s.text).filter(s => s.trim());
   const stepList = steps.map((s, i) => `<li style="margin-bottom:8px"><span style="font-weight:700;color:${accent}">${i + 1}.</span> ${s}</li>`).join('');
 
   const brandHeader = brandKit ? `<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;border-bottom:2px solid ${primary};padding-bottom:10px">
@@ -353,10 +355,11 @@ async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; 
         name: recipe.name,
         servings: recipe.servings,
         servingName: recipe.servingName,
-        instructions: recipe.instructions,
+        instructionSteps: parseInstructions(recipe.instructions ?? null).steps,
+        instructionGroups: parseInstructions(recipe.instructions ?? null).groups,
         ingredients: ingredients.map(i => ({ name: i.name, amount: i.amount, unit: i.unit })),
         nutrition,
-      });
+      } as RecipeData);
     }
 
     chapterMap.set(chapter.title, recipeNames);
