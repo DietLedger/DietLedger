@@ -148,7 +148,7 @@ function NutritionDashboard() {
 
     const entryPoints: { time: number; gl: number; category: GLCategory; mealName: string }[] = [];
 
-    for (const entry of todayEntries) {
+    for (const entry of periodEntries) {
       let entryGL: number | null = null;
 
       if (entry.sourceType === 'recipe' && entry.sourceId) {
@@ -188,7 +188,7 @@ function NutritionDashboard() {
     }
 
     return entryPoints.sort((a, b) => a.time - b.time);
-  }, [todayEntries, defaultMealSlotTimes, recipes]);
+  }, [periodEntries, defaultMealSlotTimes, recipes]);
 
   const periodWeights = useMemo(() => {
     const startStr = formatDateForDB(periodDates.start);
@@ -355,7 +355,7 @@ function NutritionDashboard() {
         </div>
 
         <div className="mb-6">
-          <EnergySpikeChart meals={mealEnergyData} glucoseReadings={glucoseReadings} />
+          <EnergySpikeChart meals={mealEnergyData} glucoseReadings={glucoseReadings} showMealMarkers={period === 'today' || period === 'day'} />
         </div>
 
         <div className="mb-6">

@@ -31,6 +31,7 @@ interface GlucoseReading {
 interface EnergySpikeChartProps {
   meals: MealEnergyPoint[];
   glucoseReadings?: GlucoseReading[];
+  showMealMarkers?: boolean;
 }
 
 interface CurveParams {
@@ -86,7 +87,7 @@ function computeEnergyCurve(
   return points;
 }
 
-export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartProps) {
+export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = true }: EnergySpikeChartProps) {
   const hasGlucose = (glucoseReadings?.length ?? 0) > 0;
 
   const chartData = useMemo(() => {
@@ -219,7 +220,7 @@ export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartPro
               }}
               labelFormatter={(label: string) => `Time: ${label}`}
             />
-            {mealMarkers.map((m, i) => (
+            {showMealMarkers && mealMarkers.map((m, i) => (
               <ReferenceLine
                 key={i}
                 yAxisId="left"
@@ -310,14 +311,16 @@ export function EnergySpikeChart({ meals, glucoseReadings }: EnergySpikeChartPro
             This is not medical advice.
           </p>
         </div>
-        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-stone-500">
-          {mealMarkers.map((m, i) => (
-            <span key={i} className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-stone-400" />
-              {m.name} ({m.category}, GL {m.gl}) @ {m.label}
-            </span>
-          ))}
-        </div>
+        {showMealMarkers && (
+          <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-stone-500">
+            {mealMarkers.map((m, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-stone-400" />
+                {m.name} ({m.category}, GL {m.gl}) @ {m.label}
+              </span>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
