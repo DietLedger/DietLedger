@@ -72,3 +72,15 @@ sync-server/dietledger-sync
 sync-server/dietledger-sync.exe
 sync-server/dist/
 sync-server/sync.db
+
+# Local runtime/safety artifacts
+/tmp/
+/.worktree-safety/
+/019f*-*-*-*-*
+
+/.crew/
+/.crew
+!.crew/artifacts/
+!.crew/graphs/
+!.crew/artifacts/.gitkeep
+!.crew/graphs/.gitkeep
