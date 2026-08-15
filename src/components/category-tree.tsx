@@ -8,9 +8,9 @@ import { ChevronDown, ChevronRight, Pencil, Trash2, Check, X, Plus } from 'lucid
 
 interface CategoryTreeProps {
   categories: CategoryNode[];
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
-  onCreateChild: (parentId: string, name: string) => void;
+  onRename?: (id: string, name: string) => void;
+  onDelete?: (id: string) => void;
+  onCreateChild?: (parentId: string, name: string) => void;
 }
 
 export default function CategoryTree({ categories, onRename, onDelete, onCreateChild }: CategoryTreeProps) {
@@ -33,9 +33,9 @@ export default function CategoryTree({ categories, onRename, onDelete, onCreateC
 interface CategoryTreeNodeProps {
   node: CategoryNode;
   depth: number;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
-  onCreateChild: (parentId: string, name: string) => void;
+  onRename?: (id: string, name: string) => void;
+  onDelete?: (id: string) => void;
+  onCreateChild?: (parentId: string, name: string) => void;
 }
 
 function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: CategoryTreeNodeProps) {
@@ -47,16 +47,17 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const hasChildren = node.children.length > 0;
+  const canEdit = Boolean(onRename || onDelete || onCreateChild);
 
   const handleSaveRename = useCallback(() => {
-    if (editValue.trim()) {
+    if (editValue.trim() && onRename) {
       onRename(node.id, editValue.trim());
     }
     setIsEditing(false);
   }, [editValue, node.id, onRename]);
 
   const handleAddChild = useCallback(() => {
-    if (newChildName.trim()) {
+    if (newChildName.trim() && onCreateChild) {
       onCreateChild(node.id, newChildName.trim());
       setNewChildName('');
       setIsAddingChild(false);
@@ -99,8 +100,9 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
           <span className="text-sm text-stone-800 flex-1 truncate">{node.name}</span>
         )}
 
+        {canEdit && (
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {!isEditing && (
+          {!isEditing && onCreateChild && (
             <Button
               variant="ghost"
               size="sm"
@@ -111,7 +113,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
               <Plus className="w-3 h-3" />
             </Button>
           )}
-          {!isEditing && (
+          {!isEditing && onRename && (
             <Button
               variant="ghost"
               size="sm"
@@ -124,7 +126,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
           )}
           {confirmDelete ? (
             <>
-              <Button variant="destructive" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => { onDelete(node.id); setConfirmDelete(false); }}>
+              <Button variant="destructive" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => { if (onDelete) onDelete(node.id); setConfirmDelete(false); }}>
                 Delete
               </Button>
               <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setConfirmDelete(false)}>
@@ -132,7 +134,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
               </Button>
             </>
           ) : (
-            !isEditing && (
+            !isEditing && onDelete && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -145,6 +147,7 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
             )
           )}
         </div>
+        )}
       </div>
 
       {isAddingChild && (

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,6 +35,11 @@ import {
   Plus,
   LogOut,
   Weight,
+  Download,
+  Upload,
+  Trash2,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import FoodDatabasePanel from '@/components/food-database-panel';
 import CategoriesPanel from '@/components/categories-panel';
@@ -42,8 +47,11 @@ import PantryStaplesPanel from '@/components/pantry-staples-panel';
 import LocationPanel from '@/components/location-panel';
 import CustomFoodsPanel from '@/components/custom-foods-panel';
 import { LogWeightDialog } from '@/components/nutrition/log-weight-dialog';
+import { ConfirmWithPasswordDialog } from '@/components/confirm-with-password-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { useAppTheme } from '@/hooks/use-app-theme';
+import { getApiClient } from '@/lib/api-client';
+import { exportAllData, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
 
 const NAV_ITEMS = [
   { href: '/recipes', label: 'Recipes', icon: Salad },
@@ -65,6 +73,8 @@ export default function AppNav() {
   const [logWeightOpen, setLogWeightOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [dataStatus, setDataStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+  const [dataBusy, setDataBusy] = useState(false);
   const { themeId, setTheme, themes, mounted: themeMounted } = useAppTheme();
 
   const handleSaveApiKey = useCallback(() => {
@@ -72,6 +82,25 @@ export default function AppNav() {
     setApiKeySaved(true);
     setTimeout(() => setApiKeySaved(false), 2000);
   }, [apiKeyInput, setFDAKeyMutation]);
+
+  const handleDataExport = useCallback(async () => {
+    setDataBusy(true); setDataStatus(null);
+    try { const data = await exportAllData(); await downloadZip(data, `dietledger-export-${new Date().toISOString().slice(0, 10)}.zip`); }
+    catch (e) { setDataStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Export failed' }); }
+    finally { setDataBusy(false); }
+  }, []);
+
+  const handleDataImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDataBusy(true); setDataStatus(null);
+    try {
+      const result = await importFromZip(file);
+      if (result.success) setDataStatus({ kind: 'ok', msg: summarizeCounts(result.counts) || 'Imported' });
+      else setDataStatus({ kind: 'err', msg: result.error || 'Import failed' });
+    } catch (e) { setDataStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Import failed' }); }
+    finally { setDataBusy(false); e.target.value = ''; }
+  }, []);
 
   function getActiveSection(pathname: string): string | null {
     for (const item of NAV_ITEMS) {
@@ -160,12 +189,17 @@ export default function AppNav() {
             <TooltipContent>Sign Out</TooltipContent>
           </Tooltip>
 
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-stone-400 hover:text-stone-600"
+            title="Settings"
+            onClick={() => (user?.isAdmin ? router.push('/settings') : setSettingsOpen(true))}
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+
           <Dialog open={settingsOpen} onOpenChange={(open) => { setSettingsOpen(open); if (open) { setApiKeyInput(apiKey); setApiKeySaved(false); } }}>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400 hover:text-stone-600">
-                <Settings className="w-4 h-4" />
-              </Button>
-            </DialogTrigger>
             <DialogContent className="sm:max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -183,6 +217,7 @@ export default function AppNav() {
                   <TabsTrigger value="custom-foods" className="text-xs gap-1"><Package className="w-3 h-3" />Custom Foods</TabsTrigger>
                   <TabsTrigger value="location" className="text-xs gap-1"><MapPin className="w-3 h-3" />Location</TabsTrigger>
                   <TabsTrigger value="templates" className="text-xs gap-1"><LayoutTemplate className="w-3 h-3" />Templates</TabsTrigger>
+                  <TabsTrigger value="data" className="text-xs gap-1"><Download className="w-3 h-3" />Data</TabsTrigger>
                 </TabsList>
                 <div className="flex-1 min-h-0 overflow-y-auto mt-4">
                 <TabsContent value="general" className="mt-0">
@@ -273,7 +308,7 @@ export default function AppNav() {
                   <FoodDatabasePanel />
                 </TabsContent>
                 <TabsContent value="categories" className="mt-4">
-                  <CategoriesPanel />
+                  <CategoriesPanel readOnly />
                 </TabsContent>
                 <TabsContent value="staples" className="mt-4">
                   <PantryStaplesPanel />
@@ -301,6 +336,71 @@ export default function AppNav() {
                         <LayoutTemplate className="w-3.5 h-3.5" />Manage Templates
                       </Button>
                     </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="data" className="mt-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-1">
+                        <Download className="w-3.5 h-3.5 text-brand-600" />Export / Import
+                      </label>
+                      <p className="text-xs text-stone-400 mb-3">Back up your account data or merge in an archive (zip).</p>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={handleDataExport} disabled={dataBusy}>
+                          <Download className="w-3.5 h-3.5" />Export
+                        </Button>
+                        <label className="inline-flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-md border border-stone-200 hover:bg-stone-50 cursor-pointer">
+                          <Upload className="w-3.5 h-3.5" />Import
+                          <input type="file" accept=".zip" className="hidden" onChange={handleDataImport} disabled={dataBusy} />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-stone-100 pt-4">
+                      <p className="text-sm font-medium text-red-700 flex items-center gap-2 mb-1">
+                        <AlertTriangle className="w-3.5 h-3.5" />Danger Zone
+                      </p>
+                      <p className="text-xs text-stone-400 mb-3">Irreversible. Each requires your password.</p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs text-stone-600">Delete my data<br /><span className="text-stone-400">Removes all your content; keeps your account.</span></p>
+                          <ConfirmWithPasswordDialog
+                            title="Delete all your data?"
+                            description="Permanently deletes ALL of your content (recipes, books, plans, profiles, etc.). Your account and settings remain. Cannot be undone."
+                            confirmLabel="Delete data" destructive
+                            trigger={<Button size="sm" variant="outline" className="gap-1 border-red-200 text-red-700 hover:bg-red-50"><RotateCcw className="w-3.5 h-3.5" />Delete data</Button>}
+                            action={async (password) => {
+                              try { await getApiClient().deleteMyData(password); window.location.reload(); return { ok: true }; }
+                              catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; }
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs text-stone-600">Delete my account<br /><span className="text-stone-400">Downloads a backup zip, then deletes everything.</span></p>
+                          <ConfirmWithPasswordDialog
+                            title="Delete your account?"
+                            description="A backup zip will be downloaded first, then your account and all its data will be permanently deleted. You will be signed out. Cannot be undone."
+                            confirmLabel="Delete account" destructive
+                            trigger={<Button size="sm" variant="outline" className="gap-1 border-red-200 text-red-700 hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" />Delete account</Button>}
+                            action={async (password) => {
+                              try {
+                                const data = await exportAllData();
+                                await downloadZip(data, `dietledger-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+                                await getApiClient().deleteMyAccount(password);
+                                logout();
+                                router.replace('/');
+                                return { ok: true };
+                              } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {dataStatus && (
+                      <p className={`text-xs ${dataStatus.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{dataStatus.msg}</p>
+                    )}
                   </div>
                 </TabsContent>
                 </div>

@@ -374,6 +374,8 @@ export interface RecipeRecord {
   name: string;
   servings: number;
   servingName: string;
+  prepTime?: string;
+  cookTime?: string;
   instructions: string | null;
   ingredientGroups: IngredientGroup[];
   createdAt: string;
@@ -554,6 +556,7 @@ export interface SeasonalFoodsRecord {
 export interface PantryStapleRecord {
   id: string;
   name: string;
+  isGlobal?: boolean;
 }
 
 export interface UserLocationRecord {

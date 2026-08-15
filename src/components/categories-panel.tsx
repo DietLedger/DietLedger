@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import CategoryTree from '@/components/category-tree';
 
-export default function CategoriesPanel() {
+export default function CategoriesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const { categories, categoryTree, isLoading } = useCategories();
   const createCategoryMutation = useCreateCategory();
   const updateCategoryMutation = useUpdateCategory();
@@ -50,6 +50,7 @@ export default function CategoriesPanel() {
         <Badge variant="secondary" className="text-xs">
           {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'}
         </Badge>
+        {!readOnly && (
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1 h-7 text-xs">
@@ -93,6 +94,7 @@ export default function CategoriesPanel() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {isLoading ? (
@@ -114,9 +116,9 @@ export default function CategoriesPanel() {
           <CardContent className="pt-4">
             <CategoryTree
               categories={categoryTree}
-              onRename={handleRename}
-              onDelete={handleDelete}
-              onCreateChild={handleCreateChild}
+              onRename={readOnly ? undefined : handleRename}
+              onDelete={readOnly ? undefined : handleDelete}
+              onCreateChild={readOnly ? undefined : handleCreateChild}
             />
           </CardContent>
         </Card>
