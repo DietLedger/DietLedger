@@ -36,6 +36,9 @@ import {
 } from '@/hooks/use-recipes';
 import { useCategories, useRecipeCategories, useCreateCategory, useDeleteCategory, useAssignCategory, useUnassignCategory, type CategoryNode } from '@/hooks/use-categories';
 import { getApiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
+import { exportRecipes, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { ImportZipButton } from '@/components/import-zip-button';
 import { generateUUID } from '@/lib/utils';
 import { sumNutrition, emptyNutrition, type NutrientKeys } from '@/lib/recipe-types';
 import { searchFDAFoods } from '@/lib/fda-client';
@@ -92,6 +95,9 @@ import {
   Eye,
   Share2,
   Download,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
 import { toCanvas } from 'html-to-image';
 import { fmt } from '@/lib/format';
@@ -258,6 +264,7 @@ function RecipePage() {
   const [selectedParentCategoryId, setSelectedParentCategoryId] = useState<string | null>(null);
 
   const [newRecipeName, setNewRecipeName] = useState('');
+  const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<'fda' | 'recipes' | 'custom'>('fda');
@@ -321,6 +328,18 @@ function RecipePage() {
 
   const displayRecipes = useMemo(() => {
     let result: Recipe[] = recipes;
+    const normalizedSearch = recipeSearchQuery.trim().toLowerCase();
+    if (normalizedSearch) {
+      result = result.filter((recipe) => {
+        const searchableText = [
+          recipe.name,
+          recipe.servingName,
+          ...recipe.ingredients.map((ingredient) => ingredient.name),
+          ...recipe.instructionSteps.map((step) => step.text),
+        ].join(' ').toLowerCase();
+        return searchableText.includes(normalizedSearch);
+      });
+    }
     if (filteredRecipeIds) {
       result = result.filter(r => filteredRecipeIds.has(r.id));
     }
@@ -328,7 +347,7 @@ function RecipePage() {
       result = applyDietaryFilters(result as any, dietaryTags, excludeAllergens, activeDietaryProfile) as any;
     }
     return result;
-  }, [recipes, filteredRecipeIds, dietaryTags, excludeAllergens, activeDietaryProfile]);
+  }, [recipes, recipeSearchQuery, filteredRecipeIds, dietaryTags, excludeAllergens, activeDietaryProfile]);
 
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<FDAFood[]>([]);
@@ -380,6 +399,42 @@ function RecipePage() {
   }, []);
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [transferStatus, setTransferStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+
+  const handleExportRecipe = useCallback(async (recipeId: string, name: string) => {
+    setTransferStatus(null);
+    setExportingId(recipeId);
+    try {
+      const manifest = await exportRecipes([recipeId]);
+      const safe = (name || 'recipe').replace(/[^\w-]+/g, '_').replace(/_+/g, '_').toLowerCase() || 'recipe';
+      await downloadZip(manifest, `${safe}.zip`);
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Export failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setExportingId(null);
+    }
+  }, []);
+
+  const handleImport = useCallback(async (file: File) => {
+    setImporting(true);
+    setTransferStatus(null);
+    try {
+      const result = await importFromZip(file);
+      if (result.success) {
+        setTransferStatus({ kind: 'ok', msg: summarizeCounts(result.counts) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
+      } else {
+        setTransferStatus({ kind: 'err', msg: `Import failed: ${result.error}` });
+      }
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Import failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setImporting(false);
+    }
+  }, [queryClient]);
 
   const handleCreateRecipe = useCallback(async () => {
     if (!newRecipeName.trim()) return;
@@ -742,9 +797,24 @@ function RecipePage() {
           <div className="lg:col-span-3">
             <Card className="border-stone-200 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-brand-600" />My Recipes
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-brand-600" />My Recipes
+                  </CardTitle>
+                  <ImportZipButton onFile={handleImport} busy={importing} />
+                </div>
+                {transferStatus && (
+                  <div
+                    className={`mt-2 text-xs flex items-center gap-1.5 px-2 py-1.5 rounded ${
+                      transferStatus.kind === 'ok'
+                        ? 'text-green-700 bg-green-50 border border-green-200'
+                        : 'text-red-600 bg-red-50 border border-red-200'
+                    }`}
+                  >
+                    {transferStatus.kind === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+                    <span className="truncate">{transferStatus.msg}</span>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="flex gap-2 mb-4">
@@ -752,6 +822,26 @@ function RecipePage() {
                   <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isMutating} size="sm" className="bg-brand-600 hover:bg-brand-700 shrink-0">
                     <Plus className="w-4 h-4" />
                   </Button>
+                </div>
+                <div className="relative mb-3">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400" />
+                  <Input
+                    aria-label="Search recipes"
+                    placeholder="Search recipes..."
+                    value={recipeSearchQuery}
+                    onChange={(e) => setRecipeSearchQuery(e.target.value)}
+                    className="h-9 pl-8 pr-8 text-sm"
+                  />
+                  {recipeSearchQuery && (
+                    <button
+                      type="button"
+                      aria-label="Clear recipe search"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                      onClick={() => setRecipeSearchQuery('')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
                 {categories.length > 0 && (
                   <div className="mb-3">
@@ -811,7 +901,11 @@ function RecipePage() {
                   <div className="space-y-1.5">
                     {displayRecipes.length === 0 ? (
                       <p className="text-xs text-stone-400 text-center py-8">
-                        {categoryFilterId ? 'No recipes in this category' : 'No recipes yet. Create one above!'}
+                        {recipeSearchQuery.trim()
+                          ? 'No recipes match your search'
+                          : categoryFilterId
+                            ? 'No recipes in this category'
+                            : 'No recipes yet. Create one above!'}
                       </p>
                     ) : (
                       displayRecipes.map((recipe) => (
@@ -853,9 +947,14 @@ function RecipePage() {
                               <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}><X className="w-3 h-3" /></Button>
                             </div>
                           ) : (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(recipe.id); }}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                            <div className="flex items-center gap-0.5 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-brand-600" title="Export recipe" disabled={exportingId === recipe.id} onClick={(e) => { e.stopPropagation(); handleExportRecipe(recipe.id, recipe.name); }}>
+                                {exportingId === recipe.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-destructive" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(recipe.id); }}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           )}
                         </div>
                       ))
@@ -892,8 +991,17 @@ function RecipePage() {
                           {activeRecipe.servings} {activeRecipe.servingName || 'serving'} · Click to edit
                         </p>
                        )}
-                       <div className="flex items-center gap-2 mt-1.5">
-                         <span className="text-xs text-stone-500">Leftovers:</span>
+                        {(activeRecipe.prepTime || activeRecipe.cookTime) && (
+                          <p className="text-xs text-stone-500 mt-1">
+                            <Clock className="w-3 h-3 inline mr-1 -mt-0.5 text-stone-400" />
+                            {[
+                              activeRecipe.prepTime && `Prep: ${activeRecipe.prepTime}`,
+                              activeRecipe.cookTime && `Cook: ${activeRecipe.cookTime}`,
+                            ].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-xs text-stone-500">Leftovers:</span>
                          <select
                            value={(activeRecipe as any).leftoverStorage || ''}
                             onChange={(e) => activeRecipeId && updateRecipeMutation.mutate({ id: activeRecipeId, data: { leftoverStorage: e.target.value || undefined } })}

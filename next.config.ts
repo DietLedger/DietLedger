@@ -1,12 +1,5 @@
 import type { NextConfig } from "next";
-
-if (process.platform === 'win32') {
-  try {
-    require('./scripts/patch-readlink');
-  } catch {}
-}
-
-const pkg = require('./package.json');
+import pkg from './package.json';
 
 const nextConfig: NextConfig = {
   output: "standalone",

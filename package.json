@@ -1,6 +1,6 @@
 {
   "name": "dietledger",
-  "version": "1.0.0-beta.93",
+  "version": "1.0.0-beta.125",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 --webpack",
@@ -8,6 +8,7 @@
     "build:static": "next build --webpack",
     "lint": "eslint .",
     "version:sync": "node scripts/version-sync.js",
+    "convert-seed-recipes": "node scripts/convert-seed-recipes.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

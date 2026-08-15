@@ -2,6 +2,10 @@
 
 import React, { useState, useCallback } from 'react';
 import { useBooks, useCreateBook, useDeleteBook } from '@/hooks/use-books';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
+import { exportBook, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { ImportZipButton } from '@/components/import-zip-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,6 +17,9 @@ import {
   Trash2,
   X,
   Loader2,
+  Download,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BOOK_COLORS } from '@/lib/types';
@@ -21,11 +28,15 @@ export default function BooksPage() {
   const { data: books = [], isLoading } = useBooks();
   const createBookMutation = useCreateBook();
   const deleteBookMutation = useDeleteBook();
+  const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState<string>(BOOK_COLORS[0]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [transferStatus, setTransferStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
   const router = useRouter();
 
@@ -43,6 +54,39 @@ export default function BooksPage() {
     setDeleteConfirmId(null);
   }, [deleteBookMutation]);
 
+  const handleExportBook = useCallback(async (bookId: string, title: string) => {
+    setTransferStatus(null);
+    setExportingId(bookId);
+    try {
+      const manifest = await exportBook(bookId);
+      const safe = (title || 'cookbook').replace(/[^\w-]+/g, '_').replace(/_+/g, '_').toLowerCase() || 'cookbook';
+      await downloadZip(manifest, `${safe}.zip`);
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Export failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setExportingId(null);
+    }
+  }, []);
+
+  const handleImport = useCallback(async (file: File) => {
+    setImporting(true);
+    setTransferStatus(null);
+    try {
+      const result = await importFromZip(file);
+      if (result.success) {
+        setTransferStatus({ kind: 'ok', msg: summarizeCounts(result.counts) });
+        qc.invalidateQueries({ queryKey: queryKeys.books.all });
+        qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
+      } else {
+        setTransferStatus({ kind: 'err', msg: `Import failed: ${result.error}` });
+      }
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Import failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setImporting(false);
+    }
+  }, [qc]);
+
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
       <div className="flex items-center justify-between mb-6">
@@ -50,7 +94,9 @@ export default function BooksPage() {
           <h2 className="text-lg font-semibold text-stone-800">My Books</h2>
           <p className="text-sm text-stone-500">{books.length} book{books.length !== 1 ? 's' : ''}</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <div className="flex items-center gap-2">
+          <ImportZipButton onFile={handleImport} busy={importing} label="Import" />
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button className="bg-brand-600 hover:bg-brand-700 gap-2">
               <Plus className="w-4 h-4" />Create Book
@@ -103,7 +149,21 @@ export default function BooksPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {transferStatus && (
+        <div
+          className={`mb-4 text-sm flex items-center gap-1.5 px-3 py-2 rounded-md ${
+            transferStatus.kind === 'ok'
+              ? 'text-green-700 bg-green-50 border border-green-200'
+              : 'text-red-600 bg-red-50 border border-red-200'
+          }`}
+        >
+          {transferStatus.kind === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {transferStatus.msg}
+        </div>
+      )}
 
       {isLoading && books.length === 0 ? (
         <div className="flex items-center justify-center py-16">
@@ -146,14 +206,26 @@ export default function BooksPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive"
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(book.id); }}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-0.5 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-stone-400 hover:text-brand-600"
+                        title="Export cookbook"
+                        disabled={exportingId === book.id}
+                        onClick={(e) => { e.stopPropagation(); handleExportBook(book.id, book.title); }}
+                      >
+                        {exportingId === book.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-stone-400 hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(book.id); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2 mt-3">

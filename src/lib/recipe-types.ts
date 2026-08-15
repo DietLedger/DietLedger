@@ -49,6 +49,8 @@ export interface Recipe {
   name: string;
   servings: number;
   servingName: string;
+  prepTime?: string;
+  cookTime?: string;
   instructionSteps: InstructionStep[];
   instructionGroups: InstructionGroup[];
   ingredientGroups: IngredientGroup[];
