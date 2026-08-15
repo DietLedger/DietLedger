@@ -1,5 +1,7 @@
 # Spec: Render Preview & Template System
 
+> **Documentation status:** Historical feature spec. Template UX ideas may remain useful, but beta persistence must follow `final_docs/system_requirements.md`: user-created templates are persistent user data owned by Go API + PostgreSQL, not IndexedDB or local-only storage.
+
 ## Objective
 
 Add a render preview system to Recipe and Book pages that shows the final presentation of a recipe or book page using user-defined templates. Templates control layout, section visibility/order, styling (colors, fonts), and page sizing. A dedicated `/settings/templates` page provides full template management (CRUD + editor with live preview). The recipe page's right column gains a "Preview" tab alongside the existing "Nutrition" view. The book detail page gets a similar preview panel.

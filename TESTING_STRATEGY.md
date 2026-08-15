@@ -406,6 +406,28 @@ Avoid testing:
 
 Focus on user-visible outcomes.
 
+## Covered onboarding workflows
+
+- Setup wizard account -> basics transition: `src/components/setup/setup-wizard.test.tsx`.
+  Guards against the wizard skipping the basics step after admin account
+  creation (the step list changes shape when the session authenticates, so the
+  current step is tracked by key, not positional index).
+- Setup wizard finish + per-user completion: `src/components/setup/setup-wizard.test.tsx`.
+  Guards that finishing the wizard records two distinct completions: the
+  global instance flag via `completeOnboarding()` (`instance_meta`) AND the
+  admin's own `onboardingComplete` via the per-user settings mutation
+  (`user_settings`, keyed by user_id). Proves onboarding completion stays
+  per-user instead of being shared/global.
+- Backend instance-metadata + registration gate: `sync-server/handlers_instance_test.go`.
+  Guards the public `GET /api/instance/state` read, the admin-only
+  `POST /api/instance/onboarding/complete` and `PUT|PATCH
+  /api/instance/registration` endpoints (auth/admin/method/rejection +
+  success with persisted state), and the registration-disabled behavior of
+  `POST /api/auth/register` (`403` when disabled and a user exists, the
+  first-user carve-out that still allows the setup admin, and recovery after
+  re-enable). Requires `TEST_DATABASE_URL` like the rest of the backend
+  integration suite.
+
 ---
 
 # Nutrition Testing Requirements

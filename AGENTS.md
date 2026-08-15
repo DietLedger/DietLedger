@@ -73,15 +73,25 @@ Load only the documents necessary for the current task.
 
 # Repository Discovery
 
-Before proposing architecture changes or implementing significant features:
+## CodeGraph Requirement
 
-1. Use CodeGraph.
-2. Locate relevant symbols.
-3. Trace callers and callees.
-4. Inspect existing implementations.
-5. Search for existing patterns.
-6. Search for tests.
-7. Search for documentation.
+If CodeGraph has been initialized for this project and CodeGraph tools are available, coding agents must use CodeGraph for codebase discovery before falling back to grep, find, or ad-hoc file reads.
+
+This applies to:
+
+* locating files, symbols, routes, handlers, components, and tests
+* tracing callers and callees
+* understanding ownership boundaries and implementation flow
+* assessing impact before edits
+* proposing architecture changes or implementing significant features
+
+Recommended flow:
+
+1. Use CodeGraph to locate the relevant files and symbols.
+2. Trace callers and callees where behavior or ownership is affected.
+3. Inspect the identified source files directly.
+4. Search for existing patterns, tests, and documentation.
+5. Use grep/find only after CodeGraph is insufficient, unavailable, or the task is literal text matching.
 
 Do not assume a system does not exist until it has been verified.
 
@@ -89,18 +99,66 @@ Understand the current implementation before proposing a replacement.
 
 ---
 
+# Opencode Workflow Requirements
+
+DietLedger code work must follow the practices exposed by opencode's `using-agent-skills` meta-skill and related engineering skills.
+
+Before starting work:
+
+1. Check which workflow skills apply, including `using-agent-skills`, `spec-driven-development`, `test-driven-development`, `planning-and-task-breakdown`, `source-driven-development`, `incremental-implementation`, `code-review-and-quality`, and any task-specific skill.
+2. State assumptions for non-trivial work.
+3. Stop and ask when requirements, existing code, or documentation conflict.
+4. Push back when the requested approach has concrete product, technical, security, correctness, or maintenance risk.
+5. Choose the simplest solution that satisfies the spec.
+6. Keep scope tight; do not perform unrelated cleanup, refactors, or feature additions.
+7. Verify with evidence before declaring completion.
+
+---
+
+# Spec-Driven Development Requirement
+
+DietLedger is spec-driven. Do not implement code that is not tied to a written spec, issue, plan, or explicit acceptance criteria.
+
+For new features, significant changes, ambiguous requests, architectural decisions, or work touching multiple modules:
+
+1. Create or update a spec before coding.
+2. Capture objective, user value, success criteria, affected files/systems, testing strategy, documentation updates, and open questions.
+3. Get human approval when the spec changes product behavior, architecture, scope, or acceptance criteria.
+4. Keep the spec alive: update it before implementing decisions discovered during the work.
+
+For small, unambiguous fixes, the issue plus a concise implementation note can serve as the spec, but acceptance criteria and verification must still be explicit.
+
+---
+
+# Test-Driven Development Requirement
+
+DietLedger code changes must follow TDD.
+
+For behavior changes, bug fixes, domain logic, API changes, persistence changes, or UI behavior:
+
+1. Write or update a focused failing test first.
+2. Run it and confirm it fails for the expected reason.
+3. Implement the smallest change that makes it pass.
+4. Refactor only while tests remain green.
+5. Run the focused test and any broader checks required by risk.
+
+For bugs, reproduce the bug with a failing test before fixing it. If TDD is not practical for a specific change, document why, use the narrowest alternative verification, and add regression coverage where possible.
+
+---
+
 # Development Workflow
 
 When implementing a change:
 
-1. Understand the problem.
+1. Understand the problem and the governing spec.
 2. Understand the existing implementation.
 3. Identify ownership boundaries.
 4. Reuse existing systems where possible.
-5. Minimize complexity.
-6. Update documentation when required.
+5. Make the smallest correct change.
+6. Verify the changed behavior with the narrowest useful check.
+7. Update the relevant documentation/specs after every change.
 
-Prefer modifying an existing system over creating a new one.
+Prefer modifying an existing system over creating a new one. Avoid broad rewrites, drive-by refactors, or formatting-only churn outside the files needed for the task.
 
 ---
 
@@ -159,12 +217,13 @@ Detailed architecture documentation lives in ARCHITECTURE.md.
 Important rules:
 
 * PostgreSQL is authoritative.
-* The Go API owns business logic.
+* The Go API owns business logic and validation.
 * React Query owns server state.
-* Zustand owns UI interaction state.
+* Zustand owns UI interaction state only.
 * The browser is not authoritative.
+* API contracts should stay explicit and boring; avoid hidden client-side business rules.
 
-Consult ARCHITECTURE.md before making architectural decisions.
+Consult ARCHITECTURE.md before making architectural decisions. New services, persistence patterns, background jobs, external integrations, or state-management approaches require a clear reason and documentation updates.
 
 ---
 
@@ -229,7 +288,7 @@ A simpler system is usually a better system.
 
 # Documentation Requirements
 
-Documentation is part of implementation.
+Documentation is part of implementation. Update the relevant docs, specs, plans, or ADRs after every change so the written source of truth stays aligned with the code.
 
 ## Architecture Changes
 
@@ -256,6 +315,40 @@ Update:
 
 * API documentation
 * API contracts
+
+## Testing Changes
+
+Update:
+
+* TESTING_STRATEGY.md when changing test policy, test tooling, or what must be covered.
+
+---
+
+# Verification Rules
+
+Do not claim a change is complete without evidence.
+
+Verification should match the risk of the change:
+
+* Documentation-only changes: proofread and inspect the diff.
+* Small frontend changes: run the relevant lint/type/test command when available; use browser verification when behavior or layout matters.
+* Small backend changes: run the focused Go test package first.
+* Cross-cutting or domain changes: run focused tests plus any broader checks needed to prove no regression.
+
+If an executable check was not run, state why and identify the non-executable verification performed.
+
+---
+
+# Dependency & Tooling Rules
+
+Do not add dependencies, code generators, frameworks, services, or build tooling unless the task clearly requires it and existing options are insufficient.
+
+Before adding a dependency, confirm:
+
+1. It solves a real current problem.
+2. The standard library or existing dependencies cannot reasonably solve it.
+3. The maintenance, security, and deployment costs are acceptable.
+4. Relevant docs and lockfiles are updated intentionally.
 
 ---
 

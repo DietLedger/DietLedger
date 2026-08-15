@@ -1,5 +1,7 @@
 # Spec: Nutrition Tracking & Multi-Person Health Dashboard
 
+> **Documentation status:** Historical feature spec. For beta implementation, `final_docs/system_requirements.md` and `NUTRITION_DOMAIN.md` are authoritative. Any IndexedDB, Prisma/SQLite, local sync, or Next.js API route guidance below is deprecated and must be replaced with Go API + PostgreSQL behavior before implementation.
+
 ## Objective
 
 Add a comprehensive nutrition tracking system to NutriLabel that supports multiple people, weight logging, calorie/macro goal tracking, and rich chart-based analytics. Also modify the existing `NutritionLabel` component to visually highlight nutrients that exceed daily recommended values (orange for up to 25% over, red above that), while ensuring printed labels always render in pure black and white.

@@ -1,5 +1,7 @@
 # Spec: Recipe Sharing, Advanced Nutrition, Recipe Scaling, Print Studio & Dietary Compliance
 
+> **Documentation status:** Historical feature spec. Product ideas may remain useful, but implementation details that rely on IndexedDB, local import, local-only persistence, or client-authoritative nutrition data are deprecated. For beta, `final_docs/system_requirements.md` is authoritative and nutrition-sensitive behavior must also follow `NUTRITION_DOMAIN.md`.
+
 Five features from the DietLedger proposal: Tier 1 #2, Tier 2 #6, Tier 3 #7, #8, #10.
 
 ---

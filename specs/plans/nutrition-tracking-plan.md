@@ -1,5 +1,7 @@
 # Implementation Plan: Nutrition Tracking & Multi-Person Health Dashboard
 
+> **Documentation status:** Historical implementation plan. Do not execute tasks that add Prisma/SQLite, IndexedDB-authoritative storage, offline queues, or Next.js API routes for beta. Use `final_docs/system_requirements.md`, `final_docs/migration_path.md`, `NUTRITION_DOMAIN.md`, and current Go API/PostgreSQL patterns instead.
+
 ## Overview
 
 Add a comprehensive nutrition tracking system with multi-person profiles, food/weight logging, and a rich chart-based dashboard. Also modify the existing `NutritionLabel` to highlight nutrients exceeding daily values with color-coded warnings (orange/red) while maintaining B&W print output.

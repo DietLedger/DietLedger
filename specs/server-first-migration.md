@@ -1,5 +1,7 @@
 # Spec: DietLedger Server-First Architecture Migration
 
+> **Documentation status:** Historical migration proposal. For the current beta target, `final_docs/system_requirements.md` is authoritative: PostgreSQL is the source of truth, the Go API owns application behavior, and Phase 1 must not include local-only, IndexedDB-authoritative, Prisma/SQLite, or offline sync behavior. Treat conflicting sections below as deprecated context only.
+
 ## Objective
 
 Migrate DietLedger from a client-first architecture (IndexedDB + Prisma/SQLite on the Next.js server, Go sync server as an optional add-on) to a **server-first architecture** where:

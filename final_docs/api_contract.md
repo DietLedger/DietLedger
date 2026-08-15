@@ -1,7 +1,7 @@
 # DietLedger Phase 1 API Contract
 
 Status: Contract baseline for Phase 1 migration
-Date: 2026-06-05
+Date: 2026-07-06
 Authority: `final_docs/system_requirements.md` (section 16)
 Server: `sync-server/` Go API server
 
@@ -62,6 +62,36 @@ Server: `sync-server/` Go API server
 - Auth: Required
 - Ownership: Private (own session only)
 - Note: TBD — not yet implemented. Required for full session lifecycle.
+
+---
+
+## Instance
+
+These endpoints own instance-level onboarding and administration state. They are
+separate from per-user settings: instance setup completion and registration
+policy live in PostgreSQL `instance_meta`; per-user onboarding completion lives
+in account settings.
+
+### GET /api/instance/state
+
+- Auth: None
+- Response 200: `{ "ok": true, "data": { "onboardingComplete": boolean, "onboardingCompletedAt"?: string, "registrationEnabled": boolean, "hasUsers": boolean, "onboardingVersion": number, "updatedAt": string } }`
+- Ownership: Instance-level public read, intentionally unauthenticated so the frontend can route first-run setup before login.
+
+### POST /api/instance/onboarding/complete
+
+- Auth: Required admin
+- Request: none
+- Response 200: `{ "ok": true, "data": InstanceState }`
+- Ownership: Instance-level admin-only mutation; stamps setup completion for the whole instance.
+
+### PUT/PATCH /api/instance/registration
+
+- Auth: Required admin
+- Request: `{ "registrationEnabled": boolean }`
+- Response 200: `{ "ok": true, "data": InstanceState }`
+- Response 400: invalid JSON
+- Ownership: Instance-level admin-only mutation; controls whether non-first-user registration is allowed.
 
 ---
 

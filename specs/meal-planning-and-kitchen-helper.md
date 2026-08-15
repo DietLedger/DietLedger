@@ -1,5 +1,7 @@
 # Spec: Meal Planning, Grocery Lists & Kitchen Helper
 
+> **Documentation status:** Historical feature spec. Workflow ideas may remain useful, but any IndexedDB/client-storage implementation guidance is deprecated for beta. Persistent meal plans, grocery checklists, and related user data must be owned by Go API + PostgreSQL per `final_docs/system_requirements.md`.
+
 ## Objective
 
 Transform the placeholder Meal Plans page into a fully functional meal planning system with three major features:
