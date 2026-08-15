@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -29,6 +30,10 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.auth.Register(req.Email, req.Password, req.DisplayName)
 	if err != nil {
+		if errors.Is(err, ErrRegistrationDisabled) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

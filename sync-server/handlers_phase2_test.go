@@ -49,6 +49,36 @@ func TestSettingsAuthRequired(t *testing.T) {
 	}
 }
 
+func TestSecretUpsertReturnsCurrentIDAndValue(t *testing.T) {
+	env := newTestEnv(t)
+
+	w := env.doRequest("POST", "/api/secrets", map[string]string{"keyName": "fda-api-key", "value": "first"})
+	if w.Code != 201 {
+		t.Fatalf("create secret status = %d, body = %s", w.Code, w.Body.String())
+	}
+	first := decodeJSON(t, w)["data"].(map[string]interface{})
+	firstID := first["id"].(string)
+
+	w = env.doRequest("POST", "/api/secrets", map[string]string{"keyName": "fda-api-key", "value": "second"})
+	if w.Code != 201 {
+		t.Fatalf("update secret status = %d, body = %s", w.Code, w.Body.String())
+	}
+	second := decodeJSON(t, w)["data"].(map[string]interface{})
+	secondID := second["id"].(string)
+	if secondID != firstID {
+		t.Fatalf("upsert returned id %q, want existing id %q", secondID, firstID)
+	}
+
+	w = env.doRequest("GET", "/api/secrets/"+secondID, nil)
+	if w.Code != 200 {
+		t.Fatalf("get updated secret status = %d, body = %s", w.Code, w.Body.String())
+	}
+	data := decodeJSON(t, w)["data"].(map[string]interface{})
+	if data["value"] != "second" {
+		t.Fatalf("secret value = %v, want second", data["value"])
+	}
+}
+
 func TestTemplateCRUD(t *testing.T) {
 	env := newTestEnv(t)
 

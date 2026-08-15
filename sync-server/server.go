@@ -39,6 +39,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/login", s.loginHandler)
 	mux.HandleFunc("/api/auth/refresh", s.refreshHandler)
 
+	// Instance metadata: state is public so first-run routing works pre-auth;
+	// the mutations are administrator-only.
+	mux.HandleFunc("/api/instance/state", s.instanceStateHandler)
+	mux.HandleFunc("/api/instance/onboarding/complete", s.requireAuth(s.requireAdmin(s.completeOnboardingHandler)))
+	mux.HandleFunc("/api/instance/registration", s.requireAuth(s.requireAdmin(s.registrationHandler)))
+	mux.HandleFunc("/api/instance/reset-user-data", s.requireAuth(s.requireAdmin(s.resetUserDataHandler)))
+	mux.HandleFunc("/api/instance/factory-reset", s.requireAuth(s.requireAdmin(s.factoryResetHandler)))
+	mux.HandleFunc("/api/instance/users", s.requireAuth(s.requireAdmin(s.listUsersHandler)))
+
+	// Account self-service (caller-scoped, password-gated via the handler body).
+	mux.HandleFunc("/api/account/delete-data", s.requireAuth(s.deleteDataHandler))
+	mux.HandleFunc("/api/account/delete", s.requireAuth(s.deleteAccountHandler))
+
 	mux.HandleFunc("/api/recipes/", s.requireAuth(s.recipeRoutes))
 	mux.HandleFunc("/api/recipes", s.requireAuth(s.recipesRouter))
 

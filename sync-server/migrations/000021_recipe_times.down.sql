@@ -1,0 +1,2 @@
+ALTER TABLE recipes DROP COLUMN IF EXISTS prep_time;
+ALTER TABLE recipes DROP COLUMN IF EXISTS cook_time;

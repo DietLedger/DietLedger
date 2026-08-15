@@ -9,6 +9,20 @@ type Store interface {
 	GetUserByID(id string) (*User, error)
 	GetUserByEmail(email string) (*User, error)
 	UpdateUserLastLogin(id string) error
+	UserCount() (int, error)
+	ListUsers() ([]UserListEntry, error)
+	SetUserAdmin(userID string, isAdmin bool) error
+	AdminCount() (int, error)
+	DeleteAccount(userID string) error
+	DeleteUserData(userID string) error
+	SeedGlobalStaples() error
+
+	// Instance metadata (single-row, instance-wide)
+	GetInstanceState() (*InstanceState, error)
+	CompleteOnboarding(version int) error
+	SetRegistrationEnabled(enabled bool) error
+	ResetUserData() error
+	FactoryReset() error
 
 	// Recipes
 	ListRecipes(userID string, page, perPage int) ([]Recipe, int, error)

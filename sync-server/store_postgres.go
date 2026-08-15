@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type PostgresStore struct {
@@ -98,6 +98,121 @@ func (s *PostgresStore) UpdateUserLastLogin(id string) error {
 	return err
 }
 
+func (s *PostgresStore) UserCount() (int, error) {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// ── Instance metadata ────────────────────────────────────────────────
+
+func (s *PostgresStore) GetInstanceState() (*InstanceState, error) {
+	var (
+		st        InstanceState
+		completed sql.NullTime
+	)
+	err := s.db.QueryRow(
+		`SELECT m.onboarding_completed_at, m.registration_enabled, m.onboarding_version, m.updated_at,
+		        EXISTS(SELECT 1 FROM users LIMIT 1) AS has_users
+		 FROM instance_meta m WHERE m.id = 1`,
+	).Scan(&completed, &st.RegistrationEnabled, &st.OnboardingVersion, &st.UpdatedAt, &st.HasUsers)
+	if err != nil {
+		return nil, err
+	}
+	if completed.Valid {
+		st.OnboardingCompletedAt = &completed.Time
+		st.OnboardingComplete = true
+	}
+	return &st, nil
+}
+
+func (s *PostgresStore) CompleteOnboarding(version int) error {
+	_, err := s.db.Exec(
+		`UPDATE instance_meta
+		 SET onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()),
+		     onboarding_version = $1,
+		     updated_at = NOW()
+		 WHERE id = 1`,
+		version,
+	)
+	return err
+}
+
+func (s *PostgresStore) SetRegistrationEnabled(enabled bool) error {
+	_, err := s.db.Exec(
+		`UPDATE instance_meta SET registration_enabled = $1, updated_at = NOW() WHERE id = 1`,
+		enabled,
+	)
+	return err
+}
+
+// userDataTables are the user-generated content tables. Wiped by both resets.
+// Reference data (USDA food_items, seed_jobs), accounts (users), preferences
+// (user_settings), and instance config (instance_meta) are NOT included here.
+var userDataTables = []string{
+	"ingredients", "recipes", "recipe_categories", "recipe_ratings",
+	"categories", "chapter_recipes", "chapter_pages", "book_pages",
+	"chapters", "recipe_books", "shared_recipes", "community_categories",
+	"day_plan_entries", "meal_groups", "grocery_checklists", "meal_plans",
+	"food_log_entries", "weight_entries", "person_profiles",
+	"custom_foods", "allergen_rules", "dietary_profiles",
+	"templates", "brand_kits", "pantry_staples", "seasonal_foods",
+	"user_secrets", "user_locations", "devices", "api_keys",
+}
+
+// ResetUserData deletes all user-generated content but keeps accounts,
+// settings, instance configuration, and the USDA food database intact.
+func (s *PostgresStore) ResetUserData() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", strings.Join(userDataTables, ", ")),
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Restore the default global staples (TRUNCATE above cleared them).
+	return s.SeedGlobalStaples()
+}
+
+// FactoryReset wipes everything user-created AND all accounts/sessions, then
+// resets instance onboarding so the next visitor re-runs the setup wizard.
+// USDA food data is preserved (re-downloading it is expensive).
+func (s *PostgresStore) FactoryReset() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", strings.Join(userDataTables, ", ")),
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	// accounts + sessions + preferences (users last; cascade handles FKs)
+	if _, err := tx.Exec(`TRUNCATE TABLE refresh_tokens, user_settings, users RESTART IDENTITY CASCADE`); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE instance_meta SET onboarding_completed_at = NULL, registration_enabled = TRUE, updated_at = NOW() WHERE id = 1`,
+	); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.SeedGlobalStaples()
+}
+
 func (s *PostgresStore) scanUser(query string, args ...interface{}) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.APIKey, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
@@ -125,7 +240,7 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 	}
 	offset := (page - 1) * perPage
 	rows, err := s.db.Query(
-		`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
 		userID, perPage, offset,
 	)
 	if err != nil {
@@ -136,7 +251,7 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 	for rows.Next() {
 		var r Recipe
 		var groupsJSON string
-		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		r.ScanIngredientGroups(groupsJSON)
@@ -151,9 +266,9 @@ func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
 	r := &Recipe{}
 	var groupsJSON string
 	err := s.db.QueryRow(
-		`SELECT id, user_id, name, servings, serving_name, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 AND id = $2`,
+		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 AND id = $2`,
 		userID, id,
-	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
+	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -177,8 +292,8 @@ func (s *PostgresStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*
 		servName = req.ServingName
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO recipes (id, user_id, name, servings, serving_name, instructions, leftover_storage, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
-		id, userID, req.Name, req.Servings, servName, req.Instructions, req.LeftoverStorage, now,
+		`INSERT INTO recipes (id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+		id, userID, req.Name, req.Servings, servName, req.PrepTime, req.CookTime, req.Instructions, req.LeftoverStorage, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert recipe: %w", err)
@@ -191,7 +306,7 @@ func (s *PostgresStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*
 		}
 		ings = append(ings, *created)
 	}
-	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: servName, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
+	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: servName, PrepTime: req.PrepTime, CookTime: req.CookTime, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
 }
 
 func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
@@ -212,6 +327,16 @@ func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest
 	if req.ServingName != nil {
 		setClauses = append(setClauses, fmt.Sprintf("serving_name = $%d", argN))
 		args = append(args, *req.ServingName)
+		argN++
+	}
+	if req.PrepTime != nil {
+		setClauses = append(setClauses, fmt.Sprintf("prep_time = $%d", argN))
+		args = append(args, *req.PrepTime)
+		argN++
+	}
+	if req.CookTime != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cook_time = $%d", argN))
+		args = append(args, *req.CookTime)
 		argN++
 	}
 	if req.Instructions != nil {
@@ -1830,14 +1955,39 @@ func (s *PostgresStore) GetSettings(userID string) (*UserSettings, error) {
 }
 
 func (s *PostgresStore) UpsertSettings(userID string, settingsJSON string) (*UserSettings, error) {
+	// Settings is a free-form JSON object and callers send partial updates, so
+	// merge the incoming keys into any existing settings rather than replacing
+	// the whole document (which would drop keys other callers depend on, e.g.
+	// onboardingComplete, unitSystem, theme).
+	merged := map[string]interface{}{}
+	if existing, err := s.GetSettings(userID); err != nil {
+		return nil, err
+	} else if existing != nil && existing.SettingsJSON != "" {
+		_ = json.Unmarshal([]byte(existing.SettingsJSON), &merged)
+	}
+	if settingsJSON != "" {
+		incoming := map[string]interface{}{}
+		if err := json.Unmarshal([]byte(settingsJSON), &incoming); err != nil {
+			return nil, err
+		}
+		for k, v := range incoming {
+			merged[k] = v
+		}
+	}
+	mergedBytes, err := json.Marshal(merged)
+	if err != nil {
+		return nil, err
+	}
+	mergedJSON := string(mergedBytes)
+
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	var us UserSettings
-	err := s.db.QueryRow(`
+	err = s.db.QueryRow(`
 		INSERT INTO user_settings (id, user_id, settings_json, updated_at) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (user_id) DO UPDATE SET settings_json = $3, updated_at = $4
 		RETURNING id, user_id, settings_json, updated_at`,
-		id, userID, settingsJSON, now,
+		id, userID, mergedJSON, now,
 	).Scan(&us.ID, &us.UserID, &us.SettingsJSON, &us.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -2166,7 +2316,8 @@ func (s *PostgresStore) DeleteBrandKit(userID, id string) error {
 // ── Pantry Staples ───────────────────────────────────────────────────
 
 func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error) {
-	rows, err := s.db.Query(`SELECT id, user_id, name FROM pantry_staples WHERE user_id = $1 ORDER BY name`, userID)
+	// Global staples (shared, read-only) plus this account's own staples.
+	rows, err := s.db.Query(`SELECT id, user_id, name, is_global FROM pantry_staples WHERE user_id = $1 OR is_global = TRUE ORDER BY is_global DESC, name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -2174,7 +2325,7 @@ func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error)
 	var staples []PantryStaple
 	for rows.Next() {
 		var ps PantryStaple
-		if err := rows.Scan(&ps.ID, &ps.UserID, &ps.Name); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.UserID, &ps.Name, &ps.IsGlobal); err != nil {
 			return nil, err
 		}
 		staples = append(staples, ps)
@@ -2184,7 +2335,7 @@ func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error)
 
 func (s *PostgresStore) AddPantryStaple(userID, name string) (*PantryStaple, error) {
 	id := uuid.New().String()
-	_, err := s.db.Exec(`INSERT INTO pantry_staples (id, user_id, name) VALUES ($1, $2, $3) ON CONFLICT (user_id, name) DO NOTHING`, id, userID, name)
+	_, err := s.db.Exec(`INSERT INTO pantry_staples (id, user_id, name, is_global) VALUES ($1, $2, $3, FALSE) ON CONFLICT DO NOTHING`, id, userID, name)
 	if err != nil {
 		return nil, err
 	}
@@ -2192,8 +2343,101 @@ func (s *PostgresStore) AddPantryStaple(userID, name string) (*PantryStaple, err
 }
 
 func (s *PostgresStore) RemovePantryStaple(userID, name string) error {
-	_, err := s.db.Exec(`DELETE FROM pantry_staples WHERE user_id = $1 AND LOWER(name) = LOWER($2)`, userID, name)
+	// Only account staples are removable; globals are read-only.
+	_, err := s.db.Exec(`DELETE FROM pantry_staples WHERE user_id = $1 AND is_global = FALSE AND LOWER(name) = LOWER($2)`, userID, name)
 	return err
+}
+
+// SeedGlobalStaples is idempotent; called at startup and after instance-wide
+// resets so the default global staple list always exists.
+func (s *PostgresStore) SeedGlobalStaples() error {
+	defaults := []string{
+		"All-purpose flour", "Sugar", "Salt", "Pepper", "Olive oil",
+		"Butter", "Eggs", "Milk", "Onions", "Garlic",
+		"Rice", "Pasta", "Tomato paste", "Chicken broth", "Soy sauce",
+	}
+	for _, name := range defaults {
+		id := uuid.New().String()
+		if _, err := s.db.Exec(`INSERT INTO pantry_staples (id, user_id, name, is_global) VALUES ($1, NULL, $2, TRUE) ON CONFLICT DO NOTHING`, id, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteAccount removes the user; FK ON DELETE CASCADE drops all their content.
+func (s *PostgresStore) DeleteAccount(userID string) error {
+	res, err := s.db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// DeleteUserData wipes the caller's own content but keeps their account and
+// settings (a personal reset). Global data (categories, global staples/templates,
+// USDA) is untouched. Each top-level user-scoped table is deleted; dependents
+// (ingredients→recipes, chapters→books, entries→plans) cascade via FK rules.
+// A savepoint per table isolates any table missing a user_id column.
+func (s *PostgresStore) DeleteUserData(userID string) error {
+	tables := []string{
+		"recipes", "recipe_books", "meal_plans", "person_profiles",
+		"food_log_entries", "weight_entries", "dietary_profiles", "allergen_rules",
+		"custom_foods", "templates", "brand_kits", "shared_recipes",
+		"recipe_ratings", "pantry_staples", "user_secrets", "user_locations", "api_keys",
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, t := range tables {
+		if _, err := tx.Exec(fmt.Sprintf("SAVEPOINT del_%s", t)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE user_id = $1", t), userID); err != nil {
+			// Table has no user_id column (cascades from a parent) — release and move on.
+			if _, rbErr := tx.Exec(fmt.Sprintf("ROLLBACK TO SAVEPOINT del_%s", t)); rbErr != nil {
+				tx.Rollback()
+				return rbErr
+			}
+			continue
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) ListUsers() ([]UserListEntry, error) {
+	rows, err := s.db.Query(`SELECT id, email, display_name, is_admin FROM users ORDER BY display_name, email`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []UserListEntry
+	for rows.Next() {
+		var u UserListEntry
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.IsAdmin); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (s *PostgresStore) SetUserAdmin(userID string, isAdmin bool) error {
+	_, err := s.db.Exec(`UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2`, isAdmin, userID)
+	return err
+}
+
+func (s *PostgresStore) AdminCount() (int, error) {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = TRUE`).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // ── User Location ────────────────────────────────────────────────────
@@ -2274,11 +2518,19 @@ func (s *PostgresStore) ListSecrets(userID string) ([]UserSecret, error) {
 func (s *PostgresStore) CreateSecret(userID string, req *CreateSecretRequest, encryptedValue []byte) (*UserSecret, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO user_secrets (id, user_id, key_name, encrypted_value, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (user_id, key_name) DO UPDATE SET encrypted_value = $4, updated_at = $5`, id, userID, req.KeyName, encryptedValue, now)
+	var sec UserSecret
+	err := s.db.QueryRow(`
+		INSERT INTO user_secrets (id, user_id, key_name, encrypted_value, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
+		ON CONFLICT (user_id, key_name)
+		DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, updated_at = EXCLUDED.updated_at
+		RETURNING id, user_id, key_name, created_at, updated_at`, id, userID, req.KeyName, encryptedValue, now).Scan(
+		&sec.ID, &sec.UserID, &sec.KeyName, &sec.CreatedAt, &sec.UpdatedAt,
+	)
 	if err != nil {
 		return nil, err
 	}
-	return &UserSecret{ID: id, UserID: userID, KeyName: req.KeyName, CreatedAt: now, UpdatedAt: now}, nil
+	return &sec, nil
 }
 
 func (s *PostgresStore) GetSecret(userID, keyName string) ([]byte, error) {

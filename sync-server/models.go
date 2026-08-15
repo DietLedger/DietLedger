@@ -22,6 +22,8 @@ type Recipe struct {
 	Name            string       `json:"name"`
 	Servings        int          `json:"servings"`
 	ServingName     string       `json:"servingName"`
+	PrepTime        *string      `json:"prepTime,omitempty"`
+	CookTime        *string      `json:"cookTime,omitempty"`
 	Instructions    *string      `json:"instructions,omitempty"`
 	LeftoverStorage *string      `json:"leftoverStorage,omitempty"`
 	IngredientGroupsJSON string  `json:"ingredientGroups,omitempty"`
@@ -422,6 +424,21 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+// InstanceState is the single-row, instance-wide metadata exposed to clients.
+// It drives first-run routing (onboarding wizard) and the registration gate.
+type InstanceState struct {
+	OnboardingComplete    bool       `json:"onboardingComplete"`
+	OnboardingCompletedAt *time.Time `json:"onboardingCompletedAt,omitempty"`
+	RegistrationEnabled   bool       `json:"registrationEnabled"`
+	HasUsers              bool       `json:"hasUsers"`
+	OnboardingVersion     int        `json:"onboardingVersion"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
+}
+
+type UpdateRegistrationRequest struct {
+	RegistrationEnabled bool `json:"registrationEnabled"`
+}
+
 type AuthResponse struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
@@ -433,6 +450,8 @@ type CreateRecipeRequest struct {
 	Name            string                `json:"name"`
 	Servings        int                   `json:"servings"`
 	ServingName     string                `json:"servingName"`
+	PrepTime        *string               `json:"prepTime,omitempty"`
+	CookTime        *string               `json:"cookTime,omitempty"`
 	Instructions    *string               `json:"instructions,omitempty"`
 	LeftoverStorage *string               `json:"leftoverStorage,omitempty"`
 	Ingredients     []CreateIngredientReq `json:"ingredients"`
@@ -442,6 +461,8 @@ type UpdateRecipeRequest struct {
 	Name             *string                `json:"name,omitempty"`
 	Servings         *int                   `json:"servings,omitempty"`
 	ServingName      *string                `json:"servingName,omitempty"`
+	PrepTime         *string                `json:"prepTime"`
+	CookTime         *string                `json:"cookTime"`
 	Instructions     *string                `json:"instructions"`
 	LeftoverStorage  *string                `json:"leftoverStorage"`
 	Ingredients      *[]CreateIngredientReq `json:"ingredients,omitempty"`
@@ -727,9 +748,19 @@ type BrandKit struct {
 }
 
 type PantryStaple struct {
-	ID     string `json:"id"`
-	UserID string `json:"userId"`
-	Name   string `json:"name"`
+	ID       string `json:"id"`
+	UserID   string `json:"userId"`
+	Name     string `json:"name"`
+	IsGlobal bool   `json:"isGlobal"`
+}
+
+// UserListEntry is the admin-facing user summary (e.g. for picking a successor
+// admin when the last admin deletes their own account).
+type UserListEntry struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	IsAdmin     bool   `json:"isAdmin"`
 }
 
 type UserLocation struct {

@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,11 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrRegistrationDisabled is returned when self-service registration is closed
+// by the admin AND an admin already exists. The very first user (fresh install)
+// is always allowed so the instance can be set up.
+var ErrRegistrationDisabled = errors.New("registration is disabled")
 
 type AuthService struct {
 	privateKey  *rsa.PrivateKey
@@ -61,11 +67,36 @@ func NewAuthService(store Store, signingKeyPath string) (*AuthService, error) {
 }
 
 func (a *AuthService) Register(email, password, displayName string) (*AuthResponse, error) {
+	allowed, err := a.registrationAllowed()
+	if err != nil {
+		return nil, fmt.Errorf("check registration: %w", err)
+	}
+	if !allowed {
+		return nil, ErrRegistrationDisabled
+	}
 	user, err := a.store.CreateUser(email, password, displayName)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 	return a.generateTokens(user)
+}
+
+// registrationAllowed permits account creation when self-service registration
+// is enabled, or when no users exist yet (so a fresh install can create its
+// first admin via the setup wizard).
+func (a *AuthService) registrationAllowed() (bool, error) {
+	state, err := a.store.GetInstanceState()
+	if err != nil {
+		return false, err
+	}
+	if state.RegistrationEnabled {
+		return true, nil
+	}
+	count, err := a.store.UserCount()
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 func (a *AuthService) Login(email, password string) (*AuthResponse, error) {
@@ -120,6 +151,20 @@ func (a *AuthService) ValidateAccessToken(tokenString string) (string, error) {
 		return "", fmt.Errorf("invalid token claims")
 	}
 	return sub, nil
+}
+
+// VerifyUserPassword confirms the supplied plaintext password against the
+// stored hash. Used to gate destructive admin actions (a password challenge)
+// independently of the request's bearer token.
+func (a *AuthService) VerifyUserPassword(userID, password string) bool {
+	if userID == "" || password == "" {
+		return false
+	}
+	user, err := a.store.GetUserByID(userID)
+	if err != nil || user == nil {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) == nil
 }
 
 func (a *AuthService) generateTokens(user *User) (*AuthResponse, error) {
