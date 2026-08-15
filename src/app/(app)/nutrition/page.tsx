@@ -18,10 +18,11 @@ import { EnergySpikeChart } from '@/components/nutrition/energy-spike-chart';
 import { BloodPressureChart } from '@/components/nutrition/blood-pressure-chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Users, History, Heart, FileDown } from 'lucide-react';
+import { Plus, Users, History, Heart, FileDown, FileCheck } from 'lucide-react';
 import Link from 'next/link';
 import { calculateGoalCalories, calculateFullBmr } from '@/lib/nutrition-calcs';
 import { DietaryProfileList } from '@/components/dietary/dietary-profile-editor';
+import { ComplianceReport } from '@/components/dietary/compliance-report';
 import { ThresholdAlerts } from '@/components/nutrition/threshold-alerts';
 import { useDietaryProfiles } from '@/hooks/use-dietary';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -56,6 +57,7 @@ function NutritionDashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FoodLogEntryRecord | null>(null);
   const [dietsDialogOpen, setDietsDialogOpen] = useState(false);
+  const [complianceReportOpen, setComplianceReportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
 
@@ -278,6 +280,9 @@ function NutritionDashboard() {
           <Button variant="outline" size="sm" onClick={() => setDietsDialogOpen(true)}>
             <Heart className="h-4 w-4 mr-1" />Diets
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setComplianceReportOpen(true)}>
+            <FileCheck className="h-4 w-4 mr-1" />Compliance Report
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExportPdf}>
             <FileDown className="h-4 w-4 mr-1" />Export PDF
           </Button>
@@ -417,6 +422,17 @@ function NutritionDashboard() {
             </DialogTitle>
           </DialogHeader>
           <DietaryProfileList />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={complianceReportOpen} onOpenChange={setComplianceReportOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCheck className="h-5 w-5 text-brand-600" />Compliance Report
+            </DialogTitle>
+          </DialogHeader>
+          <ComplianceReport />
         </DialogContent>
       </Dialog>
     </main>

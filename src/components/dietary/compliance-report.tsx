@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { getApiClient } from '@/lib/api-client';
 import { useDietaryProfiles } from '@/hooks/use-dietary';
-import { detectAllergens } from '@/lib/dietary-rules';
 import { exportElementAsPdf } from '@/lib/pdf-export';
-import type { DietaryProfileRecord, NutritionProfileRecord, BrandKit } from '@/lib/types';
+import type { NutritionProfileRecord, BrandKit } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -26,7 +25,7 @@ export function ComplianceReport() {
   const [nutritionProfiles, setNutritionProfiles] = useState<NutritionProfileRecord[]>([]);
   const [exporting, setExporting] = useState(false);
 
-  const { profiles: dietaryProfiles } = useDietaryProfiles();
+  const { profiles: dietaryProfiles, activeProfileId } = useDietaryProfiles();
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,20 +33,18 @@ export function ComplianceReport() {
     getApiClient().getBrandKits().then(setBrandKits);
   }, []);
 
+  useEffect(() => {
+    if (!selectedDietaryProfileId && activeProfileId) {
+      setSelectedDietaryProfileId(activeProfileId);
+    }
+  }, [activeProfileId, selectedDietaryProfileId]);
+
   const selectedDietaryProfile = dietaryProfiles.find(p => p.id === selectedDietaryProfileId);
-  const selectedNutritionProfile = nutritionProfiles.find(p => p.id === selectedNutritionProfileId);
-
-  const reportData = useMemo(() => {
-    if (!selectedDietaryProfile) return null;
-
-    return { profile: selectedDietaryProfile };
-  }, [selectedDietaryProfile]);
 
   const handleExportPdf = async () => {
     if (!reportRef.current) return;
     setExporting(true);
     try {
-      const kit = brandKitId && brandKitId !== 'none' ? await getApiClient().getBrandKit(brandKitId) : undefined;
       const blob = await exportElementAsPdf(reportRef.current, { pageSize: 'letter' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

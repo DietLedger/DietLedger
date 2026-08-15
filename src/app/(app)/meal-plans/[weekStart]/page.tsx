@@ -165,7 +165,7 @@ export default function WeeklyPlanPage() {
     async function loadSynergyData() {
       const api = getApiClient();
       const staples = await api.getPantryStaples();
-      if (!cancelled) setPantryStaples(new Set(staples.map(s => s.toLowerCase())));
+      if (!cancelled) setPantryStaples(new Set(staples.map(s => s.name.toLowerCase())));
 
       const location = await api.getLocation();
       const country = location?.country || 'United States';
@@ -230,13 +230,13 @@ export default function WeeklyPlanPage() {
   }, [effectiveSlotTimes, updateSlotTimesMutation, weekStart, activeMealPlan]);
 
   const handleEnsurePlan = useCallback(async () => {
-    await ensureMealPlanMutation.mutateAsync(weekStart);
+    return ensureMealPlanMutation.mutateAsync(weekStart);
   }, [ensureMealPlanMutation, weekStart]);
 
   const handleAddRecipe = useCallback(async (recipeId: string) => {
     if (!addDialogSlot) return;
-    if (!activeMealPlan) await handleEnsurePlan();
-    await addRecipeToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: addDialogSlot.date, slot: addDialogSlot.slot, recipeId, weekStart });
+    const mealPlan = activeMealPlan ?? await handleEnsurePlan();
+    await addRecipeToSlotMutation.mutateAsync({ planId: mealPlan.id, date: addDialogSlot.date, slot: addDialogSlot.slot, recipeId, weekStart });
     setAddDialogSlot(null);
     setSearchQuery('');
     setAddTab('recipes');
@@ -268,8 +268,8 @@ export default function WeeklyPlanPage() {
     potassium?: number;
   }) => {
     if (!addDialogSlot) return;
-    if (!activeMealPlan) await handleEnsurePlan();
-    await addFoodToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: addDialogSlot.date, slot: addDialogSlot.slot, food, weekStart });
+    const mealPlan = activeMealPlan ?? await handleEnsurePlan();
+    await addFoodToSlotMutation.mutateAsync({ planId: mealPlan.id, date: addDialogSlot.date, slot: addDialogSlot.slot, food, weekStart });
     setAddDialogSlot(null);
     setSearchQuery('');
     setAddTab('recipes');
@@ -364,9 +364,9 @@ export default function WeeklyPlanPage() {
 
   const handleSynergyAddToSlot = useCallback(async (recipeId: string, slot: DaySlot) => {
     if (!editingDay) return;
-    if (!activeMealPlan) await ensureMealPlanMutation.mutateAsync(weekStart);
-    await addRecipeToSlotMutation.mutateAsync({ planId: activeMealPlan?.id!, date: editingDay, slot, recipeId, weekStart });
-  }, [editingDay, activeMealPlan, ensureMealPlanMutation, weekStart, addRecipeToSlotMutation]);
+    const mealPlan = activeMealPlan ?? await handleEnsurePlan();
+    await addRecipeToSlotMutation.mutateAsync({ planId: mealPlan.id, date: editingDay, slot, recipeId, weekStart });
+  }, [editingDay, activeMealPlan, handleEnsurePlan, weekStart, addRecipeToSlotMutation]);
 
   const filteredRecipes = useMemo(() => {
     if (!searchQuery) return recipes;

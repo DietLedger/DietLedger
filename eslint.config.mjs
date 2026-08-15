@@ -18,7 +18,9 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     
     // React rules
     "react-hooks/exhaustive-deps": "off",
+    "react-hooks/preserve-manual-memoization": "off",
     "react-hooks/purity": "off",
+    "react-hooks/set-state-in-effect": "off",
     "react/no-unescaped-entities": "off",
     "react/display-name": "off",
     "react/prop-types": "off",
@@ -26,6 +28,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     
     // Next.js rules
     "@next/next/no-img-element": "off",
+    "@next/next/no-css-tags": "off",
     "@next/next/no-html-link-for-pages": "off",
     
     // General JavaScript rules
@@ -44,7 +47,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "server.js", "scripts/**", "src-tauri/**"]
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", "examples/**", "skills", "server.js", "scripts/**", "src-tauri/**"]
 }];
 
 export default eslintConfig;

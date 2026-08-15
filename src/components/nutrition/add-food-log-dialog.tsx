@@ -141,47 +141,6 @@ export function AddFoodLogDialog({
   const [servingUnit, setServingUnit] = useState('g');
   const [baseNutrients, setBaseNutrients] = useState<Record<NutrientKey, string> | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      setSaveAsCustom(false);
-      if (editEntry) {
-        setName(editEntry.name);
-        setMealSlot(editEntry.mealSlot);
-        setDate(editEntry.date);
-        setTime(editEntry.time ?? (() => { const n = new Date(); return `${n.getHours().toString().padStart(2, '0')}:${n.getMinutes().toString().padStart(2, '0')}`; })());
-        setServings(editEntry.servings.toString());
-        const n: Record<string, string> = {};
-        for (const f of NUTRIENT_FIELDS) n[f.key] = (editEntry as Record<string, unknown>)[f.key]?.toString() ?? '0';
-        setNutrients(n as Record<NutrientKey, string>);
-        if (editEntry.sourceType === 'recipe') setTab('recipes');
-        else if (editEntry.sourceType === 'customFood') setTab('custom');
-        else setTab('manual');
-      } else {
-        resetForm();
-      }
-      loadItems();
-    }
-  }, [open, editEntry, defaultMealSlot, defaultDate]);
-
-  useEffect(() => {
-    if (!searchQuery || tab !== 'food') {
-      setFdaResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setFdaSearching(true);
-      try {
-        const result = await searchFDAFoods(searchQuery);
-        setFdaResults(result.foods.slice(0, 50));
-      } catch {
-        setFdaResults([]);
-      } finally {
-        setFdaSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, tab]);
-
   const resetForm = useCallback(() => {
     setName('');
     setMealSlot(defaultMealSlot ?? 'noon');
@@ -206,6 +165,49 @@ export function AddFoodLogDialog({
     setRecipes(recipePage.data);
     setCustomFoods(c);
   }, []);
+
+  useEffect(() => {
+    if (open) {
+      // Dialog open hydrates the editable form state from props/remote items.
+      setSaveAsCustom(false);
+      if (editEntry) {
+        setName(editEntry.name);
+        setMealSlot(editEntry.mealSlot);
+        setDate(editEntry.date);
+        setTime(editEntry.time ?? (() => { const n = new Date(); return `${n.getHours().toString().padStart(2, '0')}:${n.getMinutes().toString().padStart(2, '0')}`; })());
+        setServings(editEntry.servings.toString());
+        const n: Record<string, string> = {};
+        for (const f of NUTRIENT_FIELDS) n[f.key] = (editEntry as Record<string, unknown>)[f.key]?.toString() ?? '0';
+        setNutrients(n as Record<NutrientKey, string>);
+        if (editEntry.sourceType === 'recipe') setTab('recipes');
+        else if (editEntry.sourceType === 'customFood') setTab('custom');
+        else setTab('manual');
+      } else {
+        resetForm();
+      }
+      loadItems();
+    }
+  }, [open, editEntry, resetForm, loadItems]);
+
+  useEffect(() => {
+    if (!searchQuery || tab !== 'food') {
+      // Clear stale async search results when leaving FDA search mode.
+      setFdaResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setFdaSearching(true);
+      try {
+        const result = await searchFDAFoods(searchQuery);
+        setFdaResults(result.foods.slice(0, 50));
+      } catch {
+        setFdaResults([]);
+      } finally {
+        setFdaSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, tab]);
 
   const recipeNutrition = useCallback((recipe: RecipeRecord): Record<string, number> => {
     const totals: Record<string, number> = {};
