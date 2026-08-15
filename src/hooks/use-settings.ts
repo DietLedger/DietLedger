@@ -5,15 +5,17 @@ import { getApiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes, type DaySlot } from '@/lib/types';
 
-export function useAppSettings() {
+export function useAppSettings(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.settings.all,
+    enabled: options?.enabled,
     queryFn: async () => {
       const settings = await getApiClient().getSettings();
       return {
         defaultMealSlotTimes: { ...DEFAULT_MEAL_SLOT_TIMES, ...(settings.defaultMealSlotTimes as MealSlotTimes | undefined) },
         unitSystem: (settings.unitSystem as 'imperial' | 'metric') || 'imperial',
         theme: (settings.theme as string) || 'light',
+        onboardingComplete: Boolean(settings.onboardingComplete),
       };
     },
   });

@@ -22,6 +22,7 @@ import type {
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
+  PantryStapleRecord,
 } from './types';
 
 export type {
@@ -44,6 +45,7 @@ export type {
   WeightEntryRecord,
   CustomFoodRecord,
   TemplateRecord,
+  PantryStapleRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
@@ -90,11 +92,66 @@ export interface AuthResult {
   user: { id: string; email: string; displayName: string; isAdmin?: boolean };
 }
 
+export interface InstanceState {
+  onboardingComplete: boolean;
+  onboardingCompletedAt?: string;
+  registrationEnabled: boolean;
+  hasUsers: boolean;
+  onboardingVersion: number;
+  updatedAt: string;
+}
+
+export interface SeedJob {
+  id: number;
+  dataType: string;
+  releaseDate: string;
+  fileName: string;
+  recordCount: number;
+  status: string;
+  progress: number;
+  error?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+}
+
+export interface UserListEntry {
+  id: string;
+  email: string;
+  displayName: string;
+  isAdmin: boolean;
+}
+
+export interface UserSecretInfo {
+  id: string;
+  keyName: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ApiClient {
   // Auth
   register(email: string, password: string, displayName: string): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
   refreshToken(token: string): Promise<AuthResult>;
+
+  // Instance metadata
+  getInstanceState(): Promise<InstanceState>;
+  completeOnboarding(): Promise<InstanceState>;
+  setRegistrationEnabled(enabled: boolean): Promise<InstanceState>;
+  resetUserData(password: string): Promise<void>;
+  factoryReset(password: string): Promise<void>;
+
+  // USDA food data seeding (admin)
+  startFoodSeed(dataType: string): Promise<{ jobId: number }>;
+  getSeedJob(jobId: number): Promise<SeedJob>;
+
+  // Account self-service (caller-scoped, password-gated)
+  deleteMyData(password: string): Promise<void>;
+  deleteMyAccount(password: string, newAdminUserId?: string): Promise<void>;
+
+  // Admin: user list (e.g. successor dropdown)
+  listUsers(): Promise<UserListEntry[]>;
 
   // Recipes
   getRecipes(page?: number, perPage?: number): Promise<PaginatedResult<RecipeRecord>>;
@@ -105,7 +162,7 @@ export interface ApiClient {
     data: Partial<
       Pick<
         RecipeRecord,
-        'name' | 'servings' | 'servingName' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
+        'name' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
       >
     >
   ): Promise<RecipeRecord>;
@@ -329,7 +386,7 @@ export interface ApiClient {
   deleteBrandKit(id: string): Promise<void>;
 
   // Pantry Staples
-  getPantryStaples(): Promise<string[]>;
+  getPantryStaples(): Promise<PantryStapleRecord[]>;
   addPantryStaple(name: string): Promise<void>;
   removePantryStaple(name: string): Promise<void>;
 
@@ -341,8 +398,8 @@ export interface ApiClient {
   getSeasonalFoods(country: string, region: string, month: number): Promise<string[]>;
 
   // User Secrets
-  getSecrets(): Promise<{ id: string; keyName: string }[]>;
-  createSecret(keyName: string, value: string): Promise<{ id: string; keyName: string }>;
+  getSecrets(): Promise<UserSecretInfo[]>;
+  createSecret(keyName: string, value: string): Promise<UserSecretInfo>;
   getSecretValue(id: string): Promise<string>;
   deleteSecret(id: string): Promise<void>;
 }

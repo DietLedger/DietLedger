@@ -1,4 +1,8 @@
 export const queryKeys = {
+  instance: {
+    all: ['instance'] as const,
+    state: () => [...queryKeys.instance.all, 'state'] as const,
+  },
   templates: {
     all: ['templates'] as const,
     lists: () => [...queryKeys.templates.all, 'list'] as const,

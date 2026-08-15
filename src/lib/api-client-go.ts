@@ -1,6 +1,9 @@
 import type {
   ApiClient,
   AuthResult,
+  InstanceState,
+  SeedJob,
+  UserListEntry,
   RecipeRecord,
   IngredientRecord,
   BookRecord,
@@ -21,10 +24,12 @@ import type {
   FDAFood,
   PaginatedResult,
   TemplateRecord,
+  PantryStapleRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
+  UserSecretInfo,
 } from './api-client';
 
 const TOKEN_KEY = 'dietledger_access_token';
@@ -57,7 +62,8 @@ export class GoApiClient implements ApiClient {
     method: string,
     path: string,
     body?: unknown,
-    retry = true
+    authRetry = true,
+    rlRetries = 5
   ): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -73,7 +79,12 @@ export class GoApiClient implements ApiClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (res.status === 401 && retry) {
+    if (res.status === 429 && rlRetries > 0) {
+      await new Promise((r) => setTimeout(r, 500));
+      return this.request<T>(method, path, body, authRetry, rlRetries - 1);
+    }
+
+    if (res.status === 401 && authRetry) {
       const refreshed = await this.tryRefresh();
       if (refreshed) return this.request<T>(method, path, body, false);
       this.clearTokens();
@@ -152,6 +163,71 @@ export class GoApiClient implements ApiClient {
     return res;
   }
 
+  // ── Instance metadata ──────────────────────────────────────────────
+
+  async getInstanceState(): Promise<InstanceState> {
+    const resp = await this.request<{ ok: boolean; data: InstanceState }>('GET', '/api/instance/state');
+    return this.unwrap(resp);
+  }
+
+  async completeOnboarding(): Promise<InstanceState> {
+    const resp = await this.request<{ ok: boolean; data: InstanceState }>('POST', '/api/instance/onboarding/complete');
+    return this.unwrap(resp);
+  }
+
+  async setRegistrationEnabled(enabled: boolean): Promise<InstanceState> {
+    const resp = await this.request<{ ok: boolean; data: InstanceState }>(
+      'PUT',
+      '/api/instance/registration',
+      { registrationEnabled: enabled },
+    );
+    return this.unwrap(resp);
+  }
+
+  async resetUserData(password: string): Promise<void> {
+    await this.request('POST', '/api/instance/reset-user-data', { password });
+  }
+
+  async factoryReset(password: string): Promise<void> {
+    await this.request('POST', '/api/instance/factory-reset', { password });
+  }
+
+  // ── USDA food data seeding (admin) ──────────────────────────────────
+
+  async startFoodSeed(dataType: string): Promise<{ jobId: number }> {
+    const resp = await this.request<{ ok: boolean; data: { jobId: number } }>(
+      'POST',
+      '/api/foods/seed',
+      { dataType },
+    );
+    return this.unwrap(resp);
+  }
+
+  async getSeedJob(jobId: number): Promise<SeedJob> {
+    const resp = await this.request<{ ok: boolean; data: SeedJob }>(
+      'GET',
+      `/api/foods/seed/${jobId}`,
+    );
+    return this.unwrap(resp);
+  }
+
+  // ── Account self-service (password-gated) ──────────────────────────
+
+  async deleteMyData(password: string): Promise<void> {
+    await this.request('POST', '/api/account/delete-data', { password });
+  }
+
+  async deleteMyAccount(password: string, newAdminUserId?: string): Promise<void> {
+    await this.request('POST', '/api/account/delete', { password, newAdminUserId: newAdminUserId || undefined });
+  }
+
+  // ── Admin: user list ───────────────────────────────────────────────
+
+  async listUsers(): Promise<UserListEntry[]> {
+    const resp = await this.request<{ ok: boolean; data: UserListEntry[] }>('GET', '/api/instance/users');
+    return resp?.data ?? [];
+  }
+
   // ── Recipes ──────────────────────────────────────────────────────
 
   async getRecipes(page = 1, perPage = 20): Promise<PaginatedResult<RecipeRecord>> {
@@ -191,7 +267,7 @@ export class GoApiClient implements ApiClient {
     data: Partial<
       Pick<
         RecipeRecord,
-        'name' | 'servings' | 'servingName' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
+        'name' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
       >
     >
   ): Promise<RecipeRecord> {
@@ -1020,9 +1096,9 @@ export class GoApiClient implements ApiClient {
 
   // ── Pantry Staples ────────────────────────────────────────────────
 
-  async getPantryStaples(): Promise<string[]> {
-    const resp = await this.request<{ ok: boolean; data: { id: string; name: string }[] }>('GET', '/api/pantry-staples');
-    return (resp?.data ?? []).map(s => s.name);
+  async getPantryStaples(): Promise<PantryStapleRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: PantryStapleRecord[] }>('GET', '/api/pantry-staples');
+    return resp?.data ?? [];
   }
   async addPantryStaple(name: string): Promise<void> {
     await this.request('POST', '/api/pantry-staples', { name });
@@ -1050,12 +1126,12 @@ export class GoApiClient implements ApiClient {
 
   // ── User Secrets ──────────────────────────────────────────────────
 
-  async getSecrets(): Promise<{ id: string; keyName: string }[]> {
-    const resp = await this.request<{ ok: boolean; data: { id: string; keyName: string }[] }>('GET', '/api/secrets');
+  async getSecrets(): Promise<UserSecretInfo[]> {
+    const resp = await this.request<{ ok: boolean; data: UserSecretInfo[] }>('GET', '/api/secrets');
     return resp?.data ?? [];
   }
-  async createSecret(keyName: string, value: string): Promise<{ id: string; keyName: string }> {
-    const resp = await this.request<{ ok: boolean; data: { id: string; keyName: string } }>('POST', '/api/secrets', { keyName, value });
+  async createSecret(keyName: string, value: string): Promise<UserSecretInfo> {
+    const resp = await this.request<{ ok: boolean; data: UserSecretInfo }>('POST', '/api/secrets', { keyName, value });
     return resp.data;
   }
   async getSecretValue(id: string): Promise<string> {

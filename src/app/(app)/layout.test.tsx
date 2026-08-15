@@ -34,6 +34,20 @@ vi.mock('@/hooks/use-auth', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
+vi.mock('@/hooks/use-instance', () => ({
+  useInstanceState: () => ({
+    data: { onboardingComplete: true, registrationEnabled: true, hasUsers: true },
+    isLoading: false,
+  }),
+}))
+
+vi.mock('@/hooks/use-settings', () => ({
+  useAppSettings: () => ({
+    data: { onboardingComplete: true, unitSystem: 'imperial', theme: 'light' },
+    isLoading: false,
+  }),
+}))
+
 vi.mock('@/hooks/use-secrets', () => ({
   useFDAKey: () => ({ data: 'DEMO_KEY' }),
   useSetFDAKey: () => ({ mutate: vi.fn() }),

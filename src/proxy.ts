@@ -5,6 +5,8 @@ const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http:
 
 const PROXY_ROUTES = [
   '/api/auth/',
+  '/api/instance',
+  '/api/account',
   '/api/recipes',
   '/api/books',
   '/api/chapters/',
