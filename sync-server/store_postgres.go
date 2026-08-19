@@ -2317,6 +2317,7 @@ func (s *PostgresStore) DeleteBrandKit(userID, id string) error {
 
 func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error) {
 	// Global staples (shared, read-only) plus this account's own staples.
+	// Global rows have NULL user_id — scan through sql.NullString.
 	rows, err := s.db.Query(`SELECT id, user_id, name, is_global FROM pantry_staples WHERE user_id = $1 OR is_global = TRUE ORDER BY is_global DESC, name`, userID)
 	if err != nil {
 		return nil, err
@@ -2325,9 +2326,11 @@ func (s *PostgresStore) ListPantryStaples(userID string) ([]PantryStaple, error)
 	var staples []PantryStaple
 	for rows.Next() {
 		var ps PantryStaple
-		if err := rows.Scan(&ps.ID, &ps.UserID, &ps.Name, &ps.IsGlobal); err != nil {
+		var uid sql.NullString
+		if err := rows.Scan(&ps.ID, &uid, &ps.Name, &ps.IsGlobal); err != nil {
 			return nil, err
 		}
+		ps.UserID = uid.String
 		staples = append(staples, ps)
 	}
 	return staples, nil
