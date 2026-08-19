@@ -54,10 +54,46 @@ var nutrientMap = map[string]string{
 	"269": "totalSugars",
 	"539": "addedSugars",
 	"203": "protein",
-	"324": "vitaminD",
 	"301": "calcium",
 	"303": "iron",
 	"306": "potassium",
+}
+
+// Vitamin D is deliberately absent from nutrientMap: its USDA nutrient
+// numbers differ by dataset AND by unit, so it needs dedicated resolution
+// (see resolveVitaminD). All other nutrients map 1:1 in their native unit.
+const (
+	vitaminDMicrogramsNumber = "1166" // Foundation: "Vitamin D (D2 + D3), micrograms"
+	iuPerMicrogram           = 40.0   // 1 microgram vitamin D = 40 IU
+)
+
+var vitaminDIUNumbers = map[string]bool{
+	"324":  true, // SR Legacy: "Vitamin D, IU"
+	"1114": true, // Survey/Branded: "Vitamin D (D2 + D3), IU"
+}
+
+// resolveVitaminD returns micrograms. A native-microgram value wins over an
+// IU-derived one; IU values convert at 40 IU per microgram. The stored
+// FoodItem.VitaminD field is micrograms everywhere downstream (labels use a
+// 20 mcg Daily Value reference; profile goals are micrograms).
+func resolveVitaminD(foodNutrients []USDANutrient) float64 {
+	mcg, iu := 0.0, 0.0
+	for _, n := range foodNutrients {
+		switch n.GetNumber() {
+		case vitaminDMicrogramsNumber:
+			if n.Amount > mcg {
+				mcg = n.Amount
+			}
+		default:
+			if vitaminDIUNumbers[n.GetNumber()] && n.Amount > iu {
+				iu = n.Amount
+			}
+		}
+	}
+	if mcg > 0 {
+		return mcg
+	}
+	return iu / iuPerMicrogram
 }
 
 var datasetURLs = map[string]string{
@@ -276,7 +312,7 @@ func convertUSDAFood(uf USDAFood, source string) FoodItem {
 		TotalSugars:    nutrients["totalSugars"],
 		AddedSugars:    nutrients["addedSugars"],
 		Protein:        nutrients["protein"],
-		VitaminD:       nutrients["vitaminD"],
+		VitaminD:       resolveVitaminD(uf.FoodNutrients),
 		Calcium:        nutrients["calcium"],
 		Iron:           nutrients["iron"],
 		Potassium:      nutrients["potassium"],
