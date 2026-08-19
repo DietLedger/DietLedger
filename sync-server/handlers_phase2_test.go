@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -26,9 +27,9 @@ func TestSettingsCRUD(t *testing.T) {
 	}
 	m = decodeJSON(t, w)
 	data := m["data"].(map[string]interface{})
-	if data["settings"] != settingsJSON {
-		t.Fatalf("settings mismatch: %v", data["settings"])
-	}
+	// Settings are merged and re-marshaled server-side (per-user settings
+	// merge semantics), so compare by value, not byte identity.
+	assertSettingsEqual(t, settingsJSON, data["settings"].(string))
 
 	w = env.doRequest("GET", "/api/settings", nil)
 	if w.Code != 200 {
@@ -36,8 +37,20 @@ func TestSettingsCRUD(t *testing.T) {
 	}
 	m = decodeJSON(t, w)
 	data = m["data"].(map[string]interface{})
-	if data["settings"] != settingsJSON {
-		t.Fatalf("settings mismatch after re-read: %v", data["settings"])
+	assertSettingsEqual(t, settingsJSON, data["settings"].(string))
+}
+
+func assertSettingsEqual(t *testing.T, want, got string) {
+	t.Helper()
+	var w, g interface{}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatalf("invalid want JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(got), &g); err != nil {
+		t.Fatalf("invalid got JSON: %v", err)
+	}
+	if !reflect.DeepEqual(w, g) {
+		t.Fatalf("settings mismatch:\n want: %s\n  got: %s", want, got)
 	}
 }
 
@@ -293,8 +306,20 @@ func TestPantryStaplesCRUD(t *testing.T) {
 	}
 	m := decodeJSON(t, w)
 	data := m["data"].([]interface{})
-	if len(data) != 2 {
-		t.Fatalf("expected 2 staples, got %d", len(data))
+	// Migration 000022 seeds 15 global staples alongside per-account ones:
+	// the list is globals + this account's own ("Flour", "Sugar").
+	const globalCount = 15
+	if len(data) != globalCount+2 {
+		t.Fatalf("expected %d staples (15 global + 2 own), got %d", globalCount+2, len(data))
+	}
+	globals := 0
+	for _, item := range data {
+		if item.(map[string]interface{})["isGlobal"] == true {
+			globals++
+		}
+	}
+	if globals != globalCount {
+		t.Fatalf("expected %d global staples, got %d", globalCount, globals)
 	}
 
 	w = env.doRequest("DELETE", "/api/pantry-staples", map[string]string{"name": "Flour"})

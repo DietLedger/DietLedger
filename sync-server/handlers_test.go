@@ -297,7 +297,7 @@ func TestFoodLogHandlerCRUD(t *testing.T) {
 	profileID := pm["data"].(map[string]interface{})["id"].(string)
 
 	w := env.doRequest("POST", "/api/profiles/"+profileID+"/log", map[string]interface{}{
-		"date": "2025-01-15", "mealSlot": "breakfast", "sourceType": "custom",
+		"date": "2025-01-15", "mealSlot": "morning", "sourceType": "customFood",
 		"name": "Oatmeal", "servings": 1, "calories": 150,
 	})
 	if w.Code != 201 {
@@ -312,7 +312,7 @@ func TestFoodLogHandlerCRUD(t *testing.T) {
 	}
 
 	w = env.doRequest("PUT", "/api/profiles/"+profileID+"/log/"+entryID, map[string]interface{}{
-		"date": "2025-01-15", "mealSlot": "lunch", "sourceType": "custom",
+		"date": "2025-01-15", "mealSlot": "noon", "sourceType": "customFood",
 		"name": "Oatmeal Updated", "servings": 2, "calories": 300,
 	})
 	if w.Code != 200 {

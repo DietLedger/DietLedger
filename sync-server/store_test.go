@@ -2,11 +2,30 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// assertJSONEqual compares two JSON strings by value — the store may
+// re-marshal stored JSON (key ordering, whitespace), so byte-identity is
+// not a stable contract.
+func assertJSONEqual(t *testing.T, want, got string) {
+	t.Helper()
+	var w, g interface{}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatalf("invalid want JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(got), &g); err != nil {
+		t.Fatalf("invalid got JSON: %v", err)
+	}
+	if !reflect.DeepEqual(w, g) {
+		t.Fatalf("JSON mismatch:\n want: %s\n  got: %s", want, got)
+	}
+}
 
 func TestUserCRUD(t *testing.T) {
 	s := testStore(t)
@@ -376,7 +395,9 @@ func TestWeightEntryCRUD(t *testing.T) {
 	}
 }
 
-func TestWeightEntryUniqueDate(t *testing.T) {
+// Migration 000017 intentionally dropped UNIQUE(profile_id, date): multiple
+// entries per date are allowed (e.g. time-of-day measurements).
+func TestWeightEntryMultiplePerDate(t *testing.T) {
 	s := testStore(t)
 	u := createUser(t, s, "1")
 	p, _ := s.CreateProfile(u.ID, &CreateProfileRequest{Name: "P", Sex: "female", ActivityLevel: "moderate"})
@@ -386,8 +407,8 @@ func TestWeightEntryUniqueDate(t *testing.T) {
 		t.Fatalf("create first: %v", err)
 	}
 	_, err = s.CreateWeightEntry(u.ID, p.ID, &CreateWeightEntryRequest{Date: "2025-01-15", WeightKg: 71})
-	if err == nil {
-		t.Fatal("expected error on duplicate date")
+	if err != nil {
+		t.Fatalf("second same-date entry must be allowed: %v", err)
 	}
 }
 
@@ -442,7 +463,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 
 	entry, err := s.CreateDayPlanEntry(mp.ID, &CreateDayPlanEntryRequest{
 		Date:       "2025-01-13",
-		Slot:       "breakfast",
+		Slot:       "morning",
 		SourceType: "recipe",
 		Position:   1,
 		FoodName:   strPtr("Toast"),
@@ -461,7 +482,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 
 	updated, err := s.UpdateDayPlanEntry(entry.ID, &CreateDayPlanEntryRequest{
 		Date:       "2025-01-13",
-		Slot:       "breakfast",
+		Slot:       "noon",
 		SourceType: "recipe",
 		Position:   2,
 		FoodName:   strPtr("Eggs"),
@@ -720,9 +741,7 @@ func TestGroceryChecklist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if upserted.CheckedItems != `{"milk":true}` {
-		t.Fatalf("checked = %q", upserted.CheckedItems)
-	}
+	assertJSONEqual(t, `{"milk":true}`, upserted.CheckedItems)
 
 	upserted2, err := s.UpsertGroceryChecklist(u.ID, &GroceryChecklist{
 		WeekStart:    "2025-01-13",
@@ -731,9 +750,7 @@ func TestGroceryChecklist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert2: %v", err)
 	}
-	if upserted2.CheckedItems != `{"milk":true,"eggs":true}` {
-		t.Fatalf("checked = %q", upserted2.CheckedItems)
-	}
+	assertJSONEqual(t, `{"milk":true,"eggs":true}`, upserted2.CheckedItems)
 }
 
 func TestFoodItemSearch(t *testing.T) {
