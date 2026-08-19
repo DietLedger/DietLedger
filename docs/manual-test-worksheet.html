@@ -1,0 +1,1096 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DietLedger Manual Test Worksheet</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --brand: #0f766e;
+      --brand-soft: #ccfbf1;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --ok: #047857;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.45;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+    .hero { display: grid; gap: 12px; }
+    h1 { margin: 0; font-size: 1.65rem; }
+    h2 { margin: 0 0 8px; font-size: 1.25rem; color: #0f172a; }
+    h3 { margin: 18px 0 8px; font-size: 1rem; color: #334155; }
+    p { margin: 0 0 8px; }
+    .muted { color: var(--muted); font-size: 0.92rem; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    button, .button-like {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 9px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary { background: var(--brand); border-color: var(--brand); color: white; font-weight: 700; }
+    button.danger { color: var(--danger); border-color: #fecaca; }
+    button:hover { filter: brightness(0.98); }
+    main.wrap { display: grid; gap: 16px; }
+    .card, .test {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .card { padding: 18px; }
+    .test { overflow: hidden; }
+    .test-heading {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, #ffffff, #f8fafc);
+    }
+    .test-body { padding: 18px; display: grid; gap: 14px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.78rem;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+    }
+    .badge.high { background: #fef3c7; color: var(--warn); border-color: #fde68a; }
+    .badge.destructive { background: #fee2e2; color: var(--danger); border-color: #fecaca; }
+    .badge.domain { background: var(--brand-soft); color: var(--brand); border-color: #99f6e4; }
+    details summary { cursor: pointer; font-weight: 700; color: #334155; }
+    ol { margin: 8px 0 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
+    li.step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 8px 10px;
+      border: 1px solid #edf2f7;
+      border-radius: 10px;
+      background: #fbfdff;
+    }
+    input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); }
+    .grid { display: grid; gap: 12px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    label.field { display: grid; gap: 5px; font-weight: 700; color: #334155; font-size: 0.88rem; }
+    input[type="text"], input[type="date"], input[type="url"], select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 9px 10px;
+      font: inherit;
+      color: var(--text);
+      background: white;
+    }
+    textarea { min-height: 84px; resize: vertical; }
+    .feedback {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      background: #fff;
+    }
+    .summary-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .progress {
+      height: 9px;
+      width: 180px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e2e8f0;
+    }
+    .progress > span { display: block; height: 100%; width: 0%; background: var(--brand); }
+    .toc { columns: 2; column-gap: 28px; padding-left: 18px; }
+    .toc li { break-inside: avoid; margin: 4px 0; }
+    .toc a { color: var(--brand); text-decoration: none; }
+    .notice {
+      padding: 12px;
+      border-radius: 12px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+    @media (max-width: 800px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .toc { columns: 1; }
+      header { position: static; }
+    }
+    @media print {
+      header, .toolbar, .no-print { display: none !important; }
+      body { background: white; }
+      .test, .card { box-shadow: none; page-break-inside: avoid; }
+      textarea { min-height: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>DietLedger Manual Test Worksheet</h1>
+        <p class="muted">Release smoke/regression checklist with Markdown export. Drafts auto-save in this browser.</p>
+      </div>
+      <div class="summary-row" aria-live="polite">
+        <strong id="overall-status">0 / 0 steps checked</strong>
+        <span class="progress" aria-hidden="true"><span id="overall-progress"></span></span>
+        <span id="status-counts">Not started</span>
+      </div>
+      <div class="toolbar no-print">
+        <button class="primary" id="save-md" type="button">Save Markdown Results</button>
+        <button id="save-draft" type="button">Save Draft</button>
+        <button id="expand-all" type="button">Expand All</button>
+        <button id="collapse-all" type="button">Collapse All</button>
+        <button class="danger" id="clear-draft" type="button">Clear Draft</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <h2>Test Session Metadata</h2>
+      <div class="grid three">
+        <label class="field">Tester<input id="meta-tester" type="text" placeholder="Name" /></label>
+        <label class="field">Build / Version<input id="meta-build" type="text" placeholder="e.g., 1.0.0-beta.125" /></label>
+        <label class="field">Date<input id="meta-date" type="date" /></label>
+      </div>
+      <div class="grid two" style="margin-top: 12px;">
+        <label class="field">Environment<input id="meta-env" type="text" placeholder="Local, staging, production host, browser" /></label>
+        <label class="field">Test Data / Account<input id="meta-data" type="text" placeholder="Non-sensitive account and fixture notes" /></label>
+      </div>
+      <label class="field" style="margin-top: 12px;">Session Notes<textarea id="meta-notes" placeholder="Overall observations, scope skipped, known limitations..."></textarea></label>
+      <p class="notice" style="margin-top: 12px;"><strong>Safety:</strong> Run destructive tests only in a disposable/non-production environment. Do not paste passwords, API keys, bearer tokens, or private health details into feedback fields.</p>
+    </section>
+
+    <section class="card no-print">
+      <h2>Table of Contents</h2>
+      <ol id="toc" class="toc"></ol>
+    </section>
+
+    <section id="tests" aria-label="Manual tests"></section>
+  </main>
+
+  <script>
+    const TESTS = [
+      {
+        id: 'environment-smoke',
+        title: 'Environment, Deployment, and Smoke Check',
+        area: 'Platform',
+        risk: 'High',
+        objective: 'Confirm the target deployment is reachable and the core frontend/backend services are healthy before deeper testing.',
+        preconditions: 'Target URL is known. Use a supported desktop browser first, then repeat a subset on mobile width.',
+        expected: 'The app loads without client/server errors, API health endpoints respond, and the visible build/version matches the intended release.',
+        steps: [
+          'Open the target DietLedger URL in a fresh browser session.',
+          'Verify the landing route redirects appropriately based on instance/setup/auth state.',
+          'Open browser developer tools and confirm there are no blocking console errors during initial load.',
+          'Confirm API-backed pages do not show persistent loading or unauthorized errors after login.',
+          'Record app version/build from Settings > General > About DietLedger.',
+          'Refresh a protected route directly and verify the page still loads correctly.'
+        ]
+      },
+      {
+        id: 'setup-onboarding',
+        title: 'First-Run Setup and Onboarding Wizard',
+        area: 'Setup',
+        risk: 'High',
+        objective: 'Verify a new instance can be configured from setup state through the administrator and first user onboarding paths.',
+        preconditions: 'Disposable instance or factory-reset test environment. No production data.',
+        expected: 'Setup creates an admin account, applies basic preferences, optionally imports starter data, creates a nutrition profile, and lands in the app with onboarding complete.',
+        steps: [
+          'Navigate to a fresh/reset instance and confirm the setup wizard is shown instead of the main app.',
+          'Create the administrator account; verify password validation and confirm-password mismatch behavior.',
+          'Set measurement units, theme, and registration preference; continue to the next step without skipping unexpectedly.',
+          'Start or skip USDA food data import; if started, verify progress/status messaging and recoverable errors.',
+          'Install or skip the starter recipe library and verify the choice is reflected after setup.',
+          'Create the initial nutrition profile with demographic, height, weight, activity, and goal inputs.',
+          'Finish setup and verify the app no longer redirects to setup on refresh.',
+          'Log out and log back in as the admin to verify the session and onboarding completion persisted.'
+        ]
+      },
+      {
+        id: 'auth-registration-login',
+        title: 'Authentication, Registration, Session, and Logout',
+        area: 'Auth',
+        risk: 'High',
+        objective: 'Verify authentication workflows and registration controls protect app routes correctly.',
+        preconditions: 'At least one admin account exists. Have a second test email available.',
+        expected: 'Users can register only when allowed, log in with valid credentials, are blocked with invalid credentials, and protected routes enforce authentication.',
+        steps: [
+          'From a logged-out browser, open /recipes and verify redirect to /login or welcome flow.',
+          'Attempt login with an incorrect password and verify a clear error without signing in.',
+          'Log in with a valid account and verify protected navigation appears.',
+          'Use the logout control and verify protected routes are no longer accessible.',
+          'If registration is enabled, create a second account and complete the user onboarding wizard.',
+          'If registration is disabled, verify new registration is blocked while existing users can still log in.',
+          'Refresh after login and verify the session is restored without data loss.'
+        ]
+      },
+      {
+        id: 'navigation-layout',
+        title: 'Main Navigation, Layout, and Common Controls',
+        area: 'Navigation',
+        objective: 'Verify primary navigation, route highlighting, breadcrumbs, dialogs, and empty/loading/error states are usable.',
+        preconditions: 'Logged-in test user with at least some sample data.',
+        expected: 'Navigation items route to the correct pages, active states are accurate, and dialogs can open/close without stale state.',
+        steps: [
+          'Use the top navigation to visit Recipes, Books, Meal Plans, Kitchen Helper, Nutrition, and Add Food.',
+          'Verify active navigation styling matches the current section, including nested routes.',
+          'Open and close Settings and Log Weight from the header; verify forms reset or preserve values appropriately.',
+          'Use browser Back/Forward across at least three app sections and verify state remains coherent.',
+          'Open a missing or invalid detail route and verify a friendly not-found/empty state where applicable.',
+          'Confirm keyboard focus remains visible when tabbing through navigation and dialogs.'
+        ]
+      },
+      {
+        id: 'settings-general',
+        title: 'Settings: General, Theme, Meal Times, Categories, Staples, and Location',
+        area: 'Settings',
+        objective: 'Verify user settings and shared organizer panels persist and influence downstream workflows.',
+        preconditions: 'Logged-in user; admin for admin-only food database panels.',
+        expected: 'Settings persist after refresh and affect relevant pages such as meal planning, grocery lists, and seasonal suggestions.',
+        steps: [
+          'Save a USDA FoodData Central API key or placeholder test key and verify saved status; do not record the key in feedback.',
+          'Change the visual theme and verify the app updates and persists after refresh.',
+          'Change default meal slot times, then create/open a weekly meal plan and verify defaults are reflected.',
+          'Create, rename, nest, and delete a recipe category; verify the category tree updates.',
+          'Add and remove pantry staples; verify they are available to grocery-list exclusion/marking behavior.',
+          'Set country/region location and verify seasonal foods can be fetched for that location.',
+          'Open settings from both /settings and the header settings dialog and verify overlapping panels behave consistently.'
+        ]
+      },
+      {
+        id: 'recipes-crud-search-import-export',
+        title: 'Recipes: Create, Search, Select, Delete, Import, and Export',
+        area: 'Recipes',
+        risk: 'High',
+        objective: 'Verify core recipe lifecycle operations and data portability for individual recipes.',
+        preconditions: 'Logged-in user. Have at least one importable recipe zip if available.',
+        expected: 'Recipes can be created, found, selected, exported/imported, and deleted without corrupting other recipes.',
+        steps: [
+          'Create a new recipe from the recipe sidebar and verify it appears selected.',
+          'Rename the recipe by clicking the title; refresh and verify persistence.',
+          'Update recipe servings and verify display and calculations respond.',
+          'Use search to filter recipes by full and partial names; clear search and verify full list returns.',
+          'Export a recipe zip and verify a file downloads with a sensible name.',
+          'Import a recipe zip and verify it appears with ingredients/instructions intact.',
+          'Delete a throwaway recipe using the confirmation flow; verify other recipes remain.'
+        ]
+      },
+      {
+        id: 'recipes-food-database-ingredients',
+        title: 'Recipes: Food Database Ingredient Search and Nutrient Snapshots',
+        area: 'Recipes',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify adding ingredients from FoodData Central/search creates accurate nutrient snapshots in recipes.',
+        preconditions: 'Logged-in user. Food database/API key should be available; demo key may be rate-limited.',
+        expected: 'Food search returns results, selected ingredients use entered amount/unit, and nutrition totals update deterministically.',
+        steps: [
+          'Open a recipe and choose Add Ingredient > Food Database.',
+          'Search for a common food such as chicken breast or rice and verify results include name/source information.',
+          'Select a result, enter amount and unit, and add it to the recipe.',
+          'Verify the ingredient row displays name, amount, unit, and nutrient-derived calories/macros.',
+          'Edit the ingredient amount/unit and verify recipe nutrition changes as expected.',
+          'Remove the ingredient and verify totals decrease accordingly.',
+          'If search fails or rate limits, verify the UI reports an understandable error and manual/custom alternatives still work.'
+        ]
+      },
+      {
+        id: 'recipes-custom-nested-ingredients',
+        title: 'Recipes: Custom Foods and Recipe-as-Ingredient',
+        area: 'Recipes',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify recipes can use custom nutrient entries and other recipes as ingredients without losing serving semantics.',
+        preconditions: 'At least two recipes exist; one should have known nutrient totals.',
+        expected: 'Custom nutrient values and nested recipe portions contribute correctly to the parent recipe nutrition label.',
+        steps: [
+          'Add a custom ingredient with calories, protein, fat, carbs, sodium, and at least one micronutrient.',
+          'Verify all entered nutrient values display and persist after refresh.',
+          'Add another recipe as an ingredient using whole-recipe mode and verify contribution to totals.',
+          'Add another recipe as an ingredient using serving-count mode and verify scaling is proportional.',
+          'Edit or delete nested/custom ingredients and verify parent totals update without changing the source recipe.',
+          'Confirm blank or invalid numeric custom fields are handled safely.'
+        ]
+      },
+      {
+        id: 'recipes-instructions-groups-prep',
+        title: 'Recipes: Ingredient Prep, Instructions, Grouping, and Reordering',
+        area: 'Recipes',
+        objective: 'Verify recipe authoring supports organized ingredients and step-by-step cooking instructions.',
+        preconditions: 'A recipe with several ingredients and steps.',
+        expected: 'Ingredient prep instructions, ingredient groups, cooking steps, instruction groups, edits, removes, and ordering persist.',
+        steps: [
+          'Edit an ingredient name/description and add multiple prep instructions.',
+          'Group selected ingredients under a named group; verify grouped display and remove-from-group behavior.',
+          'Add several cooking steps; edit one, cancel an edit, and delete one.',
+          'Group selected cooking steps under a named instruction group.',
+          'Drag/reorder ingredients and steps if supported by the visible controls and verify order persists after refresh.',
+          'Open Kitchen Helper for the recipe and verify prep/instruction content is reflected there.'
+        ]
+      },
+      {
+        id: 'recipes-nutrition-label-scaling',
+        title: 'Recipes: Nutrition Label, Daily Values, and Scaling Controls',
+        area: 'Recipes',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify recipe nutrition label values and scaling controls remain accurate and understandable.',
+        preconditions: 'Recipe with known nutrient inputs and serving count greater than 1.',
+        expected: 'Nutrition totals/per-serving values, Daily Value percentages, and scaling outputs are deterministic and proportional.',
+        steps: [
+          'Record baseline servings and key nutrients from the nutrition label.',
+          'Use quick scaling controls such as 2x or 3x and verify ingredient quantities scale proportionally.',
+          'Use a custom target serving count and apply it; verify per-serving nutrition remains logically consistent.',
+          'Reset scaling and verify original quantities/totals return.',
+          'Check Daily Value percentages for sodium, fiber, calcium, iron, potassium, and vitamin D for obvious unit errors.',
+          'Export/print or preview the recipe and verify the label appears with the same values.'
+        ]
+      },
+      {
+        id: 'recipes-categories-filters',
+        title: 'Recipes: Categories and Dietary Filters',
+        area: 'Recipes',
+        objective: 'Verify recipes can be assigned to categories and filtered by dietary/compliance selections.',
+        preconditions: 'At least one category and one dietary profile exist.',
+        expected: 'Category assignments persist, hierarchy is respected, and dietary filters show accurate matching/exclusion cues.',
+        steps: [
+          'Create parent and child categories from the recipe category dialog or Settings.',
+          'Assign multiple categories to a recipe and verify badges appear.',
+          'Remove one category assignment and verify it no longer appears after refresh.',
+          'Use dietary filters to narrow recipe results by active profile/allergen/dietary requirements.',
+          'Verify recipes with allergens or threshold violations are clearly marked or excluded according to the selected filter.',
+          'Delete a category and verify recipe links update without deleting the recipe.'
+        ]
+      },
+      {
+        id: 'recipe-sharing',
+        title: 'Recipe Sharing, Public Share Pages, and Import',
+        area: 'Sharing',
+        risk: 'High',
+        objective: 'Verify recipe share links honor visibility rules and can be imported by allowed viewers.',
+        preconditions: 'At least one recipe. Use logged-in and logged-out browser sessions.',
+        expected: 'Private shares are owner-only, users-visible shares require authentication, public shares are accessible anonymously, and imports create a user-owned copy.',
+        steps: [
+          'Open the recipe share dialog and create a private share; verify link visibility messaging.',
+          'Create a users-visible share and test access from another logged-in account.',
+          'Create a public share and test access from an incognito/logged-out session.',
+          'Copy the share link and verify clipboard/copy feedback.',
+          'Import a shared recipe into another account and verify the imported recipe is editable by that account.',
+          'Change or remove share visibility if supported and verify old access behaves as expected.'
+        ]
+      },
+      {
+        id: 'books-list-crud',
+        title: 'Books: List, Create, Import, View, and Delete',
+        area: 'Books',
+        objective: 'Verify cookbook container lifecycle and book-level data portability.',
+        preconditions: 'Logged-in user. Have recipes available for later book assignment.',
+        expected: 'Books can be created, imported, opened, and deleted without deleting underlying recipes unless explicitly intended.',
+        steps: [
+          'Create a new recipe book with title and description.',
+          'Verify the book appears on the Books page with correct metadata/counts.',
+          'Open the book detail page and verify the title/description are shown.',
+          'Import a cookbook zip if available and verify created book/chapters/recipes display.',
+          'Delete a throwaway book and verify linked recipes still exist in Recipes.',
+          'Refresh the Books page and verify list state persists.'
+        ]
+      },
+      {
+        id: 'book-chapters-pages-recipes',
+        title: 'Books: Chapters, Pages, Recipe Assignment, and Ordering',
+        area: 'Books',
+        objective: 'Verify book content can be assembled from chapters, custom pages, and existing recipes.',
+        preconditions: 'A test book and several recipes exist.',
+        expected: 'Chapters, book pages, chapter pages, and recipe placements can be added, removed, moved, and ordered without corrupting content.',
+        steps: [
+          'Add two chapters to a book and verify they display in order.',
+          'Add a top-level book page with title/content and verify it renders.',
+          'Add a page inside a chapter and verify chapter placement.',
+          'Add multiple recipes to a chapter through search; verify duplicates are handled appropriately.',
+          'Remove a recipe from a chapter and verify the recipe itself remains in Recipes.',
+          'Move/reorder pages and recipes between chapters if controls are visible; verify order persists.',
+          'Delete a chapter and verify chapter content links are removed without deleting recipes.'
+        ]
+      },
+      {
+        id: 'cookbook-edit-export-print',
+        title: 'Cookbook Edit, Render Preview, Templates, Brand Kits, and Export',
+        area: 'Publishing',
+        objective: 'Verify cookbook publishing output uses selected templates/branding and exports printable content.',
+        preconditions: 'A book with chapters, recipes, nutrition labels, and at least one custom page.',
+        expected: 'Preview/export reflects selected content, template choices, brand kit details, and expected recipe/book layout.',
+        steps: [
+          'Open the book edit route and confirm embedded recipe editing works for recipes inside the book.',
+          'Open the cookbook export page and select the target book.',
+          'Select or create a render template and verify preview changes are visible.',
+          'Create/edit a brand kit with name, tagline, colors, and optional logo; verify it can be selected for export.',
+          'Generate/export cookbook PDF or printable output and verify file downloads/renders.',
+          'Inspect the output for title page, chapters, pages, recipes, ingredients, instructions, and nutrition labels.',
+          'Verify changes to templates/brand kits persist after refresh.'
+        ]
+      },
+      {
+        id: 'templates-management',
+        title: 'Templates: Create, Edit, Duplicate, Delete, and Preview',
+        area: 'Templates',
+        objective: 'Verify recipe/book render templates can be managed safely.',
+        preconditions: 'Logged-in user; Settings > Templates accessible.',
+        expected: 'Templates can be created from starter options, edited, duplicated, previewed, and deleted while built-in/default templates remain protected as expected.',
+        steps: [
+          'Open Settings > Templates and switch between recipe, book, and label template tabs.',
+          'Create a new template from a starter and verify it appears in the list.',
+          'Edit template theme colors, typography, spacing, and section visibility; save changes.',
+          'Preview the template with sample content and verify visible changes match inputs.',
+          'Duplicate a template and verify the copy can be edited independently.',
+          'Delete a custom template and verify it disappears without breaking existing recipes/books.',
+          'Attempt actions on built-in/default templates and verify restrictions are clear.'
+        ]
+      },
+      {
+        id: 'nutrition-profiles-health',
+        title: 'Nutrition: People Profiles and Health Calculations',
+        area: 'Nutrition',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify person profiles, goal inputs, BMI/BMR/TDEE, and unit-system handling are correct.',
+        preconditions: 'Logged-in user. Know expected values for a simple test profile.',
+        expected: 'Profiles save demographics/goals, unit conversions are correct, and calculated health metrics are plausible and deterministic.',
+        steps: [
+          'Create a person profile with name, sex, birth date, activity level, height, current weight, and goal weight.',
+          'Verify BMI is plausible for the height/weight and changes when weight changes.',
+          'Verify BMR/TDEE update based on sex, age, weight, height, and activity level.',
+          'Switch unit system between metric/imperial and verify displayed values convert without data loss.',
+          'Edit profile goals and optional doctor/override fields; refresh and verify persistence.',
+          'Delete a throwaway profile and verify associated selectors update cleanly.'
+        ]
+      },
+      {
+        id: 'nutrition-weight-health-history',
+        title: 'Nutrition: Weight, Blood Sugar, Blood Pressure, and History',
+        area: 'Nutrition',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify health metric logging and trend/history displays work for profiles.',
+        preconditions: 'At least one person profile exists.',
+        expected: 'Weight and health entries save with date/notes, appear in profile history/charts, and can be reviewed without unit errors.',
+        steps: [
+          'Use the header Log Weight button and select a person.',
+          'Enter weight, optional notes, blood sugar, and blood pressure values; save.',
+          'Verify the profile card updates current weight/metrics and trend/chart sections.',
+          'Add a second entry on a different date and verify ordering/history.',
+          'Open Nutrition History and verify range totals/charts include the relevant dates.',
+          'Check invalid values such as negative weight or malformed blood pressure are rejected or handled safely.'
+        ]
+      },
+      {
+        id: 'food-logging-sources',
+        title: 'Food Log: Add, Edit, Delete, and Source Types',
+        area: 'Food Logging',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify food intake can be logged from recipes, food database, custom foods, and manual entries with snapshot semantics.',
+        preconditions: 'At least one profile, recipe, and custom food exist.',
+        expected: 'Food log entries save the selected date/meal/profile/source/nutrients and remain historically stable when source data changes later.',
+        steps: [
+          'Open Nutrition > Add Food and select a person/profile and date.',
+          'Add a recipe entry and verify servings scale nutrient totals.',
+          'Add a Food DB entry from search and verify nutrient values appear in daily totals.',
+          'Add a custom food entry and a manual entry with explicit calories/macros.',
+          'Edit servings or meal slot on one entry and verify daily totals update.',
+          'Delete an entry and verify totals decrease and the entry disappears.',
+          'Modify the source recipe after logging and verify existing log entry does not silently change if snapshot semantics are visible.'
+        ]
+      },
+      {
+        id: 'nutrition-dashboard-reports',
+        title: 'Nutrition Dashboard, Daily Totals, Alerts, Reports, and PDF Export',
+        area: 'Nutrition',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify intake summaries, charts, threshold alerts, dietary compliance report, and exportable nutrition reports.',
+        preconditions: 'A profile with several food log entries across multiple meals/dates and a dietary profile.',
+        expected: 'Dashboard totals match log entries, charts render, alerts/compliance reflect configured thresholds, and PDF export contains selected sections.',
+        steps: [
+          'Select a person on the Nutrition dashboard and verify daily totals match manually summed food log entries.',
+          'Verify calorie/macronutrient/micronutrient cards and progress indicators use the selected date/profile.',
+          'Open Food Log and History from dashboard links and verify date/range navigation.',
+          'Configure a nutrient threshold and verify threshold alerts appear or disappear appropriately.',
+          'Open Dietary Compliance Report, select a profile/dietary profile/date range, and verify allergens/thresholds/requirements are shown.',
+          'Export Nutrition PDF and verify the downloaded report includes selected sections and no missing charts.'
+        ]
+      },
+      {
+        id: 'dietary-profiles-compliance',
+        title: 'Dietary Profiles, Allergen Rules, and Compliance Filters',
+        area: 'Dietary Compliance',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify dietary profiles express restrictions and the app surfaces compliance outcomes for foods/recipes/logs.',
+        preconditions: 'Recipes/custom foods containing known allergens or high nutrient values.',
+        expected: 'Profiles save allergens, dietary requirements, active status, nutrient thresholds, and compliance reports consistently identify violations.',
+        steps: [
+          'Create a dietary profile with a name, allergen avoidance list, dietary tags/requirements, and nutrient min/max thresholds.',
+          'Activate the profile and verify it appears as active in filters/reports.',
+          'Run a compliance report against recipes or intake that should violate at least one allergen/threshold.',
+          'Verify allergen keyword matching flags expected foods and does not flag unrelated foods in the sample set.',
+          'Edit the profile to remove a rule and verify the compliance result changes.',
+          'Delete a throwaway profile and verify filters/reports recover gracefully.'
+        ]
+      },
+      {
+        id: 'custom-foods-management',
+        title: 'Custom Foods Management',
+        area: 'Foods',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify user-authored food nutrient records can be created, edited, searched, used, and deleted.',
+        preconditions: 'Logged-in user.',
+        expected: 'Custom foods persist nutrient data and are available in recipe ingredients, meal plans, and food logs.',
+        steps: [
+          'Open Settings > Custom Foods and create a custom food with complete nutrient values.',
+          'Edit the custom food name and nutrient values; verify changes persist after refresh.',
+          'Search/filter custom foods in the custom food panel if available.',
+          'Use the custom food in a recipe ingredient, food log entry, and meal plan entry.',
+          'Delete a throwaway custom food and verify existing historical log entries remain understandable.',
+          'Verify validation prevents empty name and handles blank nutrient values safely.'
+        ]
+      },
+      {
+        id: 'food-database-admin',
+        title: 'Food Database Admin: Stats, Import, Cache, and Search',
+        area: 'Foods',
+        risk: 'High',
+        objective: 'Verify administrator-only food database tools work and are not exposed to non-admin users.',
+        preconditions: 'Admin account; disposable/test environment for uploads/import jobs.',
+        expected: 'Admin can inspect stats/import/cache/search; non-admin users cannot mutate shared food database state.',
+        steps: [
+          'Open Settings > Food Database as admin and verify stats/load status render.',
+          'Run a harmless test search and verify results return or errors are clear.',
+          'If testing dataset upload/import, start a small valid import job and verify progress/completion status.',
+          'Verify cache management controls work or report current state clearly.',
+          'Log in as non-admin and verify admin-only import/cache controls are hidden or forbidden.',
+          'Confirm failed uploads/imports do not leave the UI stuck in a busy state.'
+        ]
+      },
+      {
+        id: 'meal-plan-list-navigation',
+        title: 'Meal Plans: List, Current Week, Previous/Next Week, and Creation',
+        area: 'Meal Planning',
+        objective: 'Verify meal plan overview and week routing create and open the intended weeks.',
+        preconditions: 'Logged-in user; recipes exist for adding to a plan.',
+        expected: 'Meal plan weeks open with correct date ranges, can be navigated, and persist independently.',
+        steps: [
+          'Open Meal Plans and verify the current week card/action is correct.',
+          'Create or open the current week plan.',
+          'Navigate to previous and next weeks and verify route/date range changes by seven days.',
+          'Return to the overview and verify created weeks appear in the list.',
+          'Refresh a week URL directly and verify entries for that week load.',
+          'Verify empty weeks display helpful empty state and add actions.'
+        ]
+      },
+      {
+        id: 'weekly-meal-plan-editing',
+        title: 'Weekly Meal Plan: Entries, Slot Times, Servings, Drag/Drop, Groups, and Leftovers',
+        area: 'Meal Planning',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify a weekly meal plan can be assembled and edited across days/meal slots with correct nutrition aggregation.',
+        preconditions: 'A weekly meal plan, recipes, custom foods, and profile-independent manual foods.',
+        expected: 'Entries can be added from all sources, moved, grouped, resized by servings, marked as leftovers, and removed while daily nutrition remains accurate.',
+        steps: [
+          'Add a recipe to a day/slot from the Recipes tab.',
+          'Add Food DB, custom food, and manual food entries to other slots.',
+          'Edit entry servings and verify displayed nutrition changes proportionally.',
+          'Change a plan-specific meal slot time and verify it persists independent of default settings.',
+          'Drag an entry to another slot/day if supported and verify position updates after refresh.',
+          'Select multiple entries and create a named meal group; verify group display and ungroup/remove behavior.',
+          'Mark an entry as leftover and verify leftover styling/labels and grocery-list handling.',
+          'Remove entries/groups and verify no orphaned entries remain visible.'
+        ]
+      },
+      {
+        id: 'meal-plan-nutrition-synergy-export',
+        title: 'Meal Plan Nutrition, Glycemic Load, Seasonal Synergies, and PDF Export',
+        area: 'Meal Planning',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify meal plan analysis and helper recommendations remain useful and exportable.',
+        preconditions: 'Weekly plan with multiple recipes/foods, pantry staples, and location set.',
+        expected: 'Daily/slot nutrition, glycemic load, seasonal suggestions, food synergies, and PDF export are consistent with plan contents.',
+        steps: [
+          'Review daily nutrition totals for a day with multiple entries and compare with entry-level totals.',
+          'Verify glycemic load indicators appear for entries/slots with carbohydrate foods and are absent or clear when not computable.',
+          'Open seasonal/in-season suggestions and verify they use the configured location/month.',
+          'Use food synergy recommendations to add a suggested recipe to a slot, then verify the new entry appears.',
+          'Export the meal plan PDF and verify all seven days, slots, entries, leftovers, and nutrition summaries are included.',
+          'Refresh and verify analysis sections remain stable.'
+        ]
+      },
+      {
+        id: 'grocery-list',
+        title: 'Grocery List Generation, Aggregation, Pantry Staples, Units, and Export',
+        area: 'Grocery Planning',
+        risk: 'High',
+        domain: true,
+        objective: 'Verify grocery lists generated from meal plans aggregate ingredients correctly and support shopping workflow needs.',
+        preconditions: 'Weekly meal plan contains recipes with overlapping ingredients, custom/manual entries, leftovers, and pantry staples.',
+        expected: 'Grocery list includes needed recipe ingredients, groups/aggregates compatible quantities, respects pantry staples/leftovers where applicable, supports unit toggles, and exports cleanly.',
+        steps: [
+          'Open Grocery List from a weekly meal plan and verify date range matches the plan.',
+          'Confirm ingredients from all planned recipes appear, while pure manual foods are handled appropriately.',
+          'Verify duplicate ingredients aggregate or group predictably with units/amounts displayed clearly.',
+          'Toggle unit system and verify amounts convert or remain clearly labeled when conversion is not possible.',
+          'Verify pantry staple items are marked/excluded according to available controls.',
+          'Confirm leftover entries do not double-count groceries if the UI indicates leftover exclusion.',
+          'Export grocery PDF/print output and verify readable categories, quantities, and notes.'
+        ]
+      },
+      {
+        id: 'kitchen-helper',
+        title: 'Kitchen Helper: Recipe, Meal, Today, Prep, Play Mode, and Completion',
+        area: 'Kitchen Helper',
+        objective: 'Verify guided cooking workflows work for individual recipes, grouped meals, and planned recipes for today.',
+        preconditions: 'Recipes have ingredients, prep instructions, and cooking steps. At least one meal group exists in a meal plan.',
+        expected: 'Kitchen Helper shows the correct selectable items, ordered ingredients/prep/cooking steps, play mode navigation, and completion state.',
+        steps: [
+          'Open Kitchen Helper and switch between Select Recipe, Select Meal, and Today tabs.',
+          'Search and select a single recipe; verify ingredient list, prep steps, and cooking steps display in order.',
+          'Toggle Start with ingredient prep and verify prep steps appear before cooking steps.',
+          'Select a meal group and verify steps from multiple recipes are distinguishable.',
+          'Select a planned recipe from Today and verify meal slot/day context is correct.',
+          'Use Play mode Previous/Next/Mark Complete until finished; verify progress count and all-done state.',
+          'Return to selection and reopen the item; verify completion styling persists where intended.'
+        ]
+      },
+      {
+        id: 'community-gallery',
+        title: 'Community Gallery, Search, Sort, Categories, Visibility, and Import',
+        area: 'Community',
+        objective: 'Verify shared recipe discovery works for anonymous and logged-in users with correct visibility tiers.',
+        preconditions: 'At least one public shared recipe and one users-only shared recipe exist.',
+        expected: 'Community search/filter/sort returns allowed recipes only, and logged-in users can import recipes into their own library.',
+        steps: [
+          'Open /community while logged out and verify public recipes are visible and users-only/private recipes are not.',
+          'Search by recipe name and verify results narrow correctly.',
+          'Filter by category and change sort order; verify result order/content changes as expected.',
+          'Open a public recipe detail/share page and verify recipe content and nutrition render.',
+          'Log in and verify users-visible recipes appear in addition to public recipes.',
+          'Import a community recipe and verify it appears in the logged-in user recipe list.',
+          'Verify unauthenticated import prompts for sign-in rather than failing silently.'
+        ]
+      },
+      {
+        id: 'data-export-import-self-service',
+        title: 'Data Export/Import and Account Self-Service Danger Flows',
+        area: 'Data Management',
+        risk: 'High',
+        destructive: true,
+        objective: 'Verify backup/restore and self-service deletion flows protect user data and require password confirmation.',
+        preconditions: 'Use only a disposable account/environment. Have representative recipes/books/plans/profiles/logs created.',
+        expected: 'Export downloads a complete zip, import merges/restores supported records, deletion requires password and has clear irreversible consequences.',
+        steps: [
+          'Use Settings > Data > Export and verify a zip downloads with current account data.',
+          'Inspect the zip filename/date and confirm it is non-empty; do not store secrets in feedback.',
+          'Import the zip into a disposable account and verify counts/content for recipes, books, meal plans, profiles, custom foods, templates, and settings.',
+          'Attempt Delete my data with an incorrect password and verify it is rejected.',
+          'In a disposable account only, delete user data with the correct password and verify account remains but content is removed.',
+          'In a disposable account only, test Delete account and verify backup download, sign-out, and account removal behavior.'
+        ]
+      },
+      {
+        id: 'api-keys-secrets',
+        title: 'Developer API Keys and Encrypted User Secrets',
+        area: 'Integrations',
+        risk: 'High',
+        objective: 'Verify scoped API key management and encrypted user secret handling are safe and usable.',
+        preconditions: 'Logged-in user. External key consumers are optional for this manual pass.',
+        expected: 'Keys are generated once, copied, listed by prefix/permissions, deletable; secrets are saved encrypted, reveal/hide works, and values are not exposed accidentally.',
+        steps: [
+          'Open Settings > API Keys and generate a key with a descriptive name and limited read/write permissions.',
+          'Verify the full key is shown only immediately after creation and copy feedback works.',
+          'Close/reopen settings and verify only key prefix/metadata remain visible.',
+          'Delete the key and verify it disappears.',
+          'Save an encrypted secret with a non-sensitive test value.',
+          'Reveal and hide the secret; verify the value is not visible by default after refresh.',
+          'Delete the secret and verify it no longer appears.'
+        ]
+      },
+      {
+        id: 'admin-instance-controls',
+        title: 'Administration: Registration Toggle, Demo Cookbook, Reset Data, and Factory Reset',
+        area: 'Administration',
+        risk: 'High',
+        destructive: true,
+        objective: 'Verify admin-only instance controls work and are protected from non-admin users.',
+        preconditions: 'Admin account and disposable instance. Do not run reset/factory reset in production.',
+        expected: 'Admin controls mutate instance-wide state only after confirmation/password where required; non-admin users cannot access them.',
+        steps: [
+          'As admin, toggle new account registration off and verify registration is blocked for a new user.',
+          'Toggle registration on and verify a new user can register again.',
+          'Install the demo cookbook and verify starter recipes/book appear in the admin account.',
+          'Log in as non-admin and verify Administration/Danger controls are hidden or forbidden.',
+          'Attempt reset/factory reset with an incorrect password and verify rejection.',
+          'In a disposable environment only, run Reset user data and verify accounts/settings remain while user content is removed.',
+          'In a disposable environment only, run Factory reset and verify the instance returns to setup state.'
+        ]
+      },
+      {
+        id: 'responsive-accessibility-errors',
+        title: 'Responsive Layout, Accessibility, and Error-State Smoke Checks',
+        area: 'Quality',
+        risk: 'High',
+        objective: 'Verify the app remains usable across viewport sizes, keyboard-only interaction, and common failure states.',
+        preconditions: 'Representative data exists. Browser dev tools available.',
+        expected: 'Critical workflows are usable on desktop and mobile widths, keyboard focus is visible, dialogs are accessible, and errors are understandable/recoverable.',
+        steps: [
+          'Repeat main navigation, recipe editing, meal planning, and nutrition dashboard smoke checks at mobile width.',
+          'Use keyboard only to log in, open a dialog, submit a form, and close the dialog.',
+          'Verify labels/placeholders make forms understandable and required/invalid fields are announced visually.',
+          'Simulate network/API failure if practical and verify loading/error states recover after retry/refresh.',
+          'Check long recipe/book/food names for layout overflow in cards, dialogs, and PDFs/previews.',
+          'Confirm browser console is free of repeated React errors, hydration errors, and unhandled promise rejections during the pass.'
+        ]
+      }
+    ];
+
+    const DRAFT_KEY = 'dietledger-manual-test-worksheet-v1';
+
+    function fieldId(testId, suffix) {
+      return `${testId}__${suffix}`;
+    }
+
+    function todayISO() {
+      const now = new Date();
+      return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    function markdownValue(value) {
+      const text = String(value || '').trim();
+      return text ? text : '_Not recorded_';
+    }
+
+    function render() {
+      const toc = document.getElementById('toc');
+      const testsEl = document.getElementById('tests');
+      toc.innerHTML = '';
+      testsEl.innerHTML = '';
+
+      TESTS.forEach((test, index) => {
+        const number = String(index + 1).padStart(2, '0');
+        const tocItem = document.createElement('li');
+        tocItem.innerHTML = `<a href="#${test.id}">${number}. ${escapeHtml(test.title)}</a>`;
+        toc.appendChild(tocItem);
+
+        const section = document.createElement('article');
+        section.className = 'test';
+        section.id = test.id;
+        section.innerHTML = `
+          <div class="test-heading">
+            <h2>${number}. ${escapeHtml(test.title)}</h2>
+            <p class="muted">${escapeHtml(test.objective)}</p>
+            <div class="badges">
+              <span class="badge">${escapeHtml(test.area)}</span>
+              ${test.risk ? `<span class="badge high">${escapeHtml(test.risk)} risk</span>` : ''}
+              ${test.domain ? '<span class="badge domain">Nutrition/domain-sensitive</span>' : ''}
+              ${test.destructive ? '<span class="badge destructive">Destructive: non-production only</span>' : ''}
+            </div>
+          </div>
+          <div class="test-body">
+            <details open>
+              <summary>Preconditions and Expected Result</summary>
+              <p><strong>Preconditions:</strong> ${escapeHtml(test.preconditions)}</p>
+              <p><strong>Expected result:</strong> ${escapeHtml(test.expected)}</p>
+            </details>
+            <div>
+              <h3>Steps</h3>
+              <ol>
+                ${test.steps.map((step, stepIndex) => `
+                  <li class="step">
+                    <input id="${fieldId(test.id, `step-${stepIndex}`)}" data-test-id="${test.id}" data-kind="step" type="checkbox" />
+                    <label for="${fieldId(test.id, `step-${stepIndex}`)}">${escapeHtml(step)}</label>
+                  </li>
+                `).join('')}
+              </ol>
+            </div>
+            <div class="feedback">
+              <h3>Feedback</h3>
+              <div class="grid three">
+                <label class="field">Status
+                  <select id="${fieldId(test.id, 'status')}" data-test-id="${test.id}" data-kind="feedback">
+                    <option value="Not Run">Not Run</option>
+                    <option value="Pass">Pass</option>
+                    <option value="Fail">Fail</option>
+                    <option value="Blocked">Blocked</option>
+                    <option value="Partial">Partial</option>
+                    <option value="N/A">N/A</option>
+                  </select>
+                </label>
+                <label class="field">Severity
+                  <select id="${fieldId(test.id, 'severity')}" data-test-id="${test.id}" data-kind="feedback">
+                    <option value="None">None</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                  </select>
+                </label>
+                <label class="field">Tester<input id="${fieldId(test.id, 'tester')}" data-test-id="${test.id}" data-kind="feedback" type="text" placeholder="Optional override" /></label>
+              </div>
+              <div class="grid two" style="margin-top: 12px;">
+                <label class="field">Build / Browser / Device<input id="${fieldId(test.id, 'environment')}" data-test-id="${test.id}" data-kind="feedback" type="text" placeholder="If different from session metadata" /></label>
+                <label class="field">Issue / PR Link<input id="${fieldId(test.id, 'issue')}" data-test-id="${test.id}" data-kind="feedback" type="url" placeholder="https://..." /></label>
+              </div>
+              <div class="grid two" style="margin-top: 12px;">
+                <label class="field">Actual Result<textarea id="${fieldId(test.id, 'actual')}" data-test-id="${test.id}" data-kind="feedback" placeholder="What happened?"></textarea></label>
+                <label class="field">Notes / Evidence<textarea id="${fieldId(test.id, 'notes')}" data-test-id="${test.id}" data-kind="feedback" placeholder="Screenshots, console/network notes, skipped scope..."></textarea></label>
+              </div>
+              <label class="field" style="margin-top: 12px;">Follow-up / Retest Notes<textarea id="${fieldId(test.id, 'followup')}" data-test-id="${test.id}" data-kind="feedback" placeholder="Fix needed, retest result, owner, next action..."></textarea></label>
+            </div>
+          </div>
+        `;
+        testsEl.appendChild(section);
+      });
+    }
+
+    function getState() {
+      const state = { meta: {}, tests: {} };
+      ['tester', 'build', 'date', 'env', 'data', 'notes'].forEach((key) => {
+        state.meta[key] = document.getElementById(`meta-${key}`).value || '';
+      });
+      TESTS.forEach((test) => {
+        const item = { steps: [], feedback: {} };
+        test.steps.forEach((_, index) => {
+          item.steps[index] = document.getElementById(fieldId(test.id, `step-${index}`)).checked;
+        });
+        ['status', 'severity', 'tester', 'environment', 'issue', 'actual', 'notes', 'followup'].forEach((key) => {
+          item.feedback[key] = document.getElementById(fieldId(test.id, key)).value || '';
+        });
+        state.tests[test.id] = item;
+      });
+      return state;
+    }
+
+    function setState(state) {
+      if (!state) return;
+      const meta = state.meta || {};
+      ['tester', 'build', 'date', 'env', 'data', 'notes'].forEach((key) => {
+        const el = document.getElementById(`meta-${key}`);
+        if (el && meta[key] !== undefined) el.value = meta[key];
+      });
+      TESTS.forEach((test) => {
+        const item = state.tests?.[test.id];
+        if (!item) return;
+        test.steps.forEach((_, index) => {
+          const el = document.getElementById(fieldId(test.id, `step-${index}`));
+          if (el) el.checked = Boolean(item.steps?.[index]);
+        });
+        Object.entries(item.feedback || {}).forEach(([key, value]) => {
+          const el = document.getElementById(fieldId(test.id, key));
+          if (el) el.value = value;
+        });
+      });
+      updateSummary();
+    }
+
+    function saveDraft() {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(getState()));
+    }
+
+    function loadDraft() {
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) setState(JSON.parse(raw));
+      } catch (error) {
+        console.warn('Could not load worksheet draft', error);
+      }
+    }
+
+    function updateSummary() {
+      const allSteps = Array.from(document.querySelectorAll('input[data-kind="step"]'));
+      const checked = allSteps.filter((el) => el.checked).length;
+      const total = allSteps.length;
+      const percent = total ? Math.round((checked / total) * 100) : 0;
+      document.getElementById('overall-status').textContent = `${checked} / ${total} steps checked`;
+      document.getElementById('overall-progress').style.width = `${percent}%`;
+
+      const counts = TESTS.reduce((acc, test) => {
+        const status = document.getElementById(fieldId(test.id, 'status')).value;
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      document.getElementById('status-counts').textContent = Object.entries(counts).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    }
+
+    function buildMarkdown() {
+      const state = getState();
+      const generatedAt = new Date().toISOString();
+      const lines = [];
+      lines.push('# DietLedger Manual Test Results');
+      lines.push('');
+      lines.push(`- Generated: ${generatedAt}`);
+      lines.push(`- Tester: ${markdownValue(state.meta.tester)}`);
+      lines.push(`- Build / Version: ${markdownValue(state.meta.build)}`);
+      lines.push(`- Date: ${markdownValue(state.meta.date)}`);
+      lines.push(`- Environment: ${markdownValue(state.meta.env)}`);
+      lines.push(`- Test Data / Account: ${markdownValue(state.meta.data)}`);
+      lines.push('');
+      lines.push('## Session Notes');
+      lines.push('');
+      lines.push(markdownValue(state.meta.notes));
+      lines.push('');
+      lines.push('## Summary');
+      lines.push('');
+      const totalSteps = TESTS.reduce((sum, test) => sum + test.steps.length, 0);
+      const checkedSteps = TESTS.reduce((sum, test) => sum + (state.tests[test.id]?.steps || []).filter(Boolean).length, 0);
+      lines.push(`- Steps checked: ${checkedSteps} / ${totalSteps}`);
+      const counts = TESTS.reduce((acc, test) => {
+        const status = state.tests[test.id]?.feedback?.status || 'Not Run';
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      Object.entries(counts).forEach(([status, count]) => lines.push(`- ${status}: ${count}`));
+      lines.push('');
+
+      TESTS.forEach((test, index) => {
+        const data = state.tests[test.id] || { steps: [], feedback: {} };
+        const feedback = data.feedback || {};
+        const complete = (data.steps || []).filter(Boolean).length;
+        lines.push(`## ${index + 1}. ${test.title}`);
+        lines.push('');
+        lines.push(`- Area: ${test.area}`);
+        lines.push(`- Status: ${feedback.status || 'Not Run'}`);
+        lines.push(`- Severity: ${feedback.severity || 'None'}`);
+        lines.push(`- Step completion: ${complete} / ${test.steps.length}`);
+        if (test.risk) lines.push(`- Risk: ${test.risk}`);
+        if (test.domain) lines.push('- Nutrition/domain-sensitive: Yes');
+        if (test.destructive) lines.push('- Destructive: Yes — non-production only');
+        lines.push('');
+        lines.push('### Preconditions');
+        lines.push('');
+        lines.push(test.preconditions);
+        lines.push('');
+        lines.push('### Expected Result');
+        lines.push('');
+        lines.push(test.expected);
+        lines.push('');
+        lines.push('### Steps');
+        lines.push('');
+        test.steps.forEach((step, stepIndex) => {
+          const mark = data.steps?.[stepIndex] ? 'x' : ' ';
+          lines.push(`- [${mark}] ${step}`);
+        });
+        lines.push('');
+        lines.push('### Feedback');
+        lines.push('');
+        lines.push(`- Tester: ${markdownValue(feedback.tester || state.meta.tester)}`);
+        lines.push(`- Build / Browser / Device: ${markdownValue(feedback.environment || state.meta.env)}`);
+        lines.push(`- Issue / PR Link: ${markdownValue(feedback.issue)}`);
+        lines.push('');
+        lines.push('#### Actual Result');
+        lines.push('');
+        lines.push(markdownValue(feedback.actual));
+        lines.push('');
+        lines.push('#### Notes / Evidence');
+        lines.push('');
+        lines.push(markdownValue(feedback.notes));
+        lines.push('');
+        lines.push('#### Follow-up / Retest Notes');
+        lines.push('');
+        lines.push(markdownValue(feedback.followup));
+        lines.push('');
+      });
+
+      return lines.join('\n');
+    }
+
+    function downloadMarkdown() {
+      saveDraft();
+      const markdown = buildMarkdown();
+      const date = document.getElementById('meta-date').value || todayISO();
+      const build = (document.getElementById('meta-build').value || 'manual').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
+      const filename = `dietledger-manual-test-results-${date}-${build}.md`;
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function attachEvents() {
+      document.addEventListener('change', (event) => {
+        if (event.target.matches('input, select, textarea')) {
+          updateSummary();
+          saveDraft();
+        }
+      });
+      document.addEventListener('input', (event) => {
+        if (event.target.matches('input[type="text"], input[type="url"], textarea')) {
+          updateSummary();
+          saveDraft();
+        }
+      });
+      document.getElementById('save-md').addEventListener('click', downloadMarkdown);
+      document.getElementById('save-draft').addEventListener('click', () => { saveDraft(); alert('Draft saved in this browser.'); });
+      document.getElementById('expand-all').addEventListener('click', () => document.querySelectorAll('details').forEach((d) => d.open = true));
+      document.getElementById('collapse-all').addEventListener('click', () => document.querySelectorAll('details').forEach((d) => d.open = false));
+      document.getElementById('clear-draft').addEventListener('click', () => {
+        if (confirm('Clear all worksheet inputs saved in this browser?')) {
+          localStorage.removeItem(DRAFT_KEY);
+          location.reload();
+        }
+      });
+    }
+
+    render();
+    document.getElementById('meta-date').value = todayISO();
+    loadDraft();
+    attachEvents();
+    updateSummary();
+  </script>
+</body>
+</html>

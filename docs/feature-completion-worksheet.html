@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DietLedger Feature Completion Worksheet</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #fff;
+      --text: #1f2937;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --brand: #0f766e;
+      --brand-soft: #ccfbf1;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --ok: #047857;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.45; }
+    header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,.95); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+    h1 { margin: 0; font-size: 1.65rem; }
+    h2 { margin: 0 0 8px; font-size: 1.2rem; color: #0f172a; }
+    h3 { margin: 14px 0 8px; font-size: 1rem; color: #334155; }
+    p { margin: 0 0 8px; }
+    a { color: var(--brand); text-decoration: none; }
+    .muted { color: var(--muted); font-size: .92rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+    button { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); padding: 9px 12px; font: inherit; cursor: pointer; }
+    button.primary { background: var(--brand); border-color: var(--brand); color: white; font-weight: 700; }
+    button.danger { color: var(--danger); border-color: #fecaca; }
+    main.wrap { display: grid; gap: 16px; }
+    .card, .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+    .card { padding: 18px; }
+    .feature { overflow: hidden; }
+    .feature-heading { display: grid; gap: 8px; padding: 16px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #ffffff, #f8fafc); }
+    .feature-body { padding: 18px; display: grid; gap: 14px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font-size: .78rem; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .badge.high { background: #fef3c7; color: var(--warn); border-color: #fde68a; }
+    .badge.done { background: #dcfce7; color: var(--ok); border-color: #bbf7d0; }
+    .badge.gap { background: #fee2e2; color: var(--danger); border-color: #fecaca; }
+    .grid { display: grid; gap: 12px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    label.field { display: grid; gap: 5px; font-weight: 700; color: #334155; font-size: .88rem; }
+    input[type="text"], input[type="date"], input[type="number"], select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; font: inherit; color: var(--text); background: white; }
+    textarea { min-height: 92px; resize: vertical; }
+    input[type="range"] { width: 100%; accent-color: var(--brand); }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li { margin: 4px 0; }
+    .progress { height: 10px; width: 210px; border-radius: 999px; overflow: hidden; background: #e2e8f0; }
+    .progress > span { display: block; height: 100%; width: 0%; background: var(--brand); }
+    .feature-progress { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .bar { width: 180px; height: 8px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: var(--brand); }
+    .summary-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; color: var(--muted); font-size: .9rem; }
+    .notice { padding: 12px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .toc { columns: 2; column-gap: 28px; padding-left: 18px; }
+    .toc li { break-inside: avoid; }
+    .assessment { border-top: 1px solid var(--line); padding-top: 14px; }
+    @media (max-width: 800px) { .grid.two, .grid.three { grid-template-columns: 1fr; } .toc { columns: 1; } header { position: static; } }
+    @media print { header, .toolbar, .no-print { display: none !important; } body { background: white; } .card, .feature { box-shadow: none; page-break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>DietLedger Feature Completion Worksheet</h1>
+      <p class="muted">Editable feature readiness report with Markdown export. Percentages are source-based estimates until confirmed by manual testing.</p>
+      <div class="summary-row" aria-live="polite">
+        <strong id="overall-percent">0% weighted completion</strong>
+        <span class="progress" aria-hidden="true"><span id="overall-progress"></span></span>
+        <span id="status-counts">No assessment loaded</span>
+      </div>
+      <div class="toolbar no-print">
+        <button class="primary" id="save-md" type="button">Save Markdown Feature Report</button>
+        <button id="save-draft" type="button">Save Draft</button>
+        <button id="expand-all" type="button">Expand All</button>
+        <button id="collapse-all" type="button">Collapse All</button>
+        <button class="danger" id="clear-draft" type="button">Clear Draft</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <h2>Assessment Metadata</h2>
+      <div class="grid three">
+        <label class="field">Reviewer<input id="meta-reviewer" type="text" placeholder="Name" /></label>
+        <label class="field">Build / Branch<input id="meta-build" type="text" placeholder="e.g., 1.0.0-beta.125" /></label>
+        <label class="field">Date<input id="meta-date" type="date" /></label>
+      </div>
+      <div class="grid two" style="margin-top: 12px;">
+        <label class="field">Evidence Sources<input id="meta-sources" type="text" value="PROJECT.md, ARCHITECTURE.md, NUTRITION_DOMAIN.md, TESTING_STRATEGY.md, app routes/components, sync-server routes" /></label>
+        <label class="field">Assessment Scope<input id="meta-scope" type="text" value="User-facing features and release-readiness gaps" /></label>
+      </div>
+      <label class="field" style="margin-top: 12px;">Overall Notes<textarea id="meta-notes" placeholder="Overall readiness, release risks, scope skipped, confidence level..."></textarea></label>
+      <p class="notice" style="margin-top: 12px;"><strong>Important:</strong> Initial percentages are estimates from currently discoverable source/docs, not a replacement for executing the manual test worksheet. Adjust each percent as evidence changes.</p>
+    </section>
+
+    <section class="card no-print">
+      <h2>Table of Contents</h2>
+      <ol id="toc" class="toc"></ol>
+    </section>
+
+    <section id="features" aria-label="Feature completion assessment"></section>
+  </main>
+
+  <script>
+    const FEATURES = [
+      {
+        id: 'platform-deployment',
+        title: 'Platform, Deployment, and Server-Authoritative Foundation',
+        area: 'Platform',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Next.js frontend, Go API, PostgreSQL ownership model, Docker build/deploy conventions, health/about routes, and CORS/rate-limit plumbing are in place.',
+        evidence: ['ARCHITECTURE.md defines browser → Next.js → Go API → PostgreSQL authority.', 'Docker deployment rules are documented in AGENTS.md.', 'sync-server routes include health/about/auth/domain APIs.'],
+        remaining: ['Reconcile API contract drift called out in backend branch plan.', 'Run full deployed smoke pass against the remote host before release.', 'Keep deployment tar naming/process consistent with build-all.bat conventions.']
+      },
+      {
+        id: 'setup-onboarding',
+        title: 'First-Run Setup and User Onboarding',
+        area: 'Setup',
+        percent: 95,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'High',
+        summary: 'Admin setup wizard, per-user onboarding wizard, registration gate, starter data options, and covered onboarding tests exist.',
+        evidence: ['plans/onboarding-wizard.md marks phases 1–5 complete.', 'Setup wizard and user wizard components are present.', 'TESTING_STRATEGY.md lists onboarding wizard and instance metadata regression coverage.'],
+        remaining: ['Manual test fresh setup and factory-reset setup recovery.', 'Optional/beyond-v1 user count/account management remains deferred.', 'Confirm setup cannot be bypassed in deployed environment.']
+      },
+      {
+        id: 'auth-sessions-registration',
+        title: 'Authentication, Registration, Authorization, and Session Lifecycle',
+        area: 'Auth',
+        percent: 75,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Login, registration, protected route gating, optional auth for public sharing, and admin checks are implemented, but session/logout contract clarity remains unfinished.',
+        evidence: ['Go routes include register/login/refresh and auth wrappers.', 'Frontend login/register pages and use-auth hook exist.', 'Backend plan flags session lifecycle/logout expectations as incomplete.'],
+        remaining: ['Define beta expectations for logout/session invalidation with stateless JWTs.', 'Reconcile API contract with implemented auth/account routes.', 'Manually verify registration disabled/enabled paths and route protection.']
+      },
+      {
+        id: 'navigation-shell',
+        title: 'Navigation Shell, Layout, Route Gating, and Common UI',
+        area: 'Navigation',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Primary app navigation, protected layout, public sharing/community exceptions, breadcrumbs, settings access, and common dialogs exist.',
+        evidence: ['AppNav includes Recipes, Books, Meal Plans, Kitchen Helper, Nutrition, Add Food.', 'ARCHITECTURE.md documents public /share and /community auth bypass behavior.', 'App layout tests exist for onboarding/auth gating.'],
+        remaining: ['Manual responsive and keyboard accessibility pass.', 'Verify active route highlighting for query-string routes such as Add Food.', 'Check empty/not-found states on invalid detail URLs.']
+      },
+      {
+        id: 'settings-preferences',
+        title: 'Settings, Preferences, Categories, Staples, Location, and Meal Times',
+        area: 'Settings',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'High',
+        summary: 'Settings page includes USDA key, theme, default meal times, categories, pantry staples, custom foods, location, templates, data, API keys, admin, and danger sections.',
+        evidence: ['src/app/(app)/settings/page.tsx exposes all major settings tabs.', 'Panels exist for categories, pantry staples, custom foods, food database, and location.', 'plans/settings-unification.md marks phases complete with one templates refinement.'],
+        remaining: ['Finish or explicitly defer templates read-only-on-global refinement.', 'Manual persistence pass across refresh/login.', 'Verify settings dialog and full settings page remain consistent.']
+      },
+      {
+        id: 'recipes-core',
+        title: 'Recipe Management Core',
+        area: 'Recipes',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'High',
+        summary: 'Recipe create/search/select/rename/servings/delete/import/export/edit workflows are implemented in the main recipe editor.',
+        evidence: ['Recipe page has create/search/export/delete and active recipe editor controls.', 'Go API has recipes and recipe item routes.', 'Recipe hook and API client coverage exists.'],
+        remaining: ['Manual regression pass for large recipe lists and import/export round trips.', 'Improve automated coverage for full recipe UI workflows.', 'Confirm deletion/link behavior for recipes used by books/meal plans/logs.']
+      },
+      {
+        id: 'recipe-ingredients-nutrition',
+        title: 'Recipe Ingredients, Food Search, Custom Inputs, and Nutrition Labels',
+        area: 'Nutrition / Recipes',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Ingredient entry from food database, existing recipes, and custom nutrient data is implemented; nutrition label rendering and calculation utilities exist, but known domain concerns remain.',
+        evidence: ['NUTRITION_DOMAIN.md marks nutrition/serving/unit behavior high-risk.', 'Recipe editor supports Food Database, My Recipes, and Custom ingredient tabs.', 'nutrition-calcs, recipe-scaling, and unit-conversion tests exist.'],
+        remaining: ['Address known concerns: inconsistent unit conversion constants, vitamin D naming inconsistency, limited server-side nutrition validation.', 'Add/expand server-side validation for nutrition-sensitive inputs.', 'Manual verify FDA nutrient mapping and Daily Value percentages with known foods.']
+      },
+      {
+        id: 'recipe-authoring-organization',
+        title: 'Recipe Authoring: Instructions, Prep, Groups, Reordering, and Categories',
+        area: 'Recipes',
+        percent: 88,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Ingredients and instructions can be edited, grouped, removed from groups, categorized, and used by Kitchen Helper.',
+        evidence: ['Recipe page includes ingredient/instruction grouping dialogs and category tree controls.', 'Category API routes and components exist.', 'Kitchen Helper consumes recipe ingredients/prep/cook steps.'],
+        remaining: ['Manual verify drag/reorder persistence and group edge cases.', 'Ensure category deletion does not unexpectedly remove recipes.', 'Add focused UI tests for grouping and category assignment if bugs appear.']
+      },
+      {
+        id: 'recipe-scaling',
+        title: 'Recipe Scaling and Serving Semantics',
+        area: 'Nutrition / Recipes',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'High',
+        summary: 'Recipe scaling controls and utility tests exist for proportional ingredient/serving calculations.',
+        evidence: ['src/components/recipe/scaling-controls.tsx exists.', 'src/lib/recipe-scaling.test.ts exists.', 'NUTRITION_DOMAIN.md calls serving calculations high-risk.'],
+        remaining: ['Manual verify scaling against nutrition labels for whole recipe and per-serving values.', 'Confirm nested recipe-as-ingredient scaling remains correct.', 'Add backend/domain validation if serving edits can bypass frontend checks.']
+      },
+      {
+        id: 'food-database',
+        title: 'USDA / Food Database Search, Import, Cache, and Admin Tools',
+        area: 'Foods',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Authenticated food search, food item lookup, admin seed/cache routes, stats, upload/import UI, and tests are present.',
+        evidence: ['sync-server/server.go includes foods search, stats, seed, cache routes with admin gating for mutating paths.', 'FoodDatabasePanel exposes stats/import/cache/test search controls.', 'Backend food handler tests exist.'],
+        remaining: ['Reconcile food auth/admin rules with API contract expectations.', 'Manual test import jobs with small and failed datasets.', 'Verify non-admin cannot mutate shared food database data.']
+      },
+      {
+        id: 'custom-foods',
+        title: 'Custom Foods',
+        area: 'Foods',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'High',
+        summary: 'User custom foods can be created, edited, deleted, and selected in recipes, food logs, and meal plans.',
+        evidence: ['CustomFoodsPanel exists and is linked from settings/header settings.', 'API routes include /api/custom-foods and /api/custom-foods/community.', 'Food log and meal plan add dialogs include Custom tabs.'],
+        remaining: ['Manual verify historical snapshot behavior after custom food edits/deletes.', 'Confirm all canonical nutrients persist and round correctly.', 'Add focused regression tests if snapshot bugs are found.']
+      },
+      {
+        id: 'nutrition-profiles-health',
+        title: 'People Profiles, Goals, Weight, and Health Metrics',
+        area: 'Nutrition',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Profile CRUD, weight logging, blood sugar, blood pressure, BMI/BMR/TDEE and goal fields are present, but health calculations are high-risk and need known-value validation.',
+        evidence: ['Nutrition profiles page and LogWeightDialog exist.', 'NUTRITION_DOMAIN.md marks BMI/BMR/TDEE/goal calculations high-risk.', 'Nutrition tracking plan contains known test examples but is historical.'],
+        remaining: ['Manual verify BMI/BMR/TDEE against known-value fixtures.', 'Strengthen automated tests for health calculations if not already covered in current code.', 'Validate metric/imperial conversions and invalid input handling.']
+      },
+      {
+        id: 'food-logging',
+        title: 'Food Logging and Daily Intake Aggregation',
+        area: 'Food Logging',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Food log entries can be added from recipes, Food DB, custom foods, and manual input; daily totals and log/history pages exist.',
+        evidence: ['Nutrition dashboard, food log page, history page, and AddFoodLogDialog exist.', 'Go profile log routes and entry routes exist.', 'NUTRITION_DOMAIN.md defines snapshot semantics for food log entries.'],
+        remaining: ['Manual verify snapshot semantics after source recipe/custom food changes.', 'Validate daily/range totals with hand-summed entries.', 'Add regression tests for aggregation edge cases and serving changes.']
+      },
+      {
+        id: 'nutrition-dashboard-reports',
+        title: 'Nutrition Dashboard, Charts, Alerts, Compliance Report, and PDF Export',
+        area: 'Nutrition',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Dashboard, progress rings, charts, threshold alerts, dietary report component, and nutrition PDF export are implemented.',
+        evidence: ['src/app/(app)/nutrition/page.tsx includes dashboard actions and dialogs.', 'Nutrition chart/report components exist.', 'PDF export utilities include nutrition/cookbook/meal-plan output.'],
+        remaining: ['Manual verify charts in exported PDFs render reliably.', 'Check threshold alert math and date/profile scoping.', 'Add focused tests for dashboard aggregation if missing.']
+      },
+      {
+        id: 'dietary-compliance',
+        title: 'Dietary Profiles, Allergen Rules, and Compliance Analysis',
+        area: 'Dietary Compliance',
+        percent: 75,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Dietary profile editor, allergen keyword data, compliance report, dietary filters, and dietary badges exist; compliance is high-risk and needs deeper validation.',
+        evidence: ['Dietary profile editor/report/filter components exist.', 'src/lib/dietary-rules.test.ts exists.', 'NUTRITION_DOMAIN.md marks dietary compliance high-risk.'],
+        remaining: ['Validate allergen false positives/negatives with realistic foods.', 'Clarify exact dietary tag semantics and threshold precedence.', 'Expand tests for compliance report and filter behavior.']
+      },
+      {
+        id: 'books-cookbooks',
+        title: 'Recipe Books and Cookbook Organization',
+        area: 'Books',
+        percent: 90,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'High',
+        summary: 'Books, chapters, chapter pages, book pages, recipe assignment, ordering/move operations, import, delete, and detail/export routes are present.',
+        evidence: ['Books routes include list, detail, edit, and export pages.', 'Go routes include books, chapters, pages, chapter-recipes, and move/reorder handlers.', 'spec.md success criteria align with implemented book/chapter concepts.'],
+        remaining: ['Manual verify move/reorder edge cases and delete semantics.', 'Ensure recipes survive book/chapter deletion.', 'Add UI workflow tests for book assembly if defects are found.']
+      },
+      {
+        id: 'publishing-templates-branding',
+        title: 'Publishing: Templates, Print Studio, Brand Kits, and Export',
+        area: 'Publishing',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Template management, template preview/editor, print studio, cookbook export, recipe renderer, book renderer, and brand kit editor exist.',
+        evidence: ['Settings templates routes support list/new/edit.', 'Print components include PrintStudio, CookbookExport, BrandKitEditor, TemplatePacks.', 'plans/settings-unification.md notes only a templates read-only-on-global refinement remains.'],
+        remaining: ['Manual verify PDF/print output across recipes/books/labels.', 'Finish read-only global template behavior or document as deferred.', 'Check long content pagination/overflow and brand kit image handling.']
+      },
+      {
+        id: 'sharing-community',
+        title: 'Recipe Sharing and Community Gallery',
+        area: 'Sharing / Community',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Recipe share dialog, public share page, community gallery, category filters, import, and visibility tiers are implemented.',
+        evidence: ['ARCHITECTURE.md documents private/users/public share visibility and optional auth.', 'Share and community routes/components exist.', 'Go API includes /api/share and /api/community routes.'],
+        remaining: ['Manual verify all visibility tiers logged-in/logged-out.', 'Decide whether sharing rate limits are needed or explicitly defer.', 'Verify imported shared recipes preserve nutrition/category data correctly.']
+      },
+      {
+        id: 'meal-planning',
+        title: 'Meal Planning: Weeks, Slots, Entries, Groups, Leftovers, and Nutrition',
+        area: 'Meal Planning',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Meal plan overview, weekly plan route, add dialogs for recipes/foods/custom/manual, slot times, groups, leftovers, drag/drop, nutrition totals, and PDF export exist.',
+        evidence: ['Meal plan routes include overview, weekly plan, and grocery list.', 'WeeklyPlanPage includes entry add/edit/group/move/toggle logic.', 'Go routes include meal-plans, entries, groups.'],
+        remaining: ['Manual verify drag/drop across days/slots and refresh persistence.', 'Confirm nutrition aggregation is correct for mixed source entries.', 'Add integration tests for meal-plan entry/group persistence.']
+      },
+      {
+        id: 'grocery-planning',
+        title: 'Grocery List Generation and Shopping Output',
+        area: 'Grocery Planning',
+        percent: 75,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Grocery list route and export exist for weekly meal plans, with unit toggling and pantry staple awareness, but categorization/aggregation details need validation.',
+        evidence: ['Meal plan grocery-list/[weekStart] route exists.', 'Go API includes /api/grocery.', 'Historical plan notes grocery category classification fallback/deferred.'],
+        remaining: ['Validate ingredient aggregation and unit conversion against known recipes.', 'Clarify pantry staple and leftover exclusion behavior.', 'Improve grocery category classification beyond fallback if product needs it.']
+      },
+      {
+        id: 'kitchen-helper',
+        title: 'Kitchen Helper Guided Cooking',
+        area: 'Kitchen Helper',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Kitchen Helper supports recipe, meal, and today modes; prep-first option; grouped ingredients/steps; play mode; progress; and completion marking.',
+        evidence: ['Kitchen Helper route has Select Recipe, Select Meal, Today tabs and play mode controls.', 'Recipe editor supports prep instructions consumed by helper.', 'Historical bug plan addressed Previous button completion behavior.'],
+        remaining: ['Decide whether completion state should persist across sessions or remain local/session-scoped.', 'Manual verify previous/next completion counts and today-mode completion styling.', 'Improve tests around play mode if behavior changes.']
+      },
+      {
+        id: 'seasonal-synergies',
+        title: 'Seasonal Foods, Food Synergies, Pantry Staples, and Location Intelligence',
+        area: 'Meal Planning / Suggestions',
+        percent: 75,
+        status: 'Needs Work',
+        priority: 'Medium',
+        confidence: 'Low',
+        summary: 'Location, seasonal produce data, synergy panels, and in-season recipe dialogs exist, but recommendation quality and coverage require validation.',
+        evidence: ['Seasonal produce data and scrape script exist.', 'FoodSynergiesPanel and InSeasonRecipeDialog exist.', 'NUTRITION_DOMAIN.md notes glycemic index coverage gaps.'],
+        remaining: ['Validate seasonal data coverage by region/month.', 'Review recommendation usefulness with real recipe data.', 'Define quality criteria for synergies and add fixtures/tests for expected suggestions.']
+      },
+      {
+        id: 'data-portability',
+        title: 'Data Export, Import, Backup, and Account Self-Service Deletion',
+        area: 'Data Management',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Account data zip export/import and password-gated delete data/delete account flows are present.',
+        evidence: ['Settings and AppNav data sections call export/import utilities.', 'Go account routes include delete-data and delete.', 'ImportZipButton and export-import utilities exist.'],
+        remaining: ['Manual verify export/import round-trip for every content type.', 'Reconcile account route names with API contract if needed.', 'Confirm deletion backup behavior and admin-transfer edge cases.']
+      },
+      {
+        id: 'developer-api-secrets',
+        title: 'Developer API Keys and Encrypted User Secrets',
+        area: 'Integrations',
+        percent: 80,
+        status: 'Needs Work',
+        priority: 'Medium',
+        confidence: 'Medium',
+        summary: 'Settings UI and API routes exist for scoped developer API keys and encrypted user secrets.',
+        evidence: ['Settings page includes Developer API Keys and Encrypted User Secrets sections.', 'Go routes include /api/keys and /api/secrets.', 'Secrets hook and API client methods exist.'],
+        remaining: ['Manual verify generated key one-time visibility and permission enforcement.', 'Confirm secret encryption/reveal/delete behavior against backend.', 'Add/API-test permission matrix for external key usage if not covered.']
+      },
+      {
+        id: 'admin-controls',
+        title: 'Administration and Instance Danger Controls',
+        area: 'Administration',
+        percent: 85,
+        status: 'Mostly Complete',
+        priority: 'High',
+        confidence: 'High',
+        summary: 'Admin registration toggle, demo cookbook install, reset user data, factory reset, list users, and admin-only route wrappers are implemented.',
+        evidence: ['Settings admin/danger sections exist.', 'sync-server routes include instance registration/reset/factory/users admin handlers.', 'TESTING_STRATEGY.md lists backend instance metadata and registration gate tests.'],
+        remaining: ['Manual destructive-flow testing only in disposable environment.', 'Clarify user management beyond listing/promoting admin during delete account if needed.', 'Verify non-admin cannot access admin routes by URL or API.']
+      },
+      {
+        id: 'responsive-accessibility',
+        title: 'Responsive Design, Accessibility, and Error-State Polish',
+        area: 'Quality',
+        percent: 70,
+        status: 'Needs Work',
+        priority: 'Medium',
+        confidence: 'Low',
+        summary: 'The app uses accessible primitives and responsive utility classes, but full keyboard/mobile/error-state validation has not been evidenced.',
+        evidence: ['Radix/shadcn UI primitives are used widely.', 'Some components include labels, aria labels, and role=meter.', 'Manual worksheet includes responsive/accessibility smoke tests because coverage is not automatic.'],
+        remaining: ['Run keyboard-only pass for auth, recipe edit, meal plan, nutrition, settings, and dialogs.', 'Run mobile-width pass for core workflows.', 'Review screen-reader labels and error messages on required forms.']
+      },
+      {
+        id: 'testing-docs',
+        title: 'Automated Testing, Manual Testing, and Documentation Alignment',
+        area: 'Quality / Docs',
+        percent: 65,
+        status: 'Needs Work',
+        priority: 'High',
+        confidence: 'Medium',
+        summary: 'Testing strategy exists and targeted frontend/backend tests cover some critical areas, but many UI workflows are manual-only and several historical specs are deprecated.',
+        evidence: ['TESTING_STRATEGY.md defines priority tiers and covered onboarding/backend tests.', 'Frontend unit tests exist for nutrition, dietary rules, recipe scaling, unit conversion, API client, hooks.', 'Several specs are historical/deprecated and must not be treated as authoritative implementation plans.'],
+        remaining: ['Run the new manual test worksheet and update this completion report from evidence.', 'Add high-value automated tests for critical calculations and integration workflows.', 'Reconcile/update historical specs or mark current authoritative docs more clearly.']
+      },
+      {
+        id: 'barcode-scanner',
+        title: 'Barcode Scanner',
+        area: 'Future / Placeholder',
+        percent: 10,
+        status: 'Not Started',
+        priority: 'Low',
+        confidence: 'High',
+        summary: 'A disabled barcode scanner button is visible in the app nav, but no completed scanning workflow is apparent.',
+        evidence: ['AppNav renders a disabled Barcode Scanner tooltip/button.', 'PROJECT.md does not list barcode scanning as a current core capability.', 'Historical proposal mentions barcode scanning as a monetization/future idea.'],
+        remaining: ['Define whether barcode scanning is in scope for beta.', 'Choose data source and scanning UX.', 'Implement camera permissions, lookup, validation, and tests only after approval/spec.']
+      }
+    ];
+
+    const DRAFT_KEY = 'dietledger-feature-completion-worksheet-v1';
+
+    function fieldId(featureId, suffix) { return `${featureId}__${suffix}`; }
+    function todayISO() { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+    function escapeHtml(value) { return String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
+    function markdownValue(value) { const text = String(value || '').trim(); return text ? text : '_Not recorded_'; }
+
+    function render() {
+      const toc = document.getElementById('toc');
+      const featuresEl = document.getElementById('features');
+      toc.innerHTML = '';
+      featuresEl.innerHTML = '';
+
+      FEATURES.forEach((feature, index) => {
+        const number = String(index + 1).padStart(2, '0');
+        const tocItem = document.createElement('li');
+        tocItem.innerHTML = `<a href="#${feature.id}">${number}. ${escapeHtml(feature.title)} (${feature.percent}%)</a>`;
+        toc.appendChild(tocItem);
+
+        const article = document.createElement('article');
+        article.className = 'feature';
+        article.id = feature.id;
+        article.innerHTML = `
+          <div class="feature-heading">
+            <h2>${number}. ${escapeHtml(feature.title)}</h2>
+            <p class="muted">${escapeHtml(feature.summary)}</p>
+            <div class="feature-progress">
+              <strong>${feature.percent}% initial estimate</strong>
+              <span class="bar" aria-hidden="true"><span style="width:${feature.percent}%"></span></span>
+              <span class="muted">${escapeHtml(feature.status)} · ${escapeHtml(feature.confidence)} confidence</span>
+            </div>
+            <div class="badges">
+              <span class="badge">${escapeHtml(feature.area)}</span>
+              <span class="badge ${feature.status === 'Mostly Complete' ? 'done' : feature.status === 'Needs Work' ? 'high' : 'gap'}">${escapeHtml(feature.status)}</span>
+              <span class="badge ${feature.priority === 'High' ? 'high' : ''}">${escapeHtml(feature.priority)} priority</span>
+            </div>
+          </div>
+          <div class="feature-body">
+            <details open>
+              <summary><strong>Evidence / Implemented Surface</strong></summary>
+              <ul>${feature.evidence.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+            </details>
+            <details open>
+              <summary><strong>Initial Remaining Work</strong></summary>
+              <ul>${feature.remaining.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+            </details>
+            <div class="assessment">
+              <h3>Assessment</h3>
+              <div class="grid three">
+                <label class="field">Completion Percent
+                  <input id="${fieldId(feature.id, 'percent')}" data-kind="assessment" data-feature-id="${feature.id}" type="number" min="0" max="100" value="${feature.percent}" />
+                </label>
+                <label class="field">Status
+                  <select id="${fieldId(feature.id, 'status')}" data-kind="assessment" data-feature-id="${feature.id}">
+                    ${['Not Started', 'In Progress', 'Needs Work', 'Mostly Complete', 'Complete', 'Deferred'].map(status => `<option value="${status}" ${status === feature.status ? 'selected' : ''}>${status}</option>`).join('')}
+                  </select>
+                </label>
+                <label class="field">Priority
+                  <select id="${fieldId(feature.id, 'priority')}" data-kind="assessment" data-feature-id="${feature.id}">
+                    ${['Low', 'Medium', 'High', 'Critical'].map(priority => `<option value="${priority}" ${priority === feature.priority ? 'selected' : ''}>${priority}</option>`).join('')}
+                  </select>
+                </label>
+              </div>
+              <label class="field" style="margin-top: 12px;">Percent Slider
+                <input id="${fieldId(feature.id, 'slider')}" data-kind="assessment" data-feature-id="${feature.id}" type="range" min="0" max="100" value="${feature.percent}" />
+              </label>
+              <div class="grid two" style="margin-top: 12px;">
+                <label class="field">What is done?<textarea id="${fieldId(feature.id, 'done')}" data-kind="assessment" data-feature-id="${feature.id}">${escapeHtml(feature.summary + '\n\nEvidence:\n- ' + feature.evidence.join('\n- '))}</textarea></label>
+                <label class="field">What needs to be done to finish it?<textarea id="${fieldId(feature.id, 'remaining')}" data-kind="assessment" data-feature-id="${feature.id}">${escapeHtml(feature.remaining.map(item => '- ' + item).join('\n'))}</textarea></label>
+              </div>
+              <div class="grid two" style="margin-top: 12px;">
+                <label class="field">Blockers / Risks<textarea id="${fieldId(feature.id, 'blockers')}" data-kind="assessment" data-feature-id="${feature.id}" placeholder="Unknowns, dependency issues, domain risks, decisions needed..."></textarea></label>
+                <label class="field">Evidence / Verification Notes<textarea id="${fieldId(feature.id, 'verification')}" data-kind="assessment" data-feature-id="${feature.id}" placeholder="Manual tests run, automated tests, screenshots, links..."></textarea></label>
+              </div>
+              <label class="field" style="margin-top: 12px;">Owner / Next Action<input id="${fieldId(feature.id, 'next')}" data-kind="assessment" data-feature-id="${feature.id}" type="text" placeholder="Next concrete task or issue" /></label>
+            </div>
+          </div>
+        `;
+        featuresEl.appendChild(article);
+      });
+    }
+
+    function getState() {
+      const state = { meta: {}, features: {} };
+      ['reviewer', 'build', 'date', 'sources', 'scope', 'notes'].forEach(key => {
+        state.meta[key] = document.getElementById(`meta-${key}`).value || '';
+      });
+      FEATURES.forEach(feature => {
+        const item = {};
+        ['percent', 'status', 'priority', 'done', 'remaining', 'blockers', 'verification', 'next'].forEach(key => {
+          item[key] = document.getElementById(fieldId(feature.id, key)).value || '';
+        });
+        state.features[feature.id] = item;
+      });
+      return state;
+    }
+
+    function setState(state) {
+      if (!state) return;
+      ['reviewer', 'build', 'date', 'sources', 'scope', 'notes'].forEach(key => {
+        const el = document.getElementById(`meta-${key}`);
+        if (el && state.meta?.[key] !== undefined) el.value = state.meta[key];
+      });
+      FEATURES.forEach(feature => {
+        const item = state.features?.[feature.id];
+        if (!item) return;
+        Object.entries(item).forEach(([key, value]) => {
+          const el = document.getElementById(fieldId(feature.id, key));
+          if (el) el.value = value;
+        });
+        const slider = document.getElementById(fieldId(feature.id, 'slider'));
+        if (slider && item.percent !== undefined) slider.value = item.percent;
+      });
+      updateSummary();
+    }
+
+    function saveDraft() { localStorage.setItem(DRAFT_KEY, JSON.stringify(getState())); }
+    function loadDraft() {
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) setState(JSON.parse(raw));
+      } catch (error) { console.warn('Could not load feature completion draft', error); }
+    }
+
+    function updateSummary() {
+      const values = FEATURES.map(feature => Number(document.getElementById(fieldId(feature.id, 'percent')).value || 0));
+      const avg = values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+      document.getElementById('overall-percent').textContent = `${avg}% average completion`;
+      document.getElementById('overall-progress').style.width = `${avg}%`;
+
+      const counts = FEATURES.reduce((acc, feature) => {
+        const status = document.getElementById(fieldId(feature.id, 'status')).value;
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      document.getElementById('status-counts').textContent = Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(' · ');
+    }
+
+    function syncPercent(featureId, source) {
+      const percent = document.getElementById(fieldId(featureId, 'percent'));
+      const slider = document.getElementById(fieldId(featureId, 'slider'));
+      if (!percent || !slider) return;
+      if (source === 'slider') percent.value = slider.value;
+      if (source === 'number') slider.value = percent.value;
+    }
+
+    function buildMarkdown() {
+      const state = getState();
+      const avg = Math.round(FEATURES.reduce((sum, feature) => sum + Number(state.features[feature.id]?.percent || 0), 0) / FEATURES.length);
+      const lines = [];
+      lines.push('# DietLedger Feature Completion Report');
+      lines.push('');
+      lines.push(`- Generated: ${new Date().toISOString()}`);
+      lines.push(`- Reviewer: ${markdownValue(state.meta.reviewer)}`);
+      lines.push(`- Build / Branch: ${markdownValue(state.meta.build)}`);
+      lines.push(`- Date: ${markdownValue(state.meta.date)}`);
+      lines.push(`- Evidence Sources: ${markdownValue(state.meta.sources)}`);
+      lines.push(`- Assessment Scope: ${markdownValue(state.meta.scope)}`);
+      lines.push(`- Average Completion: ${avg}%`);
+      lines.push('');
+      lines.push('## Overall Notes');
+      lines.push('');
+      lines.push(markdownValue(state.meta.notes));
+      lines.push('');
+      lines.push('## Summary Table');
+      lines.push('');
+      lines.push('| Feature | Area | Completion | Status | Priority |');
+      lines.push('|---|---:|---:|---|---|');
+      FEATURES.forEach(feature => {
+        const item = state.features[feature.id] || {};
+        lines.push(`| ${feature.title} | ${feature.area} | ${item.percent || feature.percent}% | ${item.status || feature.status} | ${item.priority || feature.priority} |`);
+      });
+      lines.push('');
+
+      FEATURES.forEach((feature, index) => {
+        const item = state.features[feature.id] || {};
+        lines.push(`## ${index + 1}. ${feature.title}`);
+        lines.push('');
+        lines.push(`- Area: ${feature.area}`);
+        lines.push(`- Completion: ${item.percent || feature.percent}%`);
+        lines.push(`- Status: ${item.status || feature.status}`);
+        lines.push(`- Priority: ${item.priority || feature.priority}`);
+        lines.push(`- Initial confidence: ${feature.confidence}`);
+        lines.push('');
+        lines.push('### What is done?');
+        lines.push('');
+        lines.push(markdownValue(item.done));
+        lines.push('');
+        lines.push('### What needs to be done to finish it?');
+        lines.push('');
+        lines.push(markdownValue(item.remaining));
+        lines.push('');
+        lines.push('### Blockers / Risks');
+        lines.push('');
+        lines.push(markdownValue(item.blockers));
+        lines.push('');
+        lines.push('### Evidence / Verification Notes');
+        lines.push('');
+        lines.push(markdownValue(item.verification));
+        lines.push('');
+        lines.push('### Owner / Next Action');
+        lines.push('');
+        lines.push(markdownValue(item.next));
+        lines.push('');
+      });
+      return lines.join('\n');
+    }
+
+    function downloadMarkdown() {
+      saveDraft();
+      const markdown = buildMarkdown();
+      const date = document.getElementById('meta-date').value || todayISO();
+      const build = (document.getElementById('meta-build').value || 'assessment').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dietledger-feature-completion-${date}-${build}.md`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function attachEvents() {
+      document.addEventListener('input', event => {
+        const target = event.target;
+        if (!target.matches('input, select, textarea')) return;
+        if (target.id.endsWith('__slider')) syncPercent(target.dataset.featureId, 'slider');
+        if (target.id.endsWith('__percent')) syncPercent(target.dataset.featureId, 'number');
+        updateSummary();
+        saveDraft();
+      });
+      document.addEventListener('change', event => {
+        if (!event.target.matches('input, select, textarea')) return;
+        updateSummary();
+        saveDraft();
+      });
+      document.getElementById('save-md').addEventListener('click', downloadMarkdown);
+      document.getElementById('save-draft').addEventListener('click', () => { saveDraft(); alert('Draft saved in this browser.'); });
+      document.getElementById('expand-all').addEventListener('click', () => document.querySelectorAll('details').forEach(detail => detail.open = true));
+      document.getElementById('collapse-all').addEventListener('click', () => document.querySelectorAll('details').forEach(detail => detail.open = false));
+      document.getElementById('clear-draft').addEventListener('click', () => {
+        if (confirm('Clear all feature completion inputs saved in this browser?')) {
+          localStorage.removeItem(DRAFT_KEY);
+          location.reload();
+        }
+      });
+    }
+
+    render();
+    document.getElementById('meta-date').value = todayISO();
+    loadDraft();
+    attachEvents();
+    updateSummary();
+  </script>
+</body>
+</html>
