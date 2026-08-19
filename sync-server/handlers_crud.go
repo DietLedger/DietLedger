@@ -177,6 +177,14 @@ func (s *Server) createRecipe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !validRecipeServings(req.Servings) {
+		writeError(w, http.StatusBadRequest, "servings must be at least 1")
+		return
+	}
+	if msg := validateIngredients(req.Ingredients); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
 	recipe, err := s.store.CreateRecipe(user.ID, &req)
 	if err != nil {
 		log.Printf("Error creating recipe: %v", err)
@@ -198,6 +206,16 @@ func (s *Server) updateRecipe(w http.ResponseWriter, r *http.Request, id string)
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
+	}
+	if req.Servings != nil && !validRecipeServings(*req.Servings) {
+		writeError(w, http.StatusBadRequest, "servings must be at least 1")
+		return
+	}
+	if req.Ingredients != nil {
+		if msg := validateIngredients(*req.Ingredients); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 	recipe, err := s.store.UpdateRecipe(user.ID, id, &req)
 	if err != nil {
@@ -237,6 +255,10 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 				writeError(w, http.StatusBadRequest, "invalid JSON")
 				return
 			}
+			if msg := validateIngredient(&req); msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return
+			}
 			ing, err := s.store.CreateIngredient(recipeID, &req)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to create ingredient")
@@ -253,6 +275,10 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 		var req CreateIngredientReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateIngredient(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		ing, err := s.store.UpdateIngredient(ingID, &req)
@@ -343,6 +369,10 @@ func (s *Server) profilesRouter(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if msg := validateProfile(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		profile, err := s.store.CreateProfile(user.ID, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create profile")
@@ -381,6 +411,10 @@ func (s *Server) profileItemRouter(w http.ResponseWriter, r *http.Request, id st
 		var req CreateProfileRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateProfile(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		p, err := s.store.UpdateProfile(user.ID, id, &req)
@@ -442,6 +476,10 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if msg := validateFoodLog(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		entry, err := s.store.CreateFoodLogEntry(user.ID, profileID, &req)
 		if err != nil {
 			log.Printf("Error creating food log entry (profileID=%s, sourceType=%s, mealSlot=%s): %v", profileID, req.SourceType, req.MealSlot, err)
@@ -460,6 +498,10 @@ func (s *Server) foodLogEntryRouter(w http.ResponseWriter, r *http.Request, id s
 		var req CreateFoodLogRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateFoodLog(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		entry, err := s.store.UpdateFoodLogEntry(id, &req)
@@ -506,6 +548,10 @@ func (s *Server) weightRouter(w http.ResponseWriter, r *http.Request, profileID 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if msg := validateWeightEntry(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		entry, err := s.store.CreateWeightEntry(user.ID, profileID, &req)
 		if err != nil {
 			log.Printf("[ERROR] CreateWeightEntry: %v", err)
@@ -524,6 +570,10 @@ func (s *Server) weightEntryRouter(w http.ResponseWriter, r *http.Request, id st
 		var req CreateWeightEntryRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateWeightEntry(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		entry, err := s.store.UpdateWeightEntry(id, &req)
@@ -657,6 +707,10 @@ func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, me
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		if msg := validateDayPlanEntry(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		entry, err := s.store.CreateDayPlanEntry(mealPlanID, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create entry")
@@ -687,6 +741,10 @@ func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, 
 		json.Unmarshal(base, &req)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateDayPlanEntry(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		entry, err := s.store.UpdateDayPlanEntry(id, &req)
@@ -1323,6 +1381,10 @@ func (s *Server) customFoodsRouter(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if msg := validateCustomFood(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		food, err := s.store.CreateCustomFood(user.ID, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create custom food")
@@ -1354,6 +1416,10 @@ func (s *Server) customFoodItemRouter(w http.ResponseWriter, r *http.Request, id
 		var req CreateCustomFoodRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if msg := validateCustomFood(&req); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		food, err := s.store.UpdateCustomFood(user.ID, id, &req)

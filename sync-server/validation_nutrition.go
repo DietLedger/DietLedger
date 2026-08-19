@@ -114,3 +114,102 @@ func invalidNutrientMessage(field string) string {
 	b.WriteString(" must be a non-negative number no greater than 1000000")
 	return b.String()
 }
+
+// validateIngredient applies the per-ingredient rules: a name, a known-ish
+// non-negative amount, and sane nutrient numbers.
+func validateIngredient(req *CreateIngredientReq) string {
+	if strings.TrimSpace(req.Name) == "" {
+		return "ingredient name is required"
+	}
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage("ingredient " + field)
+	}
+	return ""
+}
+
+// validateIngredients applies validateIngredient to a whole list and
+// returns the first violation (empty string when valid).
+func validateIngredients(ingredients []CreateIngredientReq) string {
+	for i := range ingredients {
+		if msg := validateIngredient(&ingredients[i]); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+// validateProfile applies profile rules beyond required strings: sex and
+// activity level whitelists (mirroring the DB CHECKs so violations return
+// 400 instead of 500), human-plausible height, and sane goal numbers.
+func validateProfile(req *CreateProfileRequest) string {
+	if !validSexes[req.Sex] {
+		return "sex must be male or female"
+	}
+	if req.ActivityLevel != "" && !validActivityLevels[req.ActivityLevel] {
+		return "invalid activityLevel"
+	}
+	if req.HeightCm != nil && !validHeightCm(*req.HeightCm) {
+		return "heightCm must be between 0 and 300"
+	}
+	if req.GoalWeightKg != nil && !validWeightKg(*req.GoalWeightKg) {
+		return "goalWeightKg must be between 0 and 1000"
+	}
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage(field)
+	}
+	return ""
+}
+
+// validateFoodLog applies log-entry rules: slot and source whitelists,
+// positive servings, and sane nutrient numbers.
+func validateFoodLog(req *CreateFoodLogRequest) string {
+	if !validMealSlots[req.MealSlot] {
+		return "invalid mealSlot"
+	}
+	if !validFoodLogSourceTypes[req.SourceType] {
+		return "invalid sourceType"
+	}
+	if !validLogServings(req.Servings) {
+		return "servings must be greater than 0"
+	}
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage(field)
+	}
+	return ""
+}
+
+// validateWeightEntry: weightKg of 0 means "not measured" (the store stores
+// NULL) and is allowed; any provided weight must be human-plausible.
+// Vitals (blood sugar, blood pressure) must be non-negative.
+func validateWeightEntry(req *CreateWeightEntryRequest) string {
+	if req.WeightKg != 0 && !validWeightKg(req.WeightKg) {
+		return "weightKg must be between 0 and 1000"
+	}
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage(field)
+	}
+	return ""
+}
+
+// validateDayPlanEntry: day-plan slots exclude "snack" (DB CHECK).
+func validateDayPlanEntry(req *CreateDayPlanEntryRequest) string {
+	if !validDayPlanSlots[req.Slot] {
+		return "invalid slot"
+	}
+	if !validLogServings(req.Servings) {
+		return "servings must be greater than 0"
+	}
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage(field)
+	}
+	return ""
+}
+
+// validateCustomFood: nutrient numbers must be sane (name is checked by the
+// caller via validateRequired).
+func validateCustomFood(req *CreateCustomFoodRequest) string {
+	if field := validateNutritionNumbers(*req); field != "" {
+		return invalidNutrientMessage(field)
+	}
+	return ""
+}
