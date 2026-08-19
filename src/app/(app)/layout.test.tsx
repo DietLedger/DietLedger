@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -11,8 +11,12 @@ function wrapWithQueryClient(ui: React.ReactElement) {
   return <QueryClientProvider client={testQueryClient}>{ui}</QueryClientProvider>
 }
 
+// Hoisted so the vi.mock factory (which Vitest hoists above imports) can
+// reference the spy; tests assert redirect targets on it.
+const { replaceMock } = vi.hoisted(() => ({ replaceMock: vi.fn() }))
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
   usePathname: () => '/recipes',
   useSearchParams: () => new URLSearchParams(),
 }))
@@ -87,6 +91,7 @@ vi.mock('@/lib/api-client', () => ({
 describe('App Shell Smoke Test', () => {
   beforeEach(() => {
     vi.resetModules()
+    replaceMock.mockClear()
   })
 
   it('renders the app layout with navigation when authenticated', { timeout: 15000 }, async () => {
@@ -138,6 +143,44 @@ describe('App Shell Smoke Test', () => {
         <div>Test Page Content</div>
       </AppLayout>
     ))
+    expect(container.innerHTML).toBe('')
+  })
+
+  // The per-user onboarding gate: an authenticated non-admin whose per-user
+  // onboardingComplete flag is still false must be routed to the /welcome
+  // wizard instead of the app. (The default mock user is a non-admin and the
+  // default mock settings mark onboarding complete; only settings is
+  // overridden here.)
+  it('redirects an authenticated non-admin with incomplete onboarding to /welcome', { timeout: 15000 }, async () => {
+    // Re-declare the auth mock: vi.doMock registrations from earlier tests
+    // (unauthenticated) persist, so the default hoisted mock must be
+    // re-applied explicitly here.
+    vi.doMock('@/hooks/use-auth', () => ({
+      useAuth: () => ({
+        user: { id: 'test-id', email: 'test@example.com', displayName: 'Test User' },
+        isLoading: false,
+        isAuthenticated: true,
+        login: vi.fn(),
+        register: vi.fn(),
+        logout: vi.fn(),
+      }),
+      AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    }))
+    vi.doMock('@/hooks/use-settings', () => ({
+      useAppSettings: () => ({
+        data: { onboardingComplete: false, unitSystem: 'imperial', theme: 'light' },
+        isLoading: false,
+      }),
+    }))
+    const { default: AppLayout } = await import('@/app/(app)/layout')
+    const { container } = render(wrapWithQueryClient(
+      <AppLayout>
+        <div>Test Page Content</div>
+      </AppLayout>
+    ))
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith('/welcome')
+    })
     expect(container.innerHTML).toBe('')
   })
 })

@@ -427,6 +427,16 @@ Focus on user-visible outcomes.
   first-user carve-out that still allows the setup admin, and recovery after
   re-enable). Requires `TEST_DATABASE_URL` like the rest of the backend
   integration suite.
+- Per-user welcome wizard: `src/components/setup/user-wizard.test.tsx`.
+  Guards that Skip completes with only the `onboardingComplete` flag (no
+  profile or preference payload written), that finishing persists the chosen
+  unit system and theme together with the completion flag in one settings
+  write, and that the optional profile is created with imperial height
+  converted to centimetres (a BMI/BMR/TDEE input, so nutrition-domain
+  correctness applies).
+- Welcome routing gate: `src/app/(app)/layout.test.tsx`.
+  Guards that an authenticated non-admin whose per-user `onboardingComplete`
+  is false is redirected to `/welcome` without rendering app content.
 
 ---
 
