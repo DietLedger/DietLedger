@@ -1398,13 +1398,13 @@ func (s *Server) communityCustomFoodsRouter(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) groceryRouter(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
-	weekStart := r.URL.Query().Get("weekStart")
-	if weekStart == "" {
-		writeError(w, http.StatusBadRequest, "weekStart is required")
-		return
-	}
 	switch r.Method {
 	case "GET":
+		weekStart := r.URL.Query().Get("weekStart")
+		if weekStart == "" {
+			writeError(w, http.StatusBadRequest, "weekStart is required")
+			return
+		}
 		g, err := s.store.GetGroceryChecklist(user.ID, weekStart)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to get grocery checklist")
@@ -1419,6 +1419,15 @@ func (s *Server) groceryRouter(w http.ResponseWriter, r *http.Request) {
 		var g GroceryChecklist
 		if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		// weekStart arrives in the JSON body (the API client sends it there);
+		// the query parameter is accepted as a fallback for older callers.
+		if g.WeekStart == "" {
+			g.WeekStart = r.URL.Query().Get("weekStart")
+		}
+		if g.WeekStart == "" {
+			writeError(w, http.StatusBadRequest, "weekStart is required")
 			return
 		}
 		g.UserID = user.ID
