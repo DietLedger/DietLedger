@@ -869,3 +869,14 @@ type APIResponse struct {
 	Data  interface{} `json:"data,omitempty"`
 	Error string      `json:"error,omitempty"`
 }
+
+// RecipeCompletion: "recipe X was cooked on date Y" — one row per user +
+// recipe holding the latest completion (map-overwrite semantics carried
+// over from the old localStorage store).
+type RecipeCompletion struct {
+	UserID        string    `json:"userId"`
+	RecipeID      string    `json:"recipeId"`
+	CompletedDate string    `json:"completedDate"`
+	CompletedAt   time.Time `json:"completedAt"`
+	CompletedBy   *string   `json:"completedBy,omitempty"`
+}

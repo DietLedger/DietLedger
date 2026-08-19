@@ -209,6 +209,11 @@ type Store interface {
 	AddPantryStaple(userID, name string) (*PantryStaple, error)
 	RemovePantryStaple(userID, name string) error
 
+	// Recipe completions (Phase P1)
+	ListRecipeCompletions(userID string) ([]RecipeCompletion, error)
+	UpsertRecipeCompletion(userID, recipeID, date string) error
+	DeleteRecipeCompletion(userID, recipeID string) error
+
 	// User location
 	GetLocation(userID string) (*UserLocation, error)
 	UpsertLocation(userID string, req *UpdateLocationRequest) (*UserLocation, error)

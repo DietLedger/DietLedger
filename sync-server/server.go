@@ -54,6 +54,10 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/recipes/", s.requireAuth(s.recipeRoutes))
 	mux.HandleFunc("/api/recipes", s.requireAuth(s.recipesRouter))
+	// Completions get exact patterns so they win over the generic recipe
+	// item route (Go's mux prefers the longest match).
+	mux.HandleFunc("/api/recipes/completions", s.requireAuth(s.recipeCompletionsRouter))
+	mux.HandleFunc("/api/recipes/completions/", s.requireAuth(s.recipeCompletionsRouter))
 
 	mux.HandleFunc("/api/profiles/", s.requireAuth(s.profileRoutes))
 	mux.HandleFunc("/api/profiles", s.requireAuth(s.profilesRouter))

@@ -2552,3 +2552,42 @@ func (s *PostgresStore) DeleteSecret(userID, id string) error {
 	_, err := s.db.Exec(`DELETE FROM user_secrets WHERE id = $1 AND user_id = $2`, id, userID)
 	return err
 }
+
+// ── Recipe Completions ────────────────────────────────────────────────
+
+func (s *PostgresStore) ListRecipeCompletions(userID string) ([]RecipeCompletion, error) {
+	rows, err := s.db.Query(
+		`SELECT user_id, recipe_id, completed_date::TEXT, completed_at, completed_by
+		   FROM recipe_completions WHERE user_id = $1 ORDER BY completed_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var completions []RecipeCompletion
+	for rows.Next() {
+		var c RecipeCompletion
+		if err := rows.Scan(&c.UserID, &c.RecipeID, &c.CompletedDate, &c.CompletedAt, &c.CompletedBy); err != nil {
+			return nil, err
+		}
+		completions = append(completions, c)
+	}
+	return completions, nil
+}
+
+func (s *PostgresStore) UpsertRecipeCompletion(userID, recipeID, date string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO recipe_completions (user_id, recipe_id, completed_date, completed_at, completed_by, updated_at)
+		 VALUES ($1, $2, $3, NOW(), $1, NOW())
+		 ON CONFLICT (user_id, recipe_id)
+		 DO UPDATE SET completed_date = EXCLUDED.completed_date,
+		               completed_at = NOW(),
+		               completed_by = EXCLUDED.completed_by,
+		               updated_at = NOW()`,
+		userID, recipeID, date)
+	return err
+}
+
+func (s *PostgresStore) DeleteRecipeCompletion(userID, recipeID string) error {
+	_, err := s.db.Exec(`DELETE FROM recipe_completions WHERE user_id = $1 AND recipe_id = $2`, userID, recipeID)
+	return err
+}
