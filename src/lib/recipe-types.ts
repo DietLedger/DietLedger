@@ -1,4 +1,5 @@
 import type { RecipeRecord, IngredientGroup } from '@/lib/api-client';
+import { unitToGrams } from '@/lib/unit-conversion';
 
 export interface InstructionStep {
   id: string;
@@ -150,20 +151,18 @@ export function toPublicRecipe(r: RecipeRecord): Recipe {
   };
 }
 
-export const UNIT_TO_GRAMS: Record<string, number> = {
-  g: 1,
-  oz: 28.35,
-  lb: 453.6,
-  cup: 240,
-  tbsp: 15,
-  tsp: 5,
-  ml: 1,
-  whole: 100,
-};
+// convertToGrams delegates to the canonical tables in unit-conversion.ts
+// (exact weight factors; water-density approximation for volume) so nutrition
+// scaling and display/aggregation share one source of constants. The single
+// special case is the documented "whole = ~100g" heuristic. Unknown units
+// return 0 grams — treating an unknown amount as grams silently corrupts
+// nutrition scaling.
+const WHOLE_UNIT_GRAMS = 100;
 
 export function convertToGrams(amount: number, unit: string): number {
-  const factor = UNIT_TO_GRAMS[unit.toLowerCase()] || 1;
-  return amount * factor;
+  const norm = unit.toLowerCase().trim();
+  if (norm === 'whole') return amount * WHOLE_UNIT_GRAMS;
+  return unitToGrams(amount, norm);
 }
 
 export function emptyNutrition(): Record<NutrientKeys, number> {

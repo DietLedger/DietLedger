@@ -31,7 +31,7 @@ import type {
 } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
-import { UNIT_TO_GRAMS } from '@/lib/recipe-types';
+import { convertToGrams } from '@/lib/recipe-types';
 import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
 const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [
@@ -271,7 +271,7 @@ export function AddFoodLogDialog({
     const unit = food.servingSizeUnit || 'g';
     setServingAmount(amt);
     setServingUnit(unit);
-    const grams = (parseFloat(amt) || 100) * (UNIT_TO_GRAMS[unit] || 1);
+    const grams = convertToGrams(parseFloat(amt) || 100, unit);
     const ratio = grams / 100;
     const display: Record<string, string> = {};
     for (const f of NUTRIENT_FIELDS) {
@@ -297,7 +297,7 @@ export function AddFoodLogDialog({
 
   const recalcFromServing = useCallback((amount: string, unit: string) => {
     if (!baseNutrients) return;
-    const grams = (parseFloat(amount) || 0) * (UNIT_TO_GRAMS[unit] || 1);
+    const grams = convertToGrams(parseFloat(amount) || 0, unit);
     const ratio = grams / 100;
     const updated: Record<string, string> = {};
     for (const f of NUTRIENT_FIELDS) {
@@ -312,8 +312,10 @@ export function AddFoodLogDialog({
   }, [servingUnit, recalcFromServing]);
 
   const handleServingUnitChange = useCallback((newUnit: string) => {
-    const currentGrams = (parseFloat(servingAmount) || 0) * (UNIT_TO_GRAMS[servingUnit] || 1);
-    const newUnitGrams = UNIT_TO_GRAMS[newUnit] || 1;
+    const currentGrams = convertToGrams(parseFloat(servingAmount) || 0, servingUnit);
+    // Guard the divisor: an unknown unit contributes no gram weight, so keep
+    // the amount unchanged rather than dividing by zero.
+    const newUnitGrams = convertToGrams(1, newUnit) || 1;
     const newAmount = Math.round((currentGrams / newUnitGrams) * 100) / 100;
     setServingAmount(newAmount.toString());
     setServingUnit(newUnit);
@@ -585,7 +587,7 @@ export function AddFoodLogDialog({
               </SelectContent>
             </Select>
             <span className="text-xs text-muted-foreground pb-1 whitespace-nowrap">
-              ≈ {Math.round((parseFloat(servingAmount) || 0) * (UNIT_TO_GRAMS[servingUnit] || 1))}g
+              ≈ {Math.round(convertToGrams(parseFloat(servingAmount) || 0, servingUnit))}g
             </span>
           </div>
         )}
