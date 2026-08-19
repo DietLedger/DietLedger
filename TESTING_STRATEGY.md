@@ -438,6 +438,28 @@ Focus on user-visible outcomes.
   Guards that an authenticated non-admin whose per-user `onboardingComplete`
   is false is redirected to `/welcome` without rendering app content.
 
+## Nutrition correctness suites (Phase B hardening)
+
+- Vitamin D ingestion: `sync-server/seed_test.go`.
+  Guards that USDA nutrient 324/1114 (IU) converts to micrograms (40 IU per
+  microgram), that native microgram nutrient 1166 wins when present, and
+  that the value is zero when absent. Requires no database.
+- Unit conversion canonical tables:
+  - `src/lib/recipe-types.test.ts` — `convertToGrams` pins the exact weight
+    factors, water-density volume factors, the `whole`=100g heuristic, and
+    the unknown-unit-returns-0 rule (single source: `unit-conversion.ts`).
+  - `sync-server/units_test.go` — the Go table mirrors the TypeScript table
+    so server-side matching and frontend calculators agree.
+- Health calculation fixtures: `src/lib/nutrition-calcs.test.ts`.
+  BMI / Mifflin-St Jeor / Harris-Benedict / Owen / TDEE assertions use
+  hand-computed known values (not recomputed formulas), so a wrong constant
+  cannot pass.
+- Server-side input validation: `sync-server/validation_nutrition_test.go`
+  (pure unit tests for the guards) and `sync-server/validation_handler_test.go`
+  (handler-level 400 behavior for recipes, ingredients, logs, profiles,
+  weights, custom foods, and day-plan entries). The handler file requires
+  `TEST_DATABASE_URL`.
+
 ---
 
 # Nutrition Testing Requirements

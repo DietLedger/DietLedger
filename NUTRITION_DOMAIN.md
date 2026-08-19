@@ -489,13 +489,29 @@ These are known issues and tradeoffs.
 
 They should remain visible to contributors.
 
-- inconsistent unit conversion constants
-- vitamin D naming inconsistency
-- limited server-side nutrition validation
+- ~~inconsistent unit conversion constants~~ — resolved: canonical tables live
+  in `src/lib/unit-conversion.ts` (TypeScript) and `sync-server/units.go`
+  (Go); both must mirror each other (weight factors exact, volume factors
+  water-density approximation, `whole` = 100g heuristic, unknown units
+  contribute 0 grams). Fixture suites on both sides pin the values.
+- ~~vitamin D naming inconsistency~~ — resolved: `vitaminD` is micrograms
+  everywhere (labels use the 20 mcg Daily Value; goals are micrograms). USDA
+  ingestion converts IU at 40 IU per microgram (`resolveVitaminD` in
+  `sync-server/seed.go`); migration `000023` corrected previously stored IU
+  values in `food_items` and USDA-linked `ingredients`. Pre-migration food
+  log / day-plan snapshots intentionally keep legacy values (historical
+  immutability).
+- ~~limited server-side nutrition validation~~ — resolved: the Go API
+  validates nutrient numbers (non-negative, bounded), servings (recipes
+  >= 1; logs > 0), body measurements (height <= 300cm, weight <= 1000kg),
+  and enum whitelists (meal slots, source types, sex, activity level) on
+  create and update paths. See `sync-server/validation_nutrition.go`.
 - snapshot staleness tradeoffs
 - glycemic index coverage gaps
 - source type inconsistencies
 - calorie calculation interpretation differences
+- vitamin D display unit spellings still vary cosmetically (`ug` vs `mcg`);
+  both mean micrograms
 
 These are known design concerns, not necessarily defects.
 

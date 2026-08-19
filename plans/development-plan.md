@@ -252,17 +252,33 @@ and paste/upload delivers most of the value first.
 - Reconcile auth route contract with `plans/die-10-backend-branch-plan.md`
   drift notes; update API docs.
 
-## Phase B — Nutrition correctness hardening (G4–G7)
+## Phase B — Nutrition correctness hardening (G4–G7) — DONE
 
-- Single source of unit-conversion constants server-side; frontend
-  consumes or mirrors with shared fixture tests (G5).
-- Vitamin D naming/units unified across schema, API, UI, and PDF export
-  (G6); migration if stored values need conversion.
-- Server-side validation (G4): reject non-numeric/negative nutrient
-  values, impossible serving counts, nonsensical amounts at the API
-  boundary for recipes, custom foods, logs, and profile metrics.
-- BMI/BMR/TDEE known-value fixture suite in Go (G7) — pure functions,
-  documented against NUTRITION_DOMAIN.md formulas.
+Delivered:
+- G5: single canonical unit-conversion table in TS (`unit-conversion.ts`;
+  `recipe-types.ts` duplicate deleted, unknown units now contribute 0 grams
+  instead of being treated as grams) and a mirroring Go module
+  (`sync-server/units.go`) for the import matcher. Fixture suites on both
+  sides.
+- G6: vitamin D is micrograms everywhere. USDA ingestion converts IU
+  (nutrients 324/1114) at 40 IU/mcg and prefers native-mcg (1166);
+  migration `000023` corrected stored `food_items` and USDA-linked
+  `ingredients`. Dead client nutrient map deleted. Historical log/day-plan
+  snapshots intentionally unchanged (domain immutability rule).
+- G4: server-side validation on create + update for recipes, ingredients,
+  custom foods, food logs, profiles, weight entries, and day-plan entries
+  (non-negative bounded nutrient numbers, servings rules, body-measurement
+  ranges, enum whitelists returning 400 instead of DB-CHECK 500s).
+- G7: BMI/BMR/TDEE assertions replaced with hand-computed known-value
+  fixtures (implemented in the existing TS suite rather than a new Go
+  implementation — the calculations are frontend-only display logic, and a
+  server port with no consumer would duplicate canonical business logic).
+
+Also fixed while greening the backend suite (pre-existing failures):
+grocery checklist PUT ignored `weekStart` in the request body (product bug;
+client sends it there), global pantry staples crashed the list endpoint
+(NULL `user_id` scan), and eight stale tests were aligned with current
+contracts.
 
 ## Phase C — Dietary compliance depth (G15)
 
@@ -358,6 +374,11 @@ multi-user instances are real.
 1. Global templates: lock vs copy-on-edit (E).
 2. Rate-limit scope for public share routes (E).
 3. Does grocery category map need i18n now or defer (D)?
+4. Food search auth: `final_docs/api_contract.md` documents
+   `GET /api/foods/search` as public, but the route is wrapped in
+   `requireAuth` (surfaced while greening the backend suite; test pinned to
+   current wiring in `sync-server/handlers_food_test.go`). Decide direction
+   when reconciling the API contract (Phase A / G3).
 
 ---
 
