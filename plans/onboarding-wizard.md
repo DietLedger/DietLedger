@@ -52,8 +52,13 @@ cookbook. Subsequent users get a lightweight profile/preferences wizard.
 
 ## Instance setup wizard — admin, first run
 
-Route: `src/app/(app)/setup/page.tsx`. Gated in `(app)/layout.tsx`:
-if `!instance.onboardingComplete && user.isAdmin` → redirect to `/setup`.
+Route: `src/app/setup/page.tsx` — top-level, outside the `(app)` group, so
+the wizard renders without app chrome while the instance is unconfigured.
+Gating lives in `(app)/layout.tsx` and `src/app/page.tsx`: while
+`!instance.onboardingComplete`, every visitor is redirected to `/setup`. The
+wizard itself renders the admin flow, a "setup in progress" state for
+authenticated non-admins, and a sign-in prompt when setup was interrupted
+(users already exist but the session is unauthenticated).
 
 ### Steps
 
@@ -147,12 +152,14 @@ Separate content sub-task from the wizard plumbing:
 
 ## Frontend changes
 
-- `src/app/(app)/setup/page.tsx` — multi-step wizard (existing `Card`,
-  `Button`, `Checkbox` primitives).
-- Gate logic in `src/app/(app)/layout.tsx`:
-  - `!onboardingComplete && isAdmin` → `/setup`
-  - non-admin and instance not ready → "instance is being configured" state
-  - authed user, `!onboardingComplete` → per-user wizard
+- `src/app/setup/page.tsx` (top-level route) — multi-step wizard (existing
+  `Card`, `Button`, `Checkbox` primitives). The per-user wizard lives the
+  same way at `src/app/welcome/page.tsx`.
+- Gate logic in `src/app/(app)/layout.tsx` and `src/app/page.tsx`:
+  - `!instance.onboardingComplete` → `/setup` (any visitor)
+  - unauthenticated visit to a non-public route → `/login`
+  - authed non-admin, `!settings.onboardingComplete` → `/welcome`
+    (per-user wizard)
 - New `useInstance()` React Query hook for `GET /api/instance/state`.
 - Poll USDA seed job progress via React Query (job endpoints already exist).
 - Settings page: registration toggle + re-run setup entry.
