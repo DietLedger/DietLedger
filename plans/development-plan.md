@@ -340,16 +340,24 @@ multi-user instances are real.
 
 ---
 
-# Open questions (need decisions before/at spec time)
+# Decisions (recorded 2026-08-19, before implementation)
 
-1. Refresh-token storage model (A) — DB table vs accept beta limitation.
-2. Import review UX: modal-in-flow vs dedicated review page (3c).
-3. URL import opt-in default and fetch budget (3d).
-4. Global templates: lock vs copy-on-edit (E).
-5. Rate-limit scope for public share routes (E).
-6. Whether meal-plan completion should also timestamp *who* completed
-   (family accounts) (P1).
-7. Does grocery category map need i18n now or defer (D)?
+1. **Session lifecycle (A):** defer revocation/rotation for beta; document
+   the stateless-JWT limitation in DECISIONS.md. Account list/disable
+   management still ships.
+2. **Import review UX (3c):** inline match chips in the import dialog —
+   resolve before committing. No draft-recipe review page.
+3. **URL import (3d):** opt-in, off by default; admin enables per-instance;
+   server-side fetch with strict size/time limits.
+4. **P1 completion model:** `completed_at` + `completed_by` (nullable
+   user_id) — future-proofs family accounts at the cost of one column.
+5. **Implementation start:** sequencing order — B → P1 → 3a → 3b.
+
+## Open questions (remaining, decide at phase time)
+
+1. Global templates: lock vs copy-on-edit (E).
+2. Rate-limit scope for public share routes (E).
+3. Does grocery category map need i18n now or defer (D)?
 
 ---
 
