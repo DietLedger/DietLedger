@@ -1,1240 +1,460 @@
 # DietLedger Data Storage Architecture
 
-## Overview
+Status: Current runtime data-store reference  
+Review basis: CodeGraph source review, `ARCHITECTURE.md`, `PROJECT.md`, `NUTRITION_DOMAIN.md`, `DECISIONS.md`, and current PostgreSQL migrations through `000024_recipe_completions`.
 
-DietLedger uses a **three-layer data storage architecture** that supports both offline-first local mode and a multi-user server mode. The same domain model is replicated across all three layers, with data synchronized between them.
-
-### The Three Storage Layers
-
-| Layer | Technology | Location | Mode |
-|---|---|---|---|
-| **Client-side DB** | IndexedDB (via `idb`) | Browser | Local-only mode |
-| **Local Server DB** | SQLite via Prisma ORM | Next.js server | Local-only mode |
-| **Remote Server DB** | PostgreSQL or SQLite via Go | Go API server | Server mode |
-
-### Mode Selection
-
-The `NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY` environment variable controls which path is used:
-
-- **`true` / `1`** — `LocalApiClient` delegates to IndexedDB (`src/lib/api-client-local.ts`). The Prisma/SQLite layer is used only for food data seeding and search endpoints.
-- **`false` / unset** — `GoApiClient` sends HTTP requests to the Go sync-server (`src/lib/api-client-go.ts`). The Go server uses PostgreSQL (production) or SQLite (dev) selected by `DB_DRIVER`.
-
-The factory is in `src/lib/api-client.ts:getApiClient()`.
+> DietLedger is now a server-authoritative, PostgreSQL-backed application.
+>
+> Older local-first/offline-first storage designs, IndexedDB authority, Prisma/SQLite application persistence, sync queues, conflict resolution, and SQLite production paths are historical only. Do not use them as the architecture for new work.
 
 ---
 
-## Architecture Diagram
+## 1. Storage architecture summary
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Browser / Tauri Shell                       │
-│                                                                   │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────────┐  │
-│  │  React UI    │────>│  ApiClient   │────>│  IndexedDB       │  │
-│  │  (Zustand)   │     │  (abstract)  │     │  (dietledger-db) │  │
-│  └──────────────┘     └──────┬───────┘     └──────────────────┘  │
-│                              │                                    │
-│              ┌───────────────┼───────────────┐                    │
-│              ▼                               ▼                    │
-│   NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY=false    true                 │
-│              │                               │                    │
-│              ▼                               ▼                    │
-│     ┌────────────────┐              ┌──────────────────┐         │
-│     │  GoApiClient   │              │  LocalApiClient  │         │
-│     │  (HTTP+JWT)    │              │  (IndexedDB)     │         │
-│     └───────┬────────┘              └──────────────────┘         │
-│             │                                                    │
-└─────────────┼────────────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Go API Server                                │
-│  sync-server/server.go → routes → handlers → Store interface    │
-│                                                                   │
-│  ┌──────────────────────┐     ┌────────────────────────────┐     │
-│  │  PostgresStore       │     │  SQLiteStore               │     │
-│  │  (DB_DRIVER=postgres)│     │  (DB_DRIVER=sqlite)        │     │
-│  │  pgx/v5 driver       │     │  modernc.org/sqlite driver │     │
-│  │  migrations/*.sql    │     │  inline InitDB() schema    │     │
-│  └──────────┬───────────┘     └──────────┬─────────────────┘     │
-│             │                            │                       │
-│             ▼                            ▼                       │
-│     PostgreSQL 17                  SQLite (file)                 │
-│     Docker volume                  sync.db / custom.db           │
-└─────────────────────────────────────────────────────────────────┘
+DietLedger has one authoritative datastore:
 
-┌─────────────────────────────────────────────────────────────────┐
-│              Next.js Server (local mode food data)               │
-│  src/lib/db.ts → Prisma Client → SQLite                         │
-│  Used only for: food search, food seeding, UPC lookup           │
-│  Database file: prisma/dev.db or db/custom.db                   │
-└─────────────────────────────────────────────────────────────────┘
+```text
+Browser
+  -> Next.js web app and /api proxy
+  -> Go REST API
+  -> PostgreSQL
 ```
 
----
+PostgreSQL is the system of record. The browser and frontend are not authoritative. The Go API owns validation, business rules, authorization, and persistence orchestration.
 
-## Database 1: PostgreSQL (Server Mode — Production)
+```mermaid
+flowchart TD
+    B[Browser\nReact UI] --> W[Next.js web app]
+    W --> P[Next.js /api proxy]
+    P --> A[Go REST API]
+    A --> S[Store interface]
+    S --> PG[(PostgreSQL 17\nAuthoritative datastore)]
+    A --> USDA[USDA FoodData Central API\noptional live food lookup]
 
-### Connection
-
-- **Driver**: `pgx/v5`
-- **Config**: `DATABASE_URL` env var (e.g., `postgres://dietledger:dietledger@postgres:5432/dietledger`)
-- **Migration runner**: `sync-server/migrate.go` — embedded SQL files from `sync-server/migrations/`, tracked in `schema_migrations` table
-- **Used by**: `sync-server/store_postgres.go` (`PostgresStore`)
-
-### Schema Source Files
-
-| File | Tables Created |
-|---|---|
-| `migrations/000001_init.up.sql` | `users`, `devices`, `api_keys`, `refresh_tokens` |
-| `migrations/000002_recipes.up.sql` | `recipes`, `ingredients` |
-| `migrations/000003_foods.up.sql` | `food_items`, `custom_foods`, `seed_jobs` |
-| `migrations/000004_nutrition.up.sql` | `person_profiles`, `food_log_entries`, `weight_entries` |
-| `migrations/000005_meal_plans.up.sql` | `meal_plans`, `day_plan_entries`, `meal_groups`, `grocery_checklists` |
-| `migrations/000006_books.up.sql` | `categories`, `recipe_books`, `chapters`, `chapter_recipes`, `chapter_pages`, `book_pages`, `recipe_categories` |
-| `migrations/000007_sharing.up.sql` | `shared_recipes`, `recipe_ratings`, `community_categories` |
-| `migrations/000008_fts.up.sql` | Full-text search (`search_vector` tsvector column + GIN index + trigger on `food_items`) |
-
-### Complete Schema
-
-#### `users`
-
-```
-CREATE TABLE users (
-    id              TEXT PRIMARY KEY,
-    email           TEXT UNIQUE NOT NULL,
-    display_name    TEXT,
-    password_hash   TEXT NOT NULL,
-    api_key         TEXT UNIQUE NOT NULL,
-    last_login_at   TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+    B -. non-authoritative .-> C[localStorage tokens\nReact Query cache]
 ```
 
-**Indexes**: none beyond PK
+### Storage responsibilities
 
-#### `devices`
-
-```
-CREATE TABLE devices (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    device_name     TEXT,
-    device_type     TEXT,
-    last_synced_at  TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_devices_user_id(user_id)`
-
-#### `api_keys`
-
-```
-CREATE TABLE api_keys (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name            TEXT NOT NULL,
-    key_hash        TEXT NOT NULL,
-    key_prefix      TEXT NOT NULL,
-    permissions     TEXT NOT NULL DEFAULT '',
-    last_used_at    TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(key_hash)
-);
-```
-
-**Indexes**: `idx_api_keys_user_id(user_id)`, `idx_api_keys_prefix(key_prefix)`
-
-#### `refresh_tokens`
-
-```
-CREATE TABLE refresh_tokens (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash      TEXT NOT NULL UNIQUE,
-    expires_at      TIMESTAMPTZ NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_refresh_tokens_user_id(user_id)`
-
-#### `recipes`
-
-```
-CREATE TABLE recipes (
-    id                TEXT PRIMARY KEY,
-    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name              TEXT NOT NULL,
-    servings          INT NOT NULL DEFAULT 1,
-    serving_name      TEXT NOT NULL DEFAULT 'serving',
-    instructions      TEXT,
-    leftover_storage  TEXT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_recipes_user_id(user_id)`, `idx_recipes_updated_at(updated_at)`
-
-#### `ingredients`
-
-```
-CREATE TABLE ingredients (
-    id              TEXT PRIMARY KEY,
-    recipe_id       TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    fdc_id          INT NOT NULL,
-    name            TEXT NOT NULL,
-    amount          DOUBLE PRECISION NOT NULL,
-    unit            TEXT NOT NULL,
-    calories        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_fat       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    saturated_fat   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    trans_fat       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    cholesterol     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    sodium          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_carbs     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    dietary_fiber   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_sugars    DOUBLE PRECISION NOT NULL DEFAULT 0,
-    added_sugars    DOUBLE PRECISION NOT NULL DEFAULT 0,
-    protein         DOUBLE PRECISION NOT NULL DEFAULT 0,
-    vitamin_d       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    calcium         DOUBLE PRECISION NOT NULL DEFAULT 0,
-    iron            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    potassium       DOUBLE PRECISION NOT NULL DEFAULT 0
-);
-```
-
-**Indexes**: `idx_ingredients_recipe_id(recipe_id)`
-
-#### `food_items`
-
-```
-CREATE TABLE food_items (
-    id                 SERIAL PRIMARY KEY,
-    fdc_id             INT UNIQUE NOT NULL,
-    description        TEXT NOT NULL,
-    data_type          TEXT NOT NULL,
-    brand_owner        TEXT,
-    gtin_upc           TEXT,
-    serving_size       DOUBLE PRECISION NOT NULL DEFAULT 100,
-    serving_size_unit  TEXT NOT NULL DEFAULT 'g',
-    calories           DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_fat          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    saturated_fat      DOUBLE PRECISION NOT NULL DEFAULT 0,
-    trans_fat          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    cholesterol        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    sodium             DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_carbs        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    dietary_fiber      DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_sugars       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    added_sugars       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    protein            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    vitamin_d          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    calcium            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    iron               DOUBLE PRECISION NOT NULL DEFAULT 0,
-    potassium          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    source             TEXT NOT NULL DEFAULT 'usda',
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    search_vector      tsvector   -- added by migration 000008
-);
-```
-
-**Indexes**: `idx_food_items_description(description)`, `idx_food_items_data_type(data_type)`, `idx_food_items_gtin_upc(gtin_upc)`, `idx_food_items_search` (GIN index on `search_vector`)
-
-**Triggers**: `trg_food_items_search_vector` — auto-updates `search_vector` on INSERT/UPDATE of `description` or `brand_owner`
-
-#### `custom_foods`
-
-```
-CREATE TABLE custom_foods (
-    id                     TEXT PRIMARY KEY,
-    user_id                TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name                   TEXT NOT NULL,
-    calories               DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_fat              DOUBLE PRECISION NOT NULL DEFAULT 0,
-    saturated_fat          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    trans_fat              DOUBLE PRECISION NOT NULL DEFAULT 0,
-    cholesterol            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    sodium                 DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_carbs            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    dietary_fiber          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_sugars           DOUBLE PRECISION NOT NULL DEFAULT 0,
-    added_sugars           DOUBLE PRECISION NOT NULL DEFAULT 0,
-    protein                DOUBLE PRECISION NOT NULL DEFAULT 0,
-    vitamin_d              DOUBLE PRECISION NOT NULL DEFAULT 0,
-    calcium                DOUBLE PRECISION NOT NULL DEFAULT 0,
-    iron                   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    potassium              DOUBLE PRECISION NOT NULL DEFAULT 0,
-    shared_with_community  BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_custom_foods_user_id(user_id)`, `idx_custom_foods_name(name)`, `idx_custom_foods_shared` (partial on `shared_with_community = TRUE`)
-
-#### `seed_jobs`
-
-```
-CREATE TABLE seed_jobs (
-    id            SERIAL PRIMARY KEY,
-    data_type     TEXT NOT NULL,
-    release_date  TEXT NOT NULL,
-    file_name     TEXT NOT NULL,
-    record_count  INT NOT NULL DEFAULT 0,
-    status        TEXT NOT NULL DEFAULT 'pending',
-    progress      DOUBLE PRECISION NOT NULL DEFAULT 0,
-    error         TEXT,
-    checkpoint    TEXT,
-    started_at    TIMESTAMPTZ,
-    completed_at  TIMESTAMPTZ,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-#### `person_profiles`
-
-```
-CREATE TABLE person_profiles (
-    id                TEXT PRIMARY KEY,
-    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name              TEXT NOT NULL,
-    sex               TEXT NOT NULL CHECK (sex IN ('male', 'female')),
-    birth_date        TEXT,
-    height_cm         DOUBLE PRECISION,
-    activity_level    TEXT NOT NULL DEFAULT 'moderate'
-                      CHECK (activity_level IN ('sedentary','light','moderate','active','veryActive')),
-    goal_weight_kg    DOUBLE PRECISION,
-    goal_date         TEXT,
-    bmr_equation      TEXT,
-    manual_bmr_value  DOUBLE PRECISION,
-    calorie_target    DOUBLE PRECISION,
-    protein_goal_g    DOUBLE PRECISION,
-    carbs_goal_g      DOUBLE PRECISION,
-    fat_goal_g        DOUBLE PRECISION,
-    fiber_goal_g      DOUBLE PRECISION,
-    sodium_max_mg     DOUBLE PRECISION,
-    sugar_max_g       DOUBLE PRECISION,
-    vitamin_d_goal_ug DOUBLE PRECISION,
-    calcium_goal_mg   DOUBLE PRECISION,
-    iron_goal_mg      DOUBLE PRECISION,
-    potassium_goal_mg DOUBLE PRECISION,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_profiles_user_id(user_id)`, `idx_profiles_updated_at(updated_at)`
-
-#### `food_log_entries`
-
-```
-CREATE TABLE food_log_entries (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    profile_id      TEXT NOT NULL REFERENCES person_profiles(id) ON DELETE CASCADE,
-    date            TEXT NOT NULL,
-    time            TEXT,
-    meal_slot       TEXT NOT NULL CHECK (meal_slot IN ('morning','midMorning','noon','afternoon','evening','night','snack')),
-    source_type     TEXT NOT NULL CHECK (source_type IN ('recipe','customFood','manual')),
-    source_id       TEXT,
-    name            TEXT NOT NULL,
-    servings        DOUBLE PRECISION NOT NULL DEFAULT 1,
-    serving_amount  DOUBLE PRECISION,
-    serving_unit    TEXT,
-    calories        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_fat       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    saturated_fat   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    trans_fat       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    cholesterol     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    sodium          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_carbs     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    dietary_fiber   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_sugars    DOUBLE PRECISION NOT NULL DEFAULT 0,
-    added_sugars    DOUBLE PRECISION NOT NULL DEFAULT 0,
-    protein         DOUBLE PRECISION NOT NULL DEFAULT 0,
-    vitamin_d       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    calcium         DOUBLE PRECISION NOT NULL DEFAULT 0,
-    iron            DOUBLE PRECISION NOT NULL DEFAULT 0,
-    potassium       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_food_log_profile_id(profile_id)`, `idx_food_log_date(date)`, `idx_food_log_profile_date(profile_id, date)`, `idx_food_log_source(source_type, source_id)`
-
-#### `weight_entries`
-
-```
-CREATE TABLE weight_entries (
-    id                          TEXT PRIMARY KEY,
-    user_id                     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    profile_id                  TEXT NOT NULL REFERENCES person_profiles(id) ON DELETE CASCADE,
-    date                        TEXT NOT NULL,
-    weight_kg                   DOUBLE PRECISION NOT NULL,
-    notes                       TEXT,
-    blood_sugar                 DOUBLE PRECISION,
-    blood_pressure_systolic     DOUBLE PRECISION,
-    blood_pressure_diastolic    DOUBLE PRECISION,
-    measurement_context         TEXT,
-    created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(profile_id, date)
-);
-```
-
-**Indexes**: `idx_weight_profile_id(profile_id)`, `idx_weight_date(date)`
-
-#### `meal_plans`
-
-```
-CREATE TABLE meal_plans (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,
-    week_start  TEXT NOT NULL UNIQUE,
-    slot_times  TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_meal_plans_user_id(user_id)`, `idx_meal_plans_week_start(week_start)`
-
-#### `day_plan_entries`
-
-```
-CREATE TABLE day_plan_entries (
-    id            TEXT PRIMARY KEY,
-    meal_plan_id  TEXT NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
-    date          TEXT NOT NULL,
-    slot          TEXT NOT NULL CHECK (slot IN ('morning','midMorning','noon','afternoon','evening','night')),
-    recipe_id     TEXT,
-    position      INT NOT NULL DEFAULT 0,
-    group_id      TEXT,
-    servings      DOUBLE PRECISION NOT NULL DEFAULT 1,
-    is_leftover   BOOLEAN NOT NULL DEFAULT FALSE,
-    source_type   TEXT NOT NULL DEFAULT 'recipe',
-    food_name     TEXT,
-    calories      DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_fat     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    saturated_fat DOUBLE PRECISION NOT NULL DEFAULT 0,
-    trans_fat     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    cholesterol   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    sodium        DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_carbs   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    dietary_fiber DOUBLE PRECISION NOT NULL DEFAULT 0,
-    total_sugars  DOUBLE PRECISION NOT NULL DEFAULT 0,
-    added_sugars  DOUBLE PRECISION NOT NULL DEFAULT 0,
-    protein       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    vitamin_d     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    calcium       DOUBLE PRECISION NOT NULL DEFAULT 0,
-    iron          DOUBLE PRECISION NOT NULL DEFAULT 0,
-    potassium     DOUBLE PRECISION NOT NULL DEFAULT 0,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_day_plan_meal_plan_id(meal_plan_id)`, `idx_day_plan_date(date)`
-
-#### `meal_groups`
-
-```
-CREATE TABLE meal_groups (
-    id            TEXT PRIMARY KEY,
-    meal_plan_id  TEXT NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
-    date          TEXT NOT NULL,
-    slot          TEXT NOT NULL,
-    name          TEXT NOT NULL,
-    position      INT NOT NULL DEFAULT 0
-);
-```
-
-**Indexes**: `idx_meal_groups_meal_plan_id(meal_plan_id)`
-
-#### `grocery_checklists`
-
-```
-CREATE TABLE grocery_checklists (
-    id             TEXT PRIMARY KEY,
-    user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    week_start     TEXT NOT NULL,
-    checked_items  TEXT NOT NULL DEFAULT '[]',
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(user_id, week_start)
-);
-```
-
-**Indexes**: `idx_grocery_week_start(week_start)`
-
-#### `categories`
-
-```
-CREATE TABLE categories (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    parent_id   TEXT REFERENCES categories(id) ON DELETE CASCADE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_categories_parent_id(parent_id)`
-
-Self-referencing: `parent_id → categories.id` — supports hierarchical category trees.
-
-#### `recipe_books`
-
-```
-CREATE TABLE recipe_books (
-    id           TEXT PRIMARY KEY,
-    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title        TEXT NOT NULL,
-    description  TEXT NOT NULL DEFAULT '',
-    cover_color  TEXT NOT NULL DEFAULT '#059669',
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_books_user_id(user_id)`, `idx_books_updated_at(updated_at)`
-
-#### `chapters`
-
-```
-CREATE TABLE chapters (
-    id                   TEXT PRIMARY KEY,
-    book_id              TEXT NOT NULL REFERENCES recipe_books(id) ON DELETE CASCADE,
-    title                TEXT NOT NULL,
-    position             INT NOT NULL DEFAULT 0,
-    page_template_id     TEXT,
-    recipe_template_id   TEXT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_chapters_book_id(book_id)`, `idx_chapters_position(position)`
-
-#### `chapter_recipes`
-
-```
-CREATE TABLE chapter_recipes (
-    id          TEXT PRIMARY KEY,
-    chapter_id  TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
-    recipe_id   TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    position    INT NOT NULL DEFAULT 0,
-    UNIQUE(chapter_id, recipe_id)
-);
-```
-
-**Indexes**: `idx_chapter_recipes_chapter_id(chapter_id)`, `idx_chapter_recipes_recipe_id(recipe_id)`
-
-#### `chapter_pages`
-
-```
-CREATE TABLE chapter_pages (
-    id          TEXT PRIMARY KEY,
-    chapter_id  TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
-    title       TEXT NOT NULL,
-    content     TEXT NOT NULL DEFAULT '',
-    position    INT NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_chapter_pages_chapter_id(chapter_id)`, `idx_chapter_pages_position(position)`
-
-#### `book_pages`
-
-```
-CREATE TABLE book_pages (
-    id          TEXT PRIMARY KEY,
-    book_id     TEXT NOT NULL REFERENCES recipe_books(id) ON DELETE CASCADE,
-    title       TEXT NOT NULL,
-    content     TEXT NOT NULL DEFAULT '',
-    position    INT NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_book_pages_book_id(book_id)`
-
-#### `recipe_categories`
-
-```
-CREATE TABLE recipe_categories (
-    id           TEXT PRIMARY KEY,
-    recipe_id    TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    category_id  TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(recipe_id, category_id)
-);
-```
-
-**Indexes**: `idx_recipe_categories_recipe_id(recipe_id)`, `idx_recipe_categories_category_id(category_id)`
-
-#### `shared_recipes`
-
-```
-CREATE TABLE shared_recipes (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    recipe_id       TEXT NOT NULL,
-    share_token     TEXT UNIQUE NOT NULL,
-    is_public       BOOLEAN NOT NULL DEFAULT TRUE,
-    title           TEXT NOT NULL,
-    description     TEXT,
-    category        TEXT,
-    tags            TEXT DEFAULT '',
-    recipe_data     TEXT NOT NULL,
-    view_count      INT DEFAULT 0,
-    import_count    INT DEFAULT 0,
-    average_rating  DOUBLE PRECISION DEFAULT 0,
-    rating_count    INT DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-**Indexes**: `idx_shared_recipes_user_id(user_id)`, `idx_shared_recipes_token(share_token)`, `idx_shared_recipes_public` (partial on `is_public = TRUE`)
-
-#### `recipe_ratings`
-
-```
-CREATE TABLE recipe_ratings (
-    id          TEXT PRIMARY KEY,
-    recipe_id   TEXT NOT NULL REFERENCES shared_recipes(id) ON DELETE CASCADE,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    rating      INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(recipe_id, user_id)
-);
-```
-
-**Indexes**: `idx_ratings_recipe_id(recipe_id)`
-
-#### `community_categories`
-
-```
-CREATE TABLE community_categories (
-    id    TEXT PRIMARY KEY,
-    name  TEXT NOT NULL,
-    slug  TEXT UNIQUE NOT NULL
-);
-```
-
-#### `schema_migrations`
-
-```
-CREATE TABLE schema_migrations (
-    version TEXT PRIMARY KEY,
-    dirty   BOOLEAN NOT NULL
-);
-```
-
-Automatically created by the migration runner in `sync-server/migrate.go`.
-
-### Entity-Relationship Diagram
-
-```
-users
- ├── devices (user_id)
- ├── api_keys (user_id)
- ├── refresh_tokens (user_id)
- ├── recipes (user_id)
- │    └── ingredients (recipe_id)
- ├── custom_foods (user_id)
- ├── person_profiles (user_id)
- │    ├── food_log_entries (profile_id)
- │    └── weight_entries (profile_id)
- ├── meal_plans (user_id)
- │    ├── day_plan_entries (meal_plan_id)
- │    └── meal_groups (meal_plan_id)
- ├── recipe_books (user_id)
- │    ├── chapters (book_id)
- │    │    ├── chapter_recipes (chapter_id → recipes.id)
- │    │    └── chapter_pages (chapter_id)
- │    └── book_pages (book_id)
- ├── shared_recipes (user_id)
- │    └── recipe_ratings (recipe_id, user_id)
- └── grocery_checklists (user_id)
-
-categories (self-ref: parent_id → categories.id)
-recipe_categories (recipe_id → recipes.id, category_id → categories.id)
-food_items (standalone — USDA cache)
-seed_jobs (standalone)
-community_categories (standalone)
-```
-
----
-
-## Database 2: SQLite — Go Sync Server (Dev/Fallback)
-
-### Connection
-
-- **Driver**: `modernc.org/sqlite` (pure Go, no CGO)
-- **Config**: `DB_PATH` env var (default: `./sync.db`)
-- **Schema**: inline in `sync-server/store_sqlite.go:InitDB()`
-- **Used by**: `SQLiteStore` when `DB_DRIVER=sqlite`
-
-### Schema
-
-Identical to the PostgreSQL schema with these adaptations:
-- `TIMESTAMPTZ` → `DATETIME`
-- `DOUBLE PRECISION` → `REAL`
-- `BOOLEAN` → `INT` (0/1)
-- `SERIAL` → `INTEGER PRIMARY KEY AUTOINCREMENT`
-- `$1, $2, ...` placeholders → `?` placeholders
-- No `search_vector` tsvector column (SQLite uses FTS5 virtual table instead, see below)
-- No `CHECK` constraints on enums (stored as plain `TEXT`)
-- Additional pragmas: `WAL` journal mode, `foreign_keys=ON`, `busy_timeout=5000`
-
-### SQLite FTS5 for Food Search
-
-In local mode, the Prisma migration in `prisma/fts5-setup.sql` creates:
-
-```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS food_items_fts USING fts5(
-    description,
-    brand_owner,
-    content='food_items',
-    content_rowid='id'
-);
-
-CREATE TRIGGER food_items_ai AFTER INSERT ON food_items BEGIN
-    INSERT INTO food_items_fts(rowid, description, brand_owner)
-    VALUES (new.id, new.description, new.brand_owner);
-END;
-
-CREATE TRIGGER food_items_ad AFTER DELETE ON food_items BEGIN
-    INSERT INTO food_items_fts(food_items_fts, rowid, description, brand_owner)
-    VALUES ('delete', old.id, old.description, old.brand_owner);
-END;
-
-CREATE TRIGGER food_items_au AFTER UPDATE ON food_items BEGIN
-    INSERT INTO food_items_fts(food_items_fts, rowid, description, brand_owner)
-    VALUES ('delete', old.id, old.description, old.brand_owner);
-    INSERT INTO food_items_fts(rowid, description, brand_owner)
-    VALUES (new.id, new.description, new.brand_owner);
-END;
-```
-
----
-
-## Database 3: SQLite — Prisma / Next.js Server (Local Mode)
-
-### Connection
-
-- **Driver**: Prisma Client JS with SQLite provider
-- **Config**: `DATABASE_URL` env var, falls back to `file:/app/db/custom.db` (Docker) or `file:~/.recipetool/dev.db` (local dev)
-- **Schema**: `prisma/schema.prisma` (18 models)
-- **Runtime schema bootstrap**: `src/lib/db.ts:ensureSchema()` creates all tables via raw SQL if they don't exist, then runs incremental column migrations
-
-### Schema Source Files
-
-| File | Purpose |
-|---|---|
-| `prisma/schema.prisma` | Prisma model definitions (generates TypeScript client) |
-| `src/lib/db.ts` | Runtime table creation (20+ `CREATE TABLE` statements) + incremental `ALTER TABLE` migrations |
-| `prisma/migrations/20260422_add_food_item_fts5/migration.sql` | FTS5 virtual table + triggers |
-| `prisma/fts5-setup.sql` | FTS5 virtual table + triggers (standalone) |
-
-### Prisma Models (18)
-
-Defined in `prisma/schema.prisma`:
-
-| Model | Primary Key | Key Fields | Relations |
-|---|---|---|---|
-| `Recipe` | `@id @default(cuid())` | name, servings, servingName, instructions, leftoverStorage | `ingredients: Ingredient[]` |
-| `Ingredient` | `@id @default(cuid())` | fdcId, name, amount, unit + 15 nutrient fields | `recipe: Recipe` (CASCADE) |
-| `FoodItem` | `@id @default(autoincrement())` | fdcId (unique), description, dataType, brandOwner, gtinUpc, servingSize + 15 nutrients | none |
-| `SeedJob` | `@id @default(autoincrement())` | dataType, releaseDate, fileName, status, progress | none |
-| `RecipeBook` | `@id @default(cuid())` | title, description, coverColor | `chapters: Chapter[]` |
-| `Chapter` | `@id @default(cuid())` | bookId, title, position, pageTemplateId, recipeTemplateId | `book: RecipeBook` (CASCADE), `chapterRecipes`, `chapterPages` |
-| `ChapterRecipe` | `@id @default(cuid())` | chapterId, recipeId, position | `chapter: Chapter` (CASCADE), `@@unique([chapterId, recipeId])` |
-| `ChapterPage` | `@id @default(cuid())` | chapterId, title, content, position | `chapter: Chapter` (CASCADE) |
-| `Category` | `@id @default(cuid())` | name, parentId | self-relation: `parent`/`children` (CASCADE) |
-| `RecipeCategory` | `@id @default(cuid())` | recipeId, categoryId | `@@unique([recipeId, categoryId])` |
-| `PersonProfile` | `@id` (manual) | name, sex (enum), birthDate, heightCm, activityLevel (enum), 11 macro/micro goals | `foodLogEntries`, `weightEntries` |
-| `FoodLogEntry` | `@id` (manual) | profileId, date, time, mealSlot (enum), sourceType (enum), name, servings + 15 nutrients | `profile: PersonProfile` (CASCADE) |
-| `WeightEntry` | `@id` (manual) | profileId, date, weightKg, notes, bloodSugar, bloodPressure* | `profile: PersonProfile` (CASCADE), `@@unique([profileId, date])` |
-| `MealPlan` | `@id @default(cuid())` | name, weekStart (unique), slotTimes | `entries: DayPlanEntry[]`, `groups: MealGroup[]` |
-| `DayPlanEntry` | `@id @default(cuid())` | mealPlanId, date, slot (enum), recipeId, position, groupId, servings, isLeftover, sourceType + 15 nutrients | `mealPlan: MealPlan` (CASCADE) |
-| `MealGroup` | `@id @default(cuid())` | mealPlanId, date, slot (enum), name, position | `mealPlan: MealPlan` (CASCADE) |
-| `CustomFood` | `@id @default(cuid())` | name + 15 nutrients | none |
-| `GroceryChecklist` | `@id @default(cuid())` | weekStart (unique), checkedItems | none |
-| `BookPage` | `@id @default(cuid())` | bookId, title, content, position | none |
-| `ApiKey` | `@id @default(cuid())` | name, keyHash (unique), keyPrefix, permissions | none |
-
-### Enums (Prisma-only)
-
-| Enum | Values |
-|---|---|
-| `Sex` | `male`, `female` |
-| `ActivityLevel` | `sedentary`, `light`, `moderate`, `active`, `veryActive` |
-| `MealSlot` | `morning`, `midMorning`, `noon`, `afternoon`, `evening`, `night`, `snack` |
-| `FoodSourceType` | `recipe`, `customFood`, `manual` |
-| `DaySlot` | `morning`, `midMorning`, `noon`, `afternoon`, `evening`, `night` |
-
-### Differences from Server Databases
-
-The Prisma/SQLite layer used by Next.js in local mode does **not** have:
-- `users` table (no auth in local mode)
-- `devices`, `api_keys`, `refresh_tokens` tables (no multi-user/auth)
-- `shared_recipes`, `recipe_ratings`, `community_categories` tables (no community sharing)
-- `user_id` columns on user-owned tables (single user)
-- `CustomFood.sharedWithCommunity` column
-
----
-
-## Database 4: IndexedDB — Client-Side (Browser)
-
-### Connection
-
-- **Library**: `idb` (IndexedDB wrapper)
-- **Database name**: `dietledger-db`
-- **Current version**: `13`
-- **Schema definition**: `src/lib/storage.ts:DietLedgerDB` interface
-- **Used by**: `LocalApiClient` (local mode) and sync engine
-
-### Object Stores (25)
-
-| Store | Key | Indexes | Used By |
-|---|---|---|---|
-| `recipes` | `id` | `by-updatedAt` | Recipe CRUD |
-| `books` | `id` | `by-updatedAt` | Book CRUD |
-| `chapters` | `id` | `by-bookId` | Chapter CRUD |
-| `chapterRecipes` | `id` | `by-chapterId`, `by-recipeId` | Chapter-recipe junction |
-| `categories` | `id` | `by-parentId` | Category tree |
-| `recipeCategories` | `id` | `by-recipeId`, `by-categoryId` | Recipe-category junction |
-| `chapterPages` | `id` | `by-chapterId` | Chapter page content |
-| `bookPages` | `id` | `by-bookId` | Book page content |
-| `templates` | `id` | `by-type` | Print/export templates (client-only) |
-| `mealPlans` | `id` | `by-weekStart` | Meal plan CRUD |
-| `dayPlanEntries` | `id` | `by-mealPlanId`, `by-date` | Day plan entry CRUD |
-| `mealGroups` | `id` | `by-mealPlanId` | Meal group CRUD |
-| `groceryChecklists` | `id` | `by-weekStart` | Grocery checklist upsert |
-| `seasonalFoods` | `id` | `by-country-region-month` (compound) | Client-only seasonal data |
-| `pantryStaples` | `id` | `by-name` | Client-only pantry list |
-| `userLocation` | `id` | none | Client-only geolocation |
-| `customFoods` | `id` | `by-name` | Custom food CRUD |
-| `nutritionProfiles` | `id` | `by-updatedAt` | Nutrition profile CRUD |
-| `foodLogEntries` | `id` | `by-profileId`, `by-date`, `by-profileId-date` (compound), `by-sourceType-sourceId` (compound) | Food log CRUD |
-| `weightEntries` | `id` | `by-profileId`, `by-date`, `by-profileId-date` (compound) | Weight tracking |
-| `syncServers` | `id` | none | Sync server configurations |
-| `syncChangeLog` | `id` | `by-synced`, `by-storeName`, `by-timestamp` | Offline sync change tracking |
-| `dietaryProfiles` | `id` | `by-updatedAt` | Client-only dietary profiles |
-| `allergenRules` | `id` | `by-profileId` | Client-only allergen rules |
-| `sharedRecipeCache` | `id` | `by-recipeId`, `by-shareToken` | Client-side cache of shared recipes |
-| `brandKits` | `id` | `by-updatedAt` | Client-only brand kits |
-| `appSettings` | `id` | none | Client-only app settings |
-
-### IndexedDB-Only Stores
-
-These stores exist **only** in IndexedDB and have no server-side counterpart:
-
-| Store | Purpose |
-|---|---|
-| `templates` | Print/export page layout templates |
-| `seasonalFoods` | Seasonal food data by region/month |
-| `pantryStaples` | User's pantry staple items |
-| `userLocation` | User's country/region for seasonal data |
-| `dietaryProfiles` | Dietary restriction profiles |
-| `allergenRules` | Allergen rules linked to dietary profiles |
-| `sharedRecipeCache` | Local cache of shared recipes for offline viewing |
-| `brandKits` | Brand customization kits |
-| `appSettings` | App-level settings (default meal slot times, etc.) |
-| `syncServers` | Sync server connection configurations |
-| `syncChangeLog` | Tracks changes for offline sync |
-
-### Version Migration History
-
-| Version | Stores Added |
-|---|---|
-| 1 | `recipes` |
-| 2 | `books`, `chapters`, `chapterRecipes`, `categories`, `recipeCategories` |
-| 3 | `chapterPages` |
-| 4 | `bookPages` |
-| 5 | `templates` |
-| 6 | `mealPlans`, `dayPlanEntries`, `mealGroups`, `groceryChecklists` |
-| 7 | `seasonalFoods`, `pantryStaples`, `userLocation` |
-| 8 | `customFoods` |
-| 9 | `nutritionProfiles`, `foodLogEntries`, `weightEntries` |
-| 10 | `syncServers`, `syncChangeLog` |
-| 11 | `dietaryProfiles`, `allergenRules`, `sharedRecipeCache`, `brandKits` |
-| 12 | Schemaless changes (new optional fields on `nutritionProfiles`) |
-| 13 | `appSettings` |
-
----
-
-## API Routes and Their Database Interactions
-
-### Go API Server Routes
-
-All routes are defined in `sync-server/server.go:Routes()`. Authentication-required routes use `s.requireAuth()` middleware which validates JWT Bearer tokens or API keys.
-
-#### Authentication (Public)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `POST /api/auth/register` | POST | `registerHandler` | `CreateUser` | `users` |
-| `POST /api/auth/login` | POST | `loginHandler` | `GetUserByEmail`, password verify, token create | `users`, `refresh_tokens` |
-| `POST /api/auth/refresh` | POST | `refreshHandler` | Token refresh | `refresh_tokens` |
-
-#### Recipes (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/recipes` | GET | `listRecipes` | `ListRecipes` | `recipes`, `ingredients` |
-| `POST /api/recipes` | POST | `createRecipe` | `CreateRecipe`, `CreateIngredient` (batch) | `recipes`, `ingredients` |
-| `GET /api/recipes/{id}` | GET | `getRecipe` | `GetRecipe` | `recipes`, `ingredients` |
-| `PUT /api/recipes/{id}` | PUT | `updateRecipe` | `UpdateRecipe`, `ReplaceIngredients` | `recipes`, `ingredients` |
-| `DELETE /api/recipes/{id}` | DELETE | `deleteRecipe` | `DeleteRecipe` | `recipes`, `ingredients` |
-| `GET /api/recipes/{id}/ingredients` | GET | via `ingredientRouter` | (reads from recipe) | `ingredients` |
-| `POST /api/recipes/{id}/ingredients` | POST | via `ingredientRouter` | `CreateIngredient` | `ingredients` |
-| `PUT /api/recipes/{id}/ingredients/{ingId}` | PUT | via `ingredientRouter` | `UpdateIngredient` | `ingredients` |
-| `DELETE /api/recipes/{id}/ingredients/{ingId}` | DELETE | via `ingredientRouter` | `DeleteIngredient` | `ingredients` |
-
-#### Food Search (Public)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/foods/search` | GET | `foodSearchHandler` | `SearchFoods` | `food_items` |
-| `GET /api/foods/{fdcId}` | GET | `foodItemHandler` | `GetFoodByFdcID` | `food_items` |
-| `GET /api/foods/upc/{gtinUpc}` | GET | `foodItemHandler` | `GetFoodByGtinUpc` | `food_items` |
-
-#### Nutrition Profiles (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/profiles` | GET | `profilesRouter` | `ListProfiles` | `person_profiles` |
-| `POST /api/profiles` | POST | `profilesRouter` | `CreateProfile` | `person_profiles` |
-| `GET /api/profiles/{id}` | GET | `profileItemRouter` | `GetProfile` | `person_profiles` |
-| `PUT /api/profiles/{id}` | PUT | `profileItemRouter` | `UpdateProfile` | `person_profiles` |
-| `DELETE /api/profiles/{id}` | DELETE | `profileItemRouter` | `DeleteProfile` | `person_profiles` |
-
-#### Food Log (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/profiles/{id}/log` | GET | `foodLogRouter` | `ListFoodLogEntries` | `food_log_entries` |
-| `POST /api/profiles/{id}/log` | POST | `foodLogRouter` | `CreateFoodLogEntry` | `food_log_entries` |
-| `PUT /api/profiles/{id}/log/{entryId}` | PUT | `foodLogEntryRouter` | `UpdateFoodLogEntry` | `food_log_entries` |
-| `DELETE /api/profiles/{id}/log/{entryId}` | DELETE | `foodLogEntryRouter` | `DeleteFoodLogEntry` | `food_log_entries` |
-
-#### Weight Tracking (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/profiles/{id}/weight` | GET | `weightRouter` | `ListWeightEntries` | `weight_entries` |
-| `POST /api/profiles/{id}/weight` | POST | `weightRouter` | `CreateWeightEntry` | `weight_entries` |
-| `PUT /api/profiles/{id}/weight/{entryId}` | PUT | `weightEntryRouter` | `UpdateWeightEntry` | `weight_entries` |
-| `DELETE /api/profiles/{id}/weight/{entryId}` | DELETE | `weightEntryRouter` | `DeleteWeightEntry` | `weight_entries` |
-
-#### Meal Plans (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/meal-plans` | GET | `mealPlansRouter` | `ListMealPlans` | `meal_plans` |
-| `POST /api/meal-plans` | POST | `mealPlansRouter` | `CreateMealPlan` | `meal_plans` |
-| `GET /api/meal-plans/{id}` | GET | `mealPlanItemRouter` | `GetMealPlan` | `meal_plans` |
-| `PUT /api/meal-plans/{id}` | PUT | `mealPlanItemRouter` | `UpdateMealPlan` | `meal_plans` |
-| `DELETE /api/meal-plans/{id}` | DELETE | `mealPlanItemRouter` | `DeleteMealPlan` | `meal_plans` |
-| `GET /api/meal-plans/{id}/entries` | GET | `dayPlanEntriesRouter` | `ListDayPlanEntries` | `day_plan_entries` |
-| `POST /api/meal-plans/{id}/entries` | POST | `dayPlanEntriesRouter` | `CreateDayPlanEntry` | `day_plan_entries` |
-| `PUT /api/meal-plans/{id}/entries/{entryId}` | PUT | `dayPlanEntryItemRouter` | `UpdateDayPlanEntry` | `day_plan_entries` |
-| `DELETE /api/meal-plans/{id}/entries/{entryId}` | DELETE | `dayPlanEntryItemRouter` | `DeleteDayPlanEntry` | `day_plan_entries` |
-| `POST /api/meal-plans/{id}/groups` | POST | `mealGroupsRouter` | `CreateMealGroup` | `meal_groups` |
-| `DELETE /api/meal-plans/{id}/groups` | DELETE | `mealGroupsRouter` | `DeleteMealGroup` | `meal_groups` |
-
-#### Books (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/books` | GET | `booksRouter` | `ListBooks` | `recipe_books` |
-| `POST /api/books` | POST | `booksRouter` | `CreateBook` | `recipe_books` |
-| `GET /api/books/{id}` | GET | `bookItemRouter` | `GetBook` | `recipe_books` |
-| `PUT /api/books/{id}` | PUT | `bookItemRouter` | `UpdateBook` | `recipe_books` |
-| `DELETE /api/books/{id}` | DELETE | `bookItemRouter` | `DeleteBook` | `recipe_books` |
-| `GET /api/books/{id}/chapters` | GET | `chaptersRouter` | `ListChapters` | `chapters` |
-| `POST /api/books/{id}/chapters` | POST | `chaptersRouter` | `CreateChapter` | `chapters` |
-| `PUT /api/books/{id}/chapters/{chapterId}` | PUT | via `chaptersRouter` | `UpdateChapter` | `chapters` |
-| `DELETE /api/books/{id}/chapters/{chapterId}` | DELETE | via `chaptersRouter` | `DeleteChapter` | `chapters` |
-| `GET /api/books/{id}/chapters/{chId}/recipes` | GET | `chapterRecipesRouter` | `ListChapterRecipes` | `chapter_recipes` |
-| `POST /api/books/{id}/chapters/{chId}/recipes` | POST | `chapterRecipesRouter` | `AddChapterRecipe` | `chapter_recipes` |
-| `DELETE /api/books/{id}/chapters/{chId}/recipes` | DELETE | `chapterRecipesRouter` | `RemoveChapterRecipe` | `chapter_recipes` |
-| `GET /api/books/{id}/chapters/{chId}/pages` | GET | `chapterPagesRouter` | `ListChapterPages` | `chapter_pages` |
-| `POST /api/books/{id}/chapters/{chId}/pages` | POST | `chapterPagesRouter` | `CreateChapterPage` | `chapter_pages` |
-| `PUT /api/books/{id}/chapters/{chId}/pages/{pageId}` | PUT | `chapterPagesRouter` | `UpdateChapterPage` | `chapter_pages` |
-| `DELETE /api/books/{id}/chapters/{chId}/pages/{pageId}` | DELETE | `chapterPagesRouter` | `DeleteChapterPage` | `chapter_pages` |
-| `GET /api/books/{id}/pages` | GET | `bookPagesRouter` | `ListBookPages` | `book_pages` |
-| `POST /api/books/{id}/pages` | POST | `bookPagesRouter` | `CreateBookPage` | `book_pages` |
-
-#### Categories (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/categories` | GET | `categoriesRouter` | `ListCategories` | `categories` |
-| `POST /api/categories` | POST | `categoriesRouter` | `CreateCategory` | `categories` |
-| `PUT /api/categories/{id}` | PUT | `categoryItemRouter` | `UpdateCategory` | `categories` |
-| `DELETE /api/categories/{id}` | DELETE | `categoryItemRouter` | `DeleteCategory` | `categories` |
-
-#### Custom Foods (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/custom-foods` | GET | `customFoodsRouter` | `ListCustomFoods` | `custom_foods` |
-| `POST /api/custom-foods` | POST | `customFoodsRouter` | `CreateCustomFood` | `custom_foods` |
-| `PUT /api/custom-foods/{id}` | PUT | `customFoodItemRouter` | `UpdateCustomFood` | `custom_foods` |
-| `DELETE /api/custom-foods/{id}` | DELETE | `customFoodItemRouter` | `DeleteCustomFood` | `custom_foods` |
-| `POST /api/custom-foods/{id}/share` | POST | `customFoodItemRouter` | `ShareCustomFood` | `custom_foods` |
-| `GET /api/custom-foods/community` | GET | `communityCustomFoodsRouter` | `ListSharedCustomFoods` | `custom_foods` |
-
-#### Grocery Checklists (Auth Required)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/grocery` | GET | `groceryRouter` | `GetGroceryChecklist` | `grocery_checklists` |
-| `PUT /api/grocery` | PUT/POST | `groceryRouter` | `UpsertGroceryChecklist` | `grocery_checklists` |
-
-#### Sharing (Auth Required for write, public for read)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `POST /api/share` | POST | `createShare` | `CreateSharedRecipe` | `shared_recipes` |
-| `GET /api/share` | GET | `listShares` | `GetSharedRecipesByUser` | `shared_recipes` |
-| `GET /api/share/{token}` | GET | `getShareByToken` | `GetSharedRecipeByToken`, `IncrementSharedRecipeViews` | `shared_recipes` |
-| `DELETE /api/share/{id}` | DELETE | `deleteShare` | `DeleteSharedRecipe` | `shared_recipes` |
-| `GET /api/community` | GET | `communitySearch` | `SearchCommunityRecipes` | `shared_recipes` |
-| `GET /api/community/categories` | GET | `communityCategories` | `GetCommunityCategories` | `community_categories` |
-
-#### System (Public)
-
-| Endpoint | Methods | Handler | Store Methods | Tables |
-|---|---|---|---|---|
-| `GET /api/health` | GET | `health` | none | none |
-| `GET /api/about` | GET | `about` | none | none |
-
-### Next.js API Routes (Local Mode)
-
-These routes exist under `src/app/api/` and are used in local-only mode. They interact with the Prisma SQLite database (`src/lib/db.ts`) and IndexedDB (`src/lib/storage.ts`).
-
-#### Food Data Routes (Prisma/SQLite)
-
-| Route | Methods | Purpose | Prisma Model |
-|---|---|---|---|
-| `/api/foods` | GET | List/search foods | `FoodItem` |
-| `/api/foods/search` | GET | Full-text food search | `FoodItem` (FTS5) |
-| `/api/foods/seed` | POST | Start USDA data import | `SeedJob` |
-| `/api/foods/seed/upload` | POST | Upload USDA data file | `SeedJob`, `FoodItem` |
-| `/api/foods/seed/[jobId]` | GET | Check seed job status | `SeedJob` |
-| `/api/foods/stats` | GET | Food database stats | `FoodItem` |
-| `/api/foods/cache` | GET/DELETE | Food cache management | `FoodItem` |
-| `/api/foods/upc` | GET | Lookup by barcode | `FoodItem` |
-| `/api/fda/search` | GET | Proxy to USDA FoodData Central API | (external) |
-
-#### Recipe Routes (IndexedDB via LocalApiClient)
-
-| Route | Methods | Purpose | IndexedDB Store |
-|---|---|---|---|
-| `/api/recipes` | GET, POST | List/create recipes | `recipes` |
-| `/api/recipes/[id]` | GET, PUT, DELETE | Recipe CRUD | `recipes`, `ingredients` |
-| `/api/recipes/[id]/ingredients` | GET, POST | Ingredient management | `recipes` (nested) |
-| `/api/recipes/[id]/ingredients/[ingredientId]` | PUT, DELETE | Ingredient update/delete | `recipes` (nested) |
-
-#### Nutrition Routes (IndexedDB via LocalApiClient)
-
-| Route | Methods | Purpose | IndexedDB Store |
-|---|---|---|---|
-| `/api/nutrition/log` | GET, POST | Food log entries | `foodLogEntries` |
-| `/api/nutrition/log/[id]` | PUT, DELETE | Food log entry CRUD | `foodLogEntries` |
-| `/api/nutrition/sync` | POST | Sync nutrition data | multiple |
-| `/api/nutrition/profiles` | GET, POST | Nutrition profiles | `nutritionProfiles` |
-| `/api/nutrition/profiles/[id]` | GET, PUT, DELETE | Profile CRUD | `nutritionProfiles` |
-| `/api/nutrition/weight` | GET, POST | Weight entries | `weightEntries` |
-| `/api/nutrition/weight/[id]` | PUT, DELETE | Weight entry CRUD | `weightEntries` |
-
-#### Book/Category Routes (IndexedDB via LocalApiClient)
-
-| Route | Methods | Purpose | IndexedDB Store |
-|---|---|---|---|
-| `/api/books` | GET, POST | Book list/create | `books` |
-| `/api/books/[id]` | GET, PUT, DELETE | Book CRUD | `books` |
-| `/api/books/[id]/chapters` | GET, POST | Chapter list/create | `chapters` |
-| `/api/books/[id]/chapters/[chapterId]` | PUT, DELETE | Chapter update/delete | `chapters` |
-| `/api/books/[id]/chapters/[chapterId]/recipes` | GET, POST, DELETE | Chapter-recipe junction | `chapterRecipes` |
-| `/api/books/[id]/chapters/[chapterId]/pages` | GET, POST | Chapter pages | `chapterPages` |
-| `/api/books/[id]/chapters/[chapterId]/pages/[pageId]` | PUT, DELETE | Chapter page CRUD | `chapterPages` |
-| `/api/categories` | GET, POST | Category list/create | `categories` |
-| `/api/categories/[id]` | PUT, DELETE | Category update/delete | `categories` |
-
-#### Sharing Routes (Go API proxy)
-
-| Route | Methods | Purpose | Target |
-|---|---|---|---|
-| `/api/share` | GET, POST | Recipe sharing | Go API `shared_recipes` |
-| `/api/share/[shareId]` | GET, DELETE | Share read/delete | Go API `shared_recipes` |
-| `/api/community` | GET | Community search | Go API `shared_recipes` |
-| `/api/community/[shareId]` | GET | Community recipe detail | Go API `shared_recipes` |
-
-#### API Key Routes
-
-| Route | Methods | Purpose | Table |
-|---|---|---|---|
-| `/api/keys` | GET, POST | List/create API keys | `api_keys` |
-| `/api/keys/[id]` | DELETE | Delete API key | `api_keys` |
-
-#### AI-Assisted Routes (read-through from existing data)
-
-| Route | Methods | Purpose | Data Sources |
-|---|---|---|---|
-| `/api/ai/recipes` | GET, POST | AI recipe suggestions | `recipes`, `food_items` |
-| `/api/ai/recipes/[id]` | GET | AI recipe detail | `recipes` |
-| `/api/ai/books` | GET, POST | AI book suggestions | `books` |
-| `/api/ai/categories` | GET | AI category suggestions | `categories` |
-| `/api/ai/custom-foods` | GET, POST | AI custom food suggestions | `custom_foods` |
-| `/api/ai/foods/search` | GET | AI food search | `food_items` |
-| `/api/ai/meal-plans` | GET, POST | AI meal plan suggestions | `meal_plans`, `day_plan_entries` |
-| `/api/ai/meal-plans/[id]` | GET | AI meal plan detail | `meal_plans` |
-| `/api/ai/meal-plans/week/[date]` | GET | AI weekly plan | `meal_plans`, `day_plan_entries` |
-| `/api/ai/meal-plans/[id]/entries` | GET | AI plan entries | `day_plan_entries` |
-| `/api/ai/nutrition/log` | GET | AI nutrition log analysis | `food_log_entries` |
-| `/api/ai/nutrition/profiles` | GET | AI profile suggestions | `nutrition_profiles` |
-| `/api/ai/nutrition/profiles/[id]` | GET | AI profile detail | `nutrition_profiles` |
-| `/api/ai/nutrition/weight` | GET | AI weight analysis | `weight_entries` |
-
----
-
-## Sync Engine
-
-The sync engine bridges the IndexedDB client-side store with the Go API server.
-
-### Source Files
-
-| File | Purpose |
-|---|---|
-| `src/lib/sync-engine.ts` | Push/pull changes between IndexedDB and Go API |
-| `src/lib/sync-store.ts` | Sync state management |
-| `src/lib/sync-conflict.ts` | Conflict resolution |
-| `src/lib/write-queue.ts` | Offline write queue for Go API |
-| `src/lib/read-cache.ts` | Read-through cache for Go API |
-
-### How It Works
-
-1. **Change Tracking**: All writes to IndexedDB are logged in the `syncChangeLog` store with the store name, record ID, action (`create`/`update`/`delete`), and a version number.
-2. **Push**: The sync engine reads unsynced changes from `syncChangeLog` (where `synced` is false) and pushes them to the Go API.
-3. **Pull**: The sync engine fetches records from the Go API that have been updated since the last sync timestamp and writes them to IndexedDB.
-4. **Conflict Resolution**: When both local and remote changes exist for the same record, the sync engine resolves conflicts using a last-write-wins strategy with version checking.
-
----
-
-## Store Interface (Repository Pattern)
-
-The Go API server uses a repository pattern defined in `sync-server/repository.go`:
-
-```go
-type Store interface {
-    Close() error
-    // Users & Auth (5 methods)
-    // Recipes (5 methods)
-    // Ingredients (4 methods)
-    // Food Items (6 methods)
-    // Nutrition profiles (5 methods)
-    // Food log entries (4 methods)
-    // Weight entries (4 methods)
-    // Meal plans (5 methods)
-    // Day plan entries (4 methods)
-    // Meal groups (3 methods)
-    // Recipe books (5 methods)
-    // Chapters (5 methods)
-    // Chapter recipes (3 methods)
-    // Chapter pages (4 methods)
-    // Categories (4 methods)
-    // Recipe categories (3 methods)
-    // Custom foods (6 methods)
-    // Grocery checklists (2 methods)
-    // Book pages (4 methods)
-    // API keys (3 methods)
-    // Sharing (9 methods)
-    // Total: ~85 methods
-}
-```
-
-Two implementations:
-
-| Implementation | File | Database |
+| Layer | Storage responsibility | Authoritative? |
 |---|---|---|
-| `PostgresStore` | `store_postgres.go` | PostgreSQL via `pgx/v5` |
-| `SQLiteStore` | `store_sqlite.go` | SQLite via `modernc.org/sqlite` |
+| PostgreSQL | Durable application data, relationships, indexes, migration history | Yes |
+| Go API | Enforces ownership, validation, and write paths into PostgreSQL | No persistent storage itself |
+| Next.js | Presentation and same-origin API proxy | No |
+| Browser | Access/refresh token storage, React Query cache, transient UI state | No |
+| USDA API | External source for live food search fallback | External reference only |
 
 ---
 
-## Environment Variables
+## 2. Authoritative data-store rules
 
-| Variable | Default | Purpose |
+These rules come from `ARCHITECTURE.md`, `DECISIONS.md`, and `AGENTS.md`:
+
+1. PostgreSQL is the only authoritative application datastore.
+2. Persistent user/domain data must be represented in PostgreSQL and accessed through the Go API.
+3. The Go API owns business rules, validation, authorization, and persistence orchestration.
+4. Browser storage must not own cross-device state, secrets, or primary domain data.
+5. React Query may cache server state but does not own it.
+6. Zustand may own transient UI interaction state only.
+7. New storage technologies, caches, queues, or persistence layers require a documented architectural decision.
+
+---
+
+## 3. Current runtime datastore
+
+### PostgreSQL
+
+| Property | Value |
+|---|---|
+| Runtime role | Sole authoritative datastore |
+| Container image | `postgres:17-alpine` in `docker-compose.yml` |
+| Docker volume | `pg-data:/var/lib/postgresql/data` |
+| Go driver | `github.com/jackc/pgx/v5/stdlib` through `database/sql` |
+| Store implementation | `sync-server/store_postgres.go` (`PostgresStore`) |
+| Store contract | `sync-server/repository.go` (`Store`) |
+| Migration runner | `sync-server/migrate.go` |
+| Migrations | Embedded SQL files in `sync-server/migrations/*.sql` |
+| Startup behavior | `sync-server/main.go` requires PostgreSQL connection and runs migrations before serving |
+
+### PostgreSQL connection settings in code
+
+`NewPostgresStore` configures the SQL pool as:
+
+| Setting | Value |
+|---|---|
+| Max open connections | 25 |
+| Max idle connections | 5 |
+| Connection max lifetime | 5 minutes |
+
+---
+
+## 4. Removed or non-authoritative storage paths
+
+The following are not current authoritative runtime storage paths:
+
+| Historical / non-authoritative path | Current status |
+|---|---|
+| IndexedDB as domain storage | Removed as authoritative storage. Do not design new features around it. |
+| Offline-first sync engine | Removed from current architecture. No conflict-resolution system is part of the runtime path. |
+| Browser write queue / local-first ownership | Historical only. Writes go through the Go API. |
+| Prisma/SQLite application persistence | Historical/local-mode documentation only; not the production/runtime authority. |
+| SQLite production backend | Removed by ADR; PostgreSQL is the only production datastore. |
+| Next.js API routes for domain behavior | Removed as application backend; Next.js now proxies `/api` to Go for domain routes. |
+
+Current `src/app/api` utility routes, if present, must not become a parallel application backend for domain persistence.
+
+---
+
+## 5. Data ownership model
+
+### Ownership by system
+
+| System | Owns |
+|---|---|
+| PostgreSQL | Users, recipes, foods, logs, profiles, meal plans, books, settings, secrets, templates, sharing data, and all durable relationships |
+| Go API | Validation, authorization, domain rules, persistence sequencing, migrations, USDA fallback/cache writes |
+| React Query | Non-authoritative client-side cache of server data |
+| Browser localStorage | Auth token/user convenience state only |
+| Zustand/component state | Transient UI workflow state only |
+
+### Ownership by data category
+
+| Data category | Authoritative tables | Owner boundary |
 |---|---|---|
-| `DB_DRIVER` | `postgres` | Go server: `postgres` or `sqlite` |
-| `DATABASE_URL` | — | PostgreSQL connection string or SQLite file path |
-| `DB_PATH` | `./sync.db` | SQLite file path for Go server |
-| `NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY` | `false` | Frontend: use local IndexedDB/Prisma vs. Go API |
-| `HMAC_SECRET` | random UUID | JWT signing key |
-| `CORS_ORIGIN` | `*` | Allowed CORS origins |
-| `MAX_BODY_MB` | `10` | Max request body size |
+| Identity and auth | `users`, `api_keys`, `refresh_tokens` | Per user; API keys user-scoped; current refresh flow is JWT-based |
+| Instance administration | `instance_meta` | Single-row instance-level configuration |
+| Recipes | `recipes`, `ingredients`, `recipe_categories`, `recipe_completions` | Per user for recipes and completions; categories shared |
+| Food reference/cache | `food_items`, `seed_jobs` | Shared system food cache |
+| Custom foods | `custom_foods` | Per user plus community-sharing flag |
+| Nutrition tracking | `person_profiles`, `food_log_entries`, `weight_entries` | Per user/profile |
+| Meal planning | `meal_plans`, `day_plan_entries`, `meal_groups`, `grocery_checklists` | Per user |
+| Cookbook publishing | `recipe_books`, `chapters`, `chapter_recipes`, `chapter_pages`, `book_pages`, `templates`, `brand_kits` | Per user, with default templates possible |
+| Dietary compliance | `dietary_profiles`, `allergen_rules` | Per user |
+| Settings/location/pantry | `user_settings`, `user_locations`, `pantry_staples`, `seasonal_foods` | User-specific plus shared seasonal/global pantry data |
+| Sharing/community | `shared_recipes`, `recipe_ratings`, `community_categories` | Mixed owner/public visibility model |
+| Secrets | `user_secrets` | Per-user encrypted secrets |
 
 ---
 
-## File Reference
+## 6. Current schema inventory
 
-All database-related source files:
+The schema is defined by migrations in `sync-server/migrations`. The tables below are grouped by domain.
 
+### Platform and identity
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `users` | Accounts, password hashes, API key, admin flag | Primary identity table. `is_admin` added by migration `000014`; earliest existing user becomes admin. |
+| `devices` | Device metadata | References `users`; retained by schema. |
+| `api_keys` | User API keys | Stores `key_hash`, `key_prefix`, permissions; keys are accepted as bearer credentials by `requireAuth`. |
+| `refresh_tokens` | Refresh-token table from early schema | Table exists, but current `AuthService.RefreshToken` validates signed refresh JWTs directly. |
+| `instance_meta` | Single-row instance state | Tracks onboarding completion, registration toggle, onboarding version. |
+| `schema_migrations` | Applied migration versions | Created and maintained by `RunMigrations`. |
+
+### Recipes and ingredients
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `recipes` | User-owned recipe records | Includes name, servings, serving name, instructions, leftover storage, ingredient groups, prep time, cook time. |
+| `ingredients` | Ingredient snapshots attached to recipes | Carries canonical nutrients plus description, prep instructions, storage location, group ID, optional linked recipe ID. |
+| `recipe_categories` | Recipe/category join table | Unique recipe/category association. |
+| `recipe_completions` | Latest cooked/completed date per user and recipe | Primary key `(user_id, recipe_id)`; replaces old localStorage completion tracking. |
+
+### Food data and custom foods
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `food_items` | Shared USDA/imported/live-cached food data | Has `fdc_id`, description, brand, UPC, serving info, canonical nutrients, source, timestamps, `search_vector`. |
+| `custom_foods` | User-created foods | User-owned; can be shared with community via `shared_with_community`. |
+| `seed_jobs` | USDA dataset import job tracking | Tracks dataset type, release date, status, progress, errors, checkpoints. |
+
+### Nutrition and health tracking
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `person_profiles` | People/profiles tracked by a user | Demographics, activity level, goals, nutrient targets. |
+| `food_log_entries` | Historical food consumption snapshots | Stores canonical nutrients as a snapshot; does not live-update when recipes change. |
+| `weight_entries` | Weight and health measurements | Weight is nullable after migration `000018`; date uniqueness was removed by `000017`; `time` added by `000019`. |
+
+### Meal planning and grocery
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `meal_plans` | Weekly meal plans | Unique by `(user_id, week_start)` after migration `000009`. |
+| `day_plan_entries` | Planned recipe/manual/custom-food entries | Stores slot/date/source/servings plus nutrient snapshot values. |
+| `meal_groups` | Grouping within meal plan days/slots | Child of `meal_plans`. |
+| `grocery_checklists` | User grocery checklist by week | Uses JSONB `checked_items` after migration `000010`; unique by user/week. |
+
+### Cookbook organization and publishing
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `categories` | Shared hierarchical category tree | Self-referencing parent/child categories; seeded by API startup. |
+| `recipe_books` | User-owned cookbook/book records | Title, description, cover color. |
+| `chapters` | Book chapters | Position plus optional template references. |
+| `chapter_recipes` | Recipes included in chapters | Join table with position. |
+| `chapter_pages` | Free-form chapter pages | Content and position inside a chapter. |
+| `book_pages` | Free-form book-level pages | Content and position at book level. |
+| `templates` | Render/export layout templates | User-owned or default templates; layout stored as JSONB. |
+| `brand_kits` | Publishing brand settings | Logo data URL, colors, font family, tagline. |
+
+### Dietary compliance, settings, and reference data
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `dietary_profiles` | Dietary restriction/goal profiles | User-owned; allergens, tags, thresholds in JSONB. |
+| `allergen_rules` | Rules attached to dietary profiles | User/profile-owned; severity and custom keywords. |
+| `user_settings` | User settings JSON | One row per user. |
+| `user_locations` | User location for seasonal data | One row per user; country and region. |
+| `seasonal_foods` | Shared seasonal produce/reference foods | Unique by country, region, month; seeded by migration `000016`. |
+| `pantry_staples` | Pantry staple names | Supports user-specific and global staples after migration `000022`. |
+| `user_secrets` | Encrypted user secrets | Stores encrypted values such as per-user USDA/FDA API key. |
+
+### Sharing and community
+
+| Table | Purpose | Key ownership / notes |
+|---|---|---|
+| `shared_recipes` | Published recipe share records | Stores share token, recipe payload, visibility, ratings/views/imports. |
+| `recipe_ratings` | User ratings for shared recipes | Unique by recipe/user. |
+| `community_categories` | Community category list | Shared lookup table. |
+
+---
+
+## 7. Canonical nutrient model
+
+DietLedger uses one canonical nutrient set across food items, ingredients, recipes, meal-plan snapshots, and food logs.
+
+| Nutrient | API/client name | Storage naming pattern |
+|---|---|---|
+| Calories | `calories` | `calories` |
+| Total fat | `totalFat` | `total_fat` |
+| Saturated fat | `saturatedFat` | `saturated_fat` |
+| Trans fat | `transFat` | `trans_fat` |
+| Cholesterol | `cholesterol` | `cholesterol` |
+| Sodium | `sodium` | `sodium` |
+| Total carbohydrates | `totalCarbs` | `total_carbs` |
+| Dietary fiber | `dietaryFiber` | `dietary_fiber` |
+| Total sugars | `totalSugars` | `total_sugars` |
+| Added sugars | `addedSugars` | `added_sugars` |
+| Protein | `protein` | `protein` |
+| Vitamin D | `vitaminD` | `vitamin_d` / `vitamin_d_goal_ug` |
+| Calcium | `calcium` | `calcium` |
+| Iron | `iron` | `iron` |
+| Potassium | `potassium` | `potassium` |
+
+Domain rules:
+
+- Vitamin D is stored in micrograms after migration `000023`; USDA IU values are converted at 40 IU per microgram during ingestion.
+- Food log entries and meal-plan entries are nutrient snapshots.
+- Historical food logs must not silently change when a source food or recipe changes.
+- Nutrition fields are validated server-side for non-negative, bounded values where handlers use the validation helpers.
+
+---
+
+## 8. Migration history
+
+Migrations are embedded into the Go binary and applied by `RunMigrations` at startup.
+
+| Migration | Purpose |
+|---|---|
+| `000001_init` | Users, devices, API keys, refresh tokens. |
+| `000002_recipes` | Recipes and ingredients. |
+| `000003_foods` | Food items, custom foods, seed jobs. |
+| `000004_nutrition` | Person profiles, food log entries, weight entries. |
+| `000005_meal_plans` | Meal plans, day plan entries, meal groups, grocery checklists. |
+| `000006_books` | Categories, books, chapters, chapter recipes, chapter pages, book pages, recipe categories. |
+| `000007_sharing` | Shared recipes, recipe ratings, community categories. |
+| `000008_fts` | PostgreSQL full-text search support for `food_items`. |
+| `000009_meal_plans_unique_fix` | Meal-plan uniqueness changed to `(user_id, week_start)`. |
+| `000010_grocery_jsonb` | Grocery checklist checked items moved to JSONB. |
+| `000011_ingredient_prep_storage` | Ingredient prep instructions and storage location. |
+| `000012_ingredient_details_groups` | Ingredient description, group/link fields, recipe ingredient groups. |
+| `000013_phase2_server_data` | Settings, templates, dietary profiles, allergen rules, brand kits, pantry staples, locations, seasonal foods, user secrets. |
+| `000014_user_admin` | User admin flag and initial admin assignment. |
+| `000015_share_visibility` | Three-tier share visibility (`private`, `users`, `public`) replaces `is_public`. |
+| `000016_seasonal_foods_seed` | Seeds seasonal foods reference data. |
+| `000017_weight_entries_drop_unique` | Allows multiple weight entries per profile/date. |
+| `000018_weight_nullable` | Makes `weight_entries.weight_kg` nullable. |
+| `000019_weight_time` | Adds time field to weight entries. |
+| `000020_instance_meta` | Adds single-row instance metadata. |
+| `000021_recipe_times` | Adds recipe prep and cook time fields. |
+| `000022_global_pantry_staples` | Adds global pantry staples and partial unique indexes. |
+| `000023_vitamin_d_iu_to_mcg` | Converts stored vitamin D values from IU to micrograms for food items and USDA-linked ingredients. |
+| `000024_recipe_completions` | Adds server-side recipe completion tracking. |
+
+Migration rules:
+
+- New persistent schema changes must be made through `sync-server/migrations`.
+- The Go `Store` interface and `PostgresStore` implementation must be updated with schema changes.
+- API handlers and frontend typed clients must be kept in sync with schema/API contract changes.
+- Existing data semantics, especially nutrition snapshots, must be preserved unless a spec explicitly changes them.
+
+---
+
+## 9. Food data architecture
+
+### Local-first search with live fallback
+
+Food search is server-authoritative and currently requires authentication in the Go routes.
+
+```mermaid
+flowchart TD
+    UI[Food search UI] --> API[GET /api/foods/search]
+    API --> FTS[PostgreSQL food_items full-text search]
+    FTS -->|results found| ReturnLocal[Return local results]
+    FTS -->|no results, first page| Secret[user_secrets: fda-api-key]
+    Secret --> Decrypt[AES-GCM decrypt]
+    Decrypt --> USDA[USDA FoodData Central API]
+    USDA --> Map[Map USDA nutrients]
+    Map --> Cache[CreateFoodItems cache write]
+    Cache --> ReturnLive[Return live results]
 ```
-sync-server/
-  models.go                          # Go struct definitions (all domain models + DTOs)
-  repository.go                      # Store interface (repository contract)
-  store_postgres.go                  # PostgresStore implementation
-  store_sqlite.go                    # SQLiteStore implementation + inline schema
-  server.go                          # HTTP route registration
-  handlers_crud.go                   # CRUD handlers (recipes, profiles, books, etc.)
-  handlers_food.go                   # Food search handlers
-  handlers_sharing.go                # Sharing/community handlers
-  auth.go                            # JWT auth service
-  migrate.go                         # Embedded migration runner
-  migrations/
-    000001_init.up.sql               # users, devices, api_keys, refresh_tokens
-    000002_recipes.up.sql            # recipes, ingredients
-    000003_foods.up.sql              # food_items, custom_foods, seed_jobs
-    000004_nutrition.up.sql          # person_profiles, food_log_entries, weight_entries
-    000005_meal_plans.up.sql         # meal_plans, day_plan_entries, meal_groups, grocery_checklists
-    000006_books.up.sql              # categories, recipe_books, chapters, chapter_recipes, chapter_pages, book_pages, recipe_categories
-    000007_sharing.up.sql            # shared_recipes, recipe_ratings, community_categories
-    000008_fts.up.sql                # tsvector + GIN index + trigger on food_items
 
-prisma/
-  schema.prisma                      # Prisma schema (18 models, SQLite)
-  dev.db                             # Dev SQLite database
-  fts5-setup.sql                     # FTS5 virtual table + triggers
-  migrations/
-    20260422_add_food_item_fts5/     # FTS5 migration
+### Food search details
 
-src/lib/
-  db.ts                              # Prisma client + ensureSchema() + runtime migrations
-  storage.ts                         # IndexedDB layer (DietLedgerDB, 25 stores, v13)
-  api-client.ts                      # ApiClient interface + factory
-  api-client-local.ts                # LocalApiClient (IndexedDB)
-  api-client-go.ts                   # GoApiClient (HTTP + JWT + write queue + read cache)
-  write-queue.ts                     # Offline write queue
-  read-cache.ts                      # Read-through cache
-  sync-engine.ts                     # Sync engine (push/pull)
-  sync-store.ts                      # Sync state management
-  sync-conflict.ts                   # Conflict resolution
-  proxy.ts                           # Next.js middleware proxy to Go API
+| Concern | Current behavior |
+|---|---|
+| Local query | `PostgresStore.SearchFoods` queries `food_items.search_vector` with `plainto_tsquery`. |
+| Index | `idx_food_items_search` GIN index. |
+| Trigger | `trg_food_items_search_vector` updates the search vector on insert/update. |
+| Live fallback | Only on local miss, non-empty query, page 1. |
+| External key | Per-user secret named `fda-api-key`, encrypted in `user_secrets`. |
+| Live timeout | USDA live search uses a 15-second HTTP timeout. |
+| Cache write | Live USDA results are inserted into shared `food_items`; cache errors do not block returning live results. |
+| Bulk import | Seed jobs download USDA datasets and batch insert food items. |
+
+---
+
+## 10. Security-sensitive data
+
+### Passwords and API keys
+
+| Data | Storage approach |
+|---|---|
+| User passwords | Bcrypt hashes in `users.password_hash`. |
+| User API keys | Hashed in `api_keys.key_hash`; prefix stored for display/lookup. |
+| Legacy user API key field | `users.api_key` exists from initial schema and is part of the user model. |
+| Access/refresh tokens | Signed JWTs generated by `AuthService`; browser stores them in localStorage. |
+
+### User secrets
+
+`user_secrets` stores encrypted user-owned secrets.
+
+| Field | Purpose |
+|---|---|
+| `user_id` | Owner. |
+| `key_name` | Secret name, e.g. `fda-api-key`. |
+| `encrypted_value` | AES-GCM encrypted value. |
+
+Encryption uses `encryptSecret`/`decryptSecret` with a key derived from `AuthService.SecretKey()`. Production deployments must provide a stable `HMAC_SECRET`; otherwise the app generates a random secret at startup, making tokens invalid after restart and potentially preventing decryption of previously stored user secrets.
+
+---
+
+## 11. API route groups and table interactions
+
+The Go API routes are registered in `sync-server/server.go`. The frontend `GoApiClient` calls same-origin `/api/*`; Next.js middleware proxies those requests to the Go API.
+
+| Route group | Representative endpoints | Main tables |
+|---|---|---|
+| Auth | `/api/auth/register`, `/login`, `/refresh` | `users` |
+| Instance/admin | `/api/instance/state`, `/registration`, `/users`, `/reset-user-data`, `/factory-reset` | `instance_meta`, `users`, many user-owned tables for reset/delete |
+| Account | `/api/account/delete-data`, `/delete` | User-owned tables, `users` |
+| Recipes | `/api/recipes`, `/api/recipes/{id}`, `/api/recipes/completions` | `recipes`, `ingredients`, `recipe_categories`, `recipe_completions` |
+| Foods | `/api/foods/search`, `/api/foods/{fdcId}`, `/api/foods/upc/{upc}` | `food_items`, `seed_jobs`, `user_secrets` for live fallback |
+| Nutrition profiles/logs/weight | `/api/profiles`, nested log/weight routes | `person_profiles`, `food_log_entries`, `weight_entries` |
+| Meal plans/grocery | `/api/meal-plans`, entries/groups, `/api/grocery` | `meal_plans`, `day_plan_entries`, `meal_groups`, `grocery_checklists` |
+| Books/pages/chapters | `/api/books`, `/api/chapters`, `/api/pages`, `/api/chapter-recipes` | `recipe_books`, `chapters`, `chapter_recipes`, `chapter_pages`, `book_pages` |
+| Categories | `/api/categories` | `categories`, `recipe_categories` |
+| Custom foods | `/api/custom-foods`, `/api/custom-foods/community` | `custom_foods` |
+| Sharing/community | `/api/share`, `/api/share/{token}`, `/api/community` | `shared_recipes`, `recipe_ratings`, `community_categories` |
+| Settings/templates/branding | `/api/settings`, `/api/templates`, `/api/brand-kits` | `user_settings`, `templates`, `brand_kits` |
+| Dietary/allergens | `/api/dietary-profiles`, `/api/allergen-rules` | `dietary_profiles`, `allergen_rules` |
+| Pantry/location/seasonal | `/api/pantry-staples`, `/api/settings/location`, `/api/settings/seasonal-foods` | `pantry_staples`, `user_locations`, `seasonal_foods` |
+| Secrets | `/api/secrets` | `user_secrets` |
+
+---
+
+## 12. Client-side storage and caching
+
+Client-side storage is allowed only for non-authoritative concerns.
+
+| Mechanism | Current use | Rules |
+|---|---|---|
+| `localStorage` | Access token, refresh token, serialized current user | Convenience/session state only; not durable domain authority. |
+| React Query cache | Server-state cache and mutation state | Must be invalidated/refetched after writes; not source of truth. |
+| Component state | Form inputs and local UI interactions | Transient only. |
+| Zustand | Dialogs, selections, drag/drop/editor UI state if used | Must not own server data. |
+
+No client-side storage should contain long-lived secrets such as USDA API keys. User secrets belong in `user_secrets` through the Go API.
+
+---
+
+## 13. Deployment data architecture
+
+`docker-compose.yml` defines the runtime data topology:
+
+```mermaid
+flowchart TD
+    Web[web\nrecipetool-dietledger\nNext.js] -->|API_URL| API[api\nrecipetool-api\nGo]
+    API -->|PostgreSQL connection| PG[postgres\npostgres:17-alpine]
+    PG --> Vol[(pg-data volume)]
 ```
+
+| Service | Data role |
+|---|---|
+| `postgres` | Owns durable database files under Docker volume `pg-data`. |
+| `api` | Runs migrations and performs all database reads/writes. |
+| `web` | Proxies browser `/api` requests to `api`; no domain database access. |
+
+Important deployment rule from `AGENTS.md`: local builds do not update running services. Deployable artifacts are Docker images saved as a single combined tar and loaded on the remote host.
+
+---
+
+## 14. Backup, retention, and recovery notes
+
+The current repository defines PostgreSQL persistence through the Docker volume `pg-data`, but does not define a complete backup/retention policy in code.
+
+Recommended operational documentation to add separately:
+
+- PostgreSQL logical backup command and schedule.
+- Restore procedure tested against a non-production database.
+- Docker volume backup expectations on the remote host.
+- Secret management expectations for `HMAC_SECRET`, database password, and optional JWT signing key.
+- USDA food cache rebuild strategy through seed jobs and live fallback.
+
+---
+
+## 15. Data-store change checklist
+
+Before changing storage behavior:
+
+1. Identify the owning domain and authoritative table.
+2. Confirm the change belongs in PostgreSQL and the Go API.
+3. Write or update the spec/acceptance criteria.
+4. Add a migration for schema changes.
+5. Update `Store` and `PostgresStore`.
+6. Update handlers and server-side validation.
+7. Update frontend typed client/hooks only after the API contract is defined.
+8. Add focused tests before behavior changes.
+9. Update `ARCHITECTURE.md`, `DECISIONS.md`, `NUTRITION_DOMAIN.md`, API docs, or this file as applicable.
+10. Verify with focused tests or document why docs-only verification is sufficient.
+
+---
+
+## 16. Source file reference
+
+| Area | Files |
+|---|---|
+| Architecture rules | `ARCHITECTURE.md`, `DECISIONS.md`, `AGENTS.md` |
+| Product/domain requirements | `PROJECT.md`, `NUTRITION_DOMAIN.md` |
+| Go API startup | `sync-server/main.go` |
+| Routes/middleware | `sync-server/server.go` |
+| Auth | `sync-server/auth.go` |
+| Store contract | `sync-server/repository.go` |
+| PostgreSQL store | `sync-server/store_postgres.go` |
+| Migrations | `sync-server/migrations/*.sql`, `sync-server/migrate.go` |
+| Food import/fallback | `sync-server/seed.go`, `sync-server/usda_live.go`, `sync-server/handlers_food.go` |
+| Validation | `sync-server/validation.go`, `sync-server/validation_nutrition.go` |
+| Frontend API client | `src/lib/api-client.ts`, `src/lib/api-client-go.ts` |
+| API proxy | `src/proxy.ts`, `middleware.ts` |
+| Deployment | `docker-compose.yml`, `docker-compose.build.yml`, operator-managed image loading |
