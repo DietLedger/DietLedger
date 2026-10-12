@@ -4,6 +4,19 @@ title DietLedger Docker Build
 
 set "BASE_DIR=%~dp0"
 set "OUTPUT=%BASE_DIR%docker-build"
+set "BUMP=0"
+set "BUILD_ARGS="
+
+:parse_args
+if "%~1"=="" goto args_done
+if "%~1"=="--bump" (
+    set "BUMP=1"
+) else (
+    set "BUILD_ARGS=!BUILD_ARGS! %~1"
+)
+shift
+goto parse_args
+:args_done
 
 echo ========================================
 echo  DietLedger - Docker Build
@@ -11,7 +24,7 @@ echo ========================================
 echo.
 
 echo [1/5] Syncing version...
-if "%~1"=="--bump" (
+if "%BUMP%"=="1" (
     call node "%BASE_DIR%scripts\version-sync.js" bump
 ) else (
     call node "%BASE_DIR%scripts\version-sync.js"
@@ -26,10 +39,10 @@ for /f "delims=" %%v in ('node -e "console.log(require('./package.json').version
 echo      Version: %VERSION%
 echo.
 
-echo [2/5] Building Docker images...
+echo [2/5] Building Docker images with BuildKit/buildx...
 set "APP_VERSION=%VERSION%"
 set DOCKER_BUILDKIT=1
-call docker compose -f "%BASE_DIR%docker-compose.build.yml" build %*
+call docker buildx bake --load --set api.args.BUILD_VERSION=%VERSION% -f "%BASE_DIR%docker-compose.build.yml" %BUILD_ARGS%
 if %errorlevel% neq 0 (
     echo ERROR: Docker build failed
     pause

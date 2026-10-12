@@ -28,16 +28,10 @@ VERSION=$(node -e "console.log(require('$BASE_DIR/package.json').version)")
 echo "     Version: $VERSION"
 echo ""
 
-echo "[1/5] Bumping version and syncing..."
-node "$BASE_DIR/scripts/version-sync.js" bump
-VERSION=$(node -e "console.log(require('$BASE_DIR/package.json').version)")
-echo "     Version: $VERSION"
-echo ""
-
-echo "[2/5] Building Docker images..."
+echo "[2/5] Building Docker images with BuildKit/buildx..."
 export APP_VERSION="$VERSION"
 export DOCKER_BUILDKIT=1
-docker compose -f "$BASE_DIR/docker-compose.build.yml" build --parallel "${BUILD_ARGS[@]}"
+docker buildx bake --load --set "api.args.BUILD_VERSION=$VERSION" -f "$BASE_DIR/docker-compose.build.yml" "${BUILD_ARGS[@]}"
 echo "     Images built successfully."
 echo ""
 

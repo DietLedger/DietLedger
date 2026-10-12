@@ -1,6 +1,6 @@
 {
   "name": "dietledger",
-  "version": "1.0.0-beta.125",
+  "version": "1.0.0-beta.129",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 --webpack",
@@ -14,7 +14,11 @@
     "test:coverage": "vitest run --coverage",
     "build:web": "next build --webpack",
     "test:backend": "docker run --rm -v \"$PWD/sync-server:/app\" -w /app golang:1.23 go test ./...",
-    "test:backend:local": "cd sync-server && go test ./..."
+    "test:backend:local": "cd sync-server && go test ./...",
+    "portainer": "node scripts/build-local-images.js",
+    "portainer:dry-run": "node scripts/build-local-images.js --dry-run",
+    "docker:build:local": "node scripts/build-local-images.js",
+    "docker:build:local:dry-run": "node scripts/build-local-images.js --dry-run"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

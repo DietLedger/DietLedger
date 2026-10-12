@@ -18,12 +18,13 @@ services:
 
   api:
     image: recipetool-api
+    pull_policy: never
     container_name: dietledger-api
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "${API_PORT:-8080}:8080"
+    expose:
+      - "8080"
     environment:
       - PORT=8080
       - DATABASE_URL=postgres://${POSTGRES_USER:-dietledger}:${POSTGRES_PASSWORD:-dietledger}@postgres:5432/${POSTGRES_DB:-dietledger}?sslmode=disable
@@ -41,6 +42,7 @@ services:
 
   web:
     image: recipetool-dietledger
+    pull_policy: never
     container_name: dietledger-web
     depends_on:
       api:

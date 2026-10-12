@@ -237,7 +237,7 @@ When producing a deployable tar, follow the conventions in `build-all.bat`:
 
 * Build both images via `docker buildx bake --load -f docker-compose.build.yml`.
 * Save a **single combined tar**: `docker save -o docker-build/dietledger-{VERSION}.tar recipetool-dietledger recipetool-api` (VERSION from `package.json`).
-* Copy `docker-compose.yml` into `docker-build/`.
+* Copy `docker-compose.yml` into `docker-build/` for local packaging if needed.
 * Remote deployment is operator-managed; remote-operation tooling is not included.
 
 Do not invent alternative tar names, locations, or single-image tars.

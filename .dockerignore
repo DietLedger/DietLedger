@@ -22,6 +22,8 @@ examples
 *.tar.gz
 .DS_Store
 .claude
+.crew
+.opencode
 .z-ai-config
 .vercel
 .vercel
