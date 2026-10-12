@@ -17,19 +17,19 @@ type User struct {
 }
 
 type Recipe struct {
-	ID              string       `json:"id"`
-	UserID          string       `json:"userId"`
-	Name            string       `json:"name"`
-	Servings        int          `json:"servings"`
-	ServingName     string       `json:"servingName"`
-	PrepTime        *string      `json:"prepTime,omitempty"`
-	CookTime        *string      `json:"cookTime,omitempty"`
-	Instructions    *string      `json:"instructions,omitempty"`
-	LeftoverStorage *string      `json:"leftoverStorage,omitempty"`
-	IngredientGroupsJSON string  `json:"ingredientGroups,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	UpdatedAt       time.Time    `json:"updatedAt"`
-	Ingredients     []Ingredient `json:"ingredients,omitempty"`
+	ID                   string       `json:"id"`
+	UserID               string       `json:"userId"`
+	Name                 string       `json:"name"`
+	Servings             int          `json:"servings"`
+	ServingName          string       `json:"servingName"`
+	PrepTime             *string      `json:"prepTime,omitempty"`
+	CookTime             *string      `json:"cookTime,omitempty"`
+	Instructions         *string      `json:"instructions,omitempty"`
+	LeftoverStorage      *string      `json:"leftoverStorage,omitempty"`
+	IngredientGroupsJSON string       `json:"ingredientGroups,omitempty"`
+	CreatedAt            time.Time    `json:"createdAt"`
+	UpdatedAt            time.Time    `json:"updatedAt"`
+	Ingredients          []Ingredient `json:"ingredients,omitempty"`
 }
 
 func (r *Recipe) ScanIngredientGroups(v string) {
@@ -66,6 +66,8 @@ type Ingredient struct {
 	Potassium        float64  `json:"potassium"`
 	GroupID          *string  `json:"groupId"`
 	LinkedRecipeID   *string  `json:"linkedRecipeId"`
+	SourceType       string   `json:"sourceType"`
+	SourceKey        *string  `json:"sourceKey,omitempty"`
 	PrepInstructions []string `json:"prepInstructions"`
 	StorageLocation  string   `json:"storageLocation"`
 }
@@ -88,32 +90,32 @@ func PrepInstructionsJSON(v []string) string {
 }
 
 type FoodItem struct {
-	ID             int     `json:"id"`
-	FdcID          int     `json:"fdcId"`
-	Description    string  `json:"description"`
-	DataType       string  `json:"dataType"`
-	BrandOwner     *string `json:"brandOwner,omitempty"`
-	GtinUpc        *string `json:"gtinUpc,omitempty"`
-	ServingSize    float64 `json:"servingSize"`
-	ServingSizeUnit string `json:"servingSizeUnit"`
-	Calories       float64 `json:"calories"`
-	TotalFat       float64 `json:"totalFat"`
-	SaturatedFat   float64 `json:"saturatedFat"`
-	TransFat       float64 `json:"transFat"`
-	Cholesterol    float64 `json:"cholesterol"`
-	Sodium         float64 `json:"sodium"`
-	TotalCarbs     float64 `json:"totalCarbs"`
-	DietaryFiber   float64 `json:"dietaryFiber"`
-	TotalSugars    float64 `json:"totalSugars"`
-	AddedSugars    float64 `json:"addedSugars"`
-	Protein        float64 `json:"protein"`
-	VitaminD       float64 `json:"vitaminD"`
-	Calcium        float64 `json:"calcium"`
-	Iron           float64 `json:"iron"`
-	Potassium      float64 `json:"potassium"`
-	Source         string  `json:"source"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID              int       `json:"id"`
+	FdcID           int       `json:"fdcId"`
+	Description     string    `json:"description"`
+	DataType        string    `json:"dataType"`
+	BrandOwner      *string   `json:"brandOwner,omitempty"`
+	GtinUpc         *string   `json:"gtinUpc,omitempty"`
+	ServingSize     float64   `json:"servingSize"`
+	ServingSizeUnit string    `json:"servingSizeUnit"`
+	Calories        float64   `json:"calories"`
+	TotalFat        float64   `json:"totalFat"`
+	SaturatedFat    float64   `json:"saturatedFat"`
+	TransFat        float64   `json:"transFat"`
+	Cholesterol     float64   `json:"cholesterol"`
+	Sodium          float64   `json:"sodium"`
+	TotalCarbs      float64   `json:"totalCarbs"`
+	DietaryFiber    float64   `json:"dietaryFiber"`
+	TotalSugars     float64   `json:"totalSugars"`
+	AddedSugars     float64   `json:"addedSugars"`
+	Protein         float64   `json:"protein"`
+	VitaminD        float64   `json:"vitaminD"`
+	Calcium         float64   `json:"calcium"`
+	Iron            float64   `json:"iron"`
+	Potassium       float64   `json:"potassium"`
+	Source          string    `json:"source"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type PersonProfile struct {
@@ -233,12 +235,12 @@ type DayPlanEntry struct {
 }
 
 type MealGroup struct {
-	ID         string    `json:"id"`
-	MealPlanID string    `json:"mealPlanId"`
-	Date       string    `json:"date"`
-	Slot       string    `json:"slot"`
-	Name       string    `json:"name"`
-	Position   int       `json:"position"`
+	ID         string `json:"id"`
+	MealPlanID string `json:"mealPlanId"`
+	Date       string `json:"date"`
+	Slot       string `json:"slot"`
+	Name       string `json:"name"`
+	Position   int    `json:"position"`
 }
 
 type RecipeBook struct {
@@ -252,9 +254,9 @@ type RecipeBook struct {
 }
 
 type Chapter struct {
-	ID                string    `json:"id"`
-	BookID            string    `json:"bookId"`
-	Title             string    `json:"title"`
+	ID               string    `json:"id"`
+	BookID           string    `json:"bookId"`
+	Title            string    `json:"title"`
 	Position         int       `json:"position"`
 	PageTemplateID   *string   `json:"pageTemplateId,omitempty"`
 	RecipeTemplateID *string   `json:"recipeTemplateId,omitempty"`
@@ -361,18 +363,18 @@ type ApiKey struct {
 }
 
 type SeedJob struct {
-	ID          int       `json:"id"`
-	DataType    string    `json:"dataType"`
-	ReleaseDate string    `json:"releaseDate"`
-	FileName    string    `json:"fileName"`
-	RecordCount int       `json:"recordCount"`
-	Status      string    `json:"status"`
-	Progress    float64   `json:"progress"`
-	Error       *string   `json:"error,omitempty"`
-	Checkpoint  *string   `json:"checkpoint,omitempty"`
+	ID          int        `json:"id"`
+	DataType    string     `json:"dataType"`
+	ReleaseDate string     `json:"releaseDate"`
+	FileName    string     `json:"fileName"`
+	RecordCount int        `json:"recordCount"`
+	Status      string     `json:"status"`
+	Progress    float64    `json:"progress"`
+	Error       *string    `json:"error,omitempty"`
+	Checkpoint  *string    `json:"checkpoint,omitempty"`
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
+	CreatedAt   time.Time  `json:"createdAt"`
 }
 
 type SharedRecipe struct {
@@ -492,8 +494,20 @@ type CreateIngredientReq struct {
 	Potassium        float64  `json:"potassium"`
 	GroupID          *string  `json:"groupId"`
 	LinkedRecipeID   *string  `json:"linkedRecipeId"`
+	SourceType       string   `json:"sourceType"`
+	SourceKey        *string  `json:"sourceKey,omitempty"`
 	PrepInstructions []string `json:"prepInstructions"`
 	StorageLocation  string   `json:"storageLocation"`
+}
+
+type ExportCandidate struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SearchText  string `json:"searchText"`
+	OwnerUserID string `json:"ownerUserId"`
+	Access      string `json:"access"`
 }
 
 type CreateProfileRequest struct {
@@ -566,30 +580,30 @@ type CreateMealPlanRequest struct {
 }
 
 type CreateDayPlanEntryRequest struct {
-	Date         string   `json:"date"`
-	Slot         string   `json:"slot"`
-	RecipeID     *string  `json:"recipeId,omitempty"`
-	Position     int      `json:"position"`
-	GroupID      *string  `json:"groupId,omitempty"`
-	Servings     float64  `json:"servings"`
-	IsLeftover   bool     `json:"isLeftover"`
-	SourceType   string   `json:"sourceType"`
-	FoodName     *string  `json:"foodName,omitempty"`
-	Calories     float64  `json:"calories"`
-	TotalFat     float64  `json:"totalFat"`
-	SaturatedFat float64  `json:"saturatedFat"`
-	TransFat     float64  `json:"transFat"`
-	Cholesterol  float64  `json:"cholesterol"`
-	Sodium       float64  `json:"sodium"`
-	TotalCarbs   float64  `json:"totalCarbs"`
-	DietaryFiber float64  `json:"dietaryFiber"`
-	TotalSugars  float64  `json:"totalSugars"`
-	AddedSugars  float64  `json:"addedSugars"`
-	Protein      float64  `json:"protein"`
-	VitaminD     float64  `json:"vitaminD"`
-	Calcium      float64  `json:"calcium"`
-	Iron         float64  `json:"iron"`
-	Potassium    float64  `json:"potassium"`
+	Date         string  `json:"date"`
+	Slot         string  `json:"slot"`
+	RecipeID     *string `json:"recipeId,omitempty"`
+	Position     int     `json:"position"`
+	GroupID      *string `json:"groupId,omitempty"`
+	Servings     float64 `json:"servings"`
+	IsLeftover   bool    `json:"isLeftover"`
+	SourceType   string  `json:"sourceType"`
+	FoodName     *string `json:"foodName,omitempty"`
+	Calories     float64 `json:"calories"`
+	TotalFat     float64 `json:"totalFat"`
+	SaturatedFat float64 `json:"saturatedFat"`
+	TransFat     float64 `json:"transFat"`
+	Cholesterol  float64 `json:"cholesterol"`
+	Sodium       float64 `json:"sodium"`
+	TotalCarbs   float64 `json:"totalCarbs"`
+	DietaryFiber float64 `json:"dietaryFiber"`
+	TotalSugars  float64 `json:"totalSugars"`
+	AddedSugars  float64 `json:"addedSugars"`
+	Protein      float64 `json:"protein"`
+	VitaminD     float64 `json:"vitaminD"`
+	Calcium      float64 `json:"calcium"`
+	Iron         float64 `json:"iron"`
+	Potassium    float64 `json:"potassium"`
 }
 
 type CreateBookRequest struct {
@@ -599,10 +613,10 @@ type CreateBookRequest struct {
 }
 
 type CreateChapterRequest struct {
-	Title             string  `json:"title"`
-	Position          int     `json:"position"`
-	PageTemplateID    *string `json:"pageTemplateId,omitempty"`
-	RecipeTemplateID  *string `json:"recipeTemplateId,omitempty"`
+	Title            string  `json:"title"`
+	Position         int     `json:"position"`
+	PageTemplateID   *string `json:"pageTemplateId,omitempty"`
+	RecipeTemplateID *string `json:"recipeTemplateId,omitempty"`
 }
 
 type CreateCategoryRequest struct {
@@ -660,8 +674,6 @@ type FoodSearchResult struct {
 	Source     string     `json:"source"`
 }
 
-
-
 type Conflict struct {
 	ID            string     `json:"id"`
 	UserID        string     `json:"userId"`
@@ -712,15 +724,15 @@ type Template struct {
 }
 
 type DietaryProfile struct {
-	ID                      string    `json:"id"`
-	UserID                  string    `json:"userId"`
-	Name                    string    `json:"name"`
-	AllergensJSON           string    `json:"allergens"`
-	DietaryTagsJSON         string    `json:"dietaryTags"`
-	NutrientThresholdsJSON  string    `json:"nutrientThresholds"`
-	IsActive                bool      `json:"isActive"`
-	CreatedAt               time.Time `json:"createdAt"`
-	UpdatedAt               time.Time `json:"updatedAt"`
+	ID                     string    `json:"id"`
+	UserID                 string    `json:"userId"`
+	Name                   string    `json:"name"`
+	AllergensJSON          string    `json:"allergens"`
+	DietaryTagsJSON        string    `json:"dietaryTags"`
+	NutrientThresholdsJSON string    `json:"nutrientThresholds"`
+	IsActive               bool      `json:"isActive"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 type AllergenRule struct {
@@ -735,16 +747,16 @@ type AllergenRule struct {
 }
 
 type BrandKit struct {
-	ID            string    `json:"id"`
-	UserID        string    `json:"userId"`
-	Name          string    `json:"name"`
-	LogoDataURL   *string   `json:"logoDataUrl,omitempty"`
-	PrimaryColor  string    `json:"primaryColor"`
-	SecondaryColor string   `json:"secondaryColor"`
-	FontFamily    string    `json:"fontFamily"`
-	Tagline       *string   `json:"tagline,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"userId"`
+	Name           string    `json:"name"`
+	LogoDataURL    *string   `json:"logoDataUrl,omitempty"`
+	PrimaryColor   string    `json:"primaryColor"`
+	SecondaryColor string    `json:"secondaryColor"`
+	FontFamily     string    `json:"fontFamily"`
+	Tagline        *string   `json:"tagline,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type PantryStaple struct {
@@ -780,11 +792,11 @@ type SeasonalFood struct {
 }
 
 type UserSecret struct {
-	ID             string    `json:"id"`
-	UserID         string    `json:"userId"`
-	KeyName        string    `json:"keyName"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	KeyName   string    `json:"keyName"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type UpdateSettingsRequest struct {
@@ -799,17 +811,17 @@ type CreateTemplateRequest struct {
 }
 
 type UpdateTemplateRequest struct {
-	Name     *string `json:"name,omitempty"`
-	Layout   *string `json:"layout,omitempty"`
-	IsDefault *bool  `json:"isDefault,omitempty"`
+	Name      *string `json:"name,omitempty"`
+	Layout    *string `json:"layout,omitempty"`
+	IsDefault *bool   `json:"isDefault,omitempty"`
 }
 
 type CreateDietaryProfileRequest struct {
-	Name                string `json:"name"`
-	Allergens           string `json:"allergens"`
-	DietaryTags         string `json:"dietaryTags"`
-	NutrientThresholds  string `json:"nutrientThresholds"`
-	IsActive            bool   `json:"isActive"`
+	Name               string `json:"name"`
+	Allergens          string `json:"allergens"`
+	DietaryTags        string `json:"dietaryTags"`
+	NutrientThresholds string `json:"nutrientThresholds"`
+	IsActive           bool   `json:"isActive"`
 }
 
 type UpdateDietaryProfileRequest struct {
@@ -821,8 +833,8 @@ type UpdateDietaryProfileRequest struct {
 }
 
 type CreateAllergenRuleRequest struct {
-	Allergen      string `json:"allergen"`
-	Severity      string `json:"severity"`
+	Allergen       string `json:"allergen"`
+	Severity       string `json:"severity"`
 	CustomKeywords string `json:"customKeywords"`
 }
 

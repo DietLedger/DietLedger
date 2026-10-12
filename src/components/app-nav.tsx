@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useRecipes } from '@/hooks/use-recipes';
+import { useBooks } from '@/hooks/use-books';
 import { useFDAKey, useSetFDAKey } from '@/hooks/use-secrets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,7 +53,8 @@ import { ConfirmWithPasswordDialog } from '@/components/confirm-with-password-di
 import { useAuth } from '@/hooks/use-auth';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { getApiClient } from '@/lib/api-client';
-import { exportAllData, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { queryKeys } from '@/lib/query-keys';
+import { downloadRecipeBundle, importRecipeBundleFromFile, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 
 const NAV_ITEMS = [
   { href: '/recipes', label: 'Recipes', icon: Salad },
@@ -60,14 +63,17 @@ const NAV_ITEMS = [
   { href: '/kitchen-helper', label: 'Kitchen Helper', icon: ChefHat },
   { href: '/nutrition', label: 'Nutrition', icon: Activity },
   { href: '/nutrition?action=addfood', label: 'Add Food', icon: Plus },
+  { href: '/export', label: 'Export', icon: Download },
 ] as const;
 
 export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: apiKey = 'DEMO_KEY' } = useFDAKey();
   const setFDAKeyMutation = useSetFDAKey();
   const { data: recipes = [] } = useRecipes();
+  const { data: books = [] } = useBooks();
   const { user, logout } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logWeightOpen, setLogWeightOpen] = useState(false);
@@ -85,22 +91,26 @@ export default function AppNav() {
 
   const handleDataExport = useCallback(async () => {
     setDataBusy(true); setDataStatus(null);
-    try { const data = await exportAllData(); await downloadZip(data, `dietledger-export-${new Date().toISOString().slice(0, 10)}.zip`); }
+    try {
+      const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
+      downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
+    }
     catch (e) { setDataStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Export failed' }); }
     finally { setDataBusy(false); }
-  }, []);
+  }, [recipes, books]);
 
   const handleDataImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setDataBusy(true); setDataStatus(null);
     try {
-      const result = await importFromZip(file);
-      if (result.success) setDataStatus({ kind: 'ok', msg: summarizeCounts(result.counts) || 'Imported' });
-      else setDataStatus({ kind: 'err', msg: result.error || 'Import failed' });
+      const result = await importRecipeBundleFromFile(file);
+      setDataStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
     } catch (e) { setDataStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Import failed' }); }
     finally { setDataBusy(false); e.target.value = ''; }
-  }, []);
+  }, [queryClient]);
 
   function getActiveSection(pathname: string): string | null {
     for (const item of NAV_ITEMS) {
@@ -345,14 +355,14 @@ export default function AppNav() {
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-1">
                         <Download className="w-3.5 h-3.5 text-brand-600" />Export / Import
                       </label>
-                      <p className="text-xs text-stone-400 mb-3">Back up your account data or merge in an archive (zip).</p>
+                      <p className="text-xs text-stone-400 mb-3">Export or import DietLedger-native recipe/cookbook bundles.</p>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={handleDataExport} disabled={dataBusy}>
+                        <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={() => { setSettingsOpen(false); router.push('/export'); }} disabled={dataBusy}>
                           <Download className="w-3.5 h-3.5" />Export
                         </Button>
                         <label className="inline-flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-md border border-stone-200 hover:bg-stone-50 cursor-pointer">
                           <Upload className="w-3.5 h-3.5" />Import
-                          <input type="file" accept=".zip" className="hidden" onChange={handleDataImport} disabled={dataBusy} />
+                          <input type="file" accept=".json,application/json" className="hidden" onChange={handleDataImport} disabled={dataBusy} />
                         </label>
                       </div>
                     </div>
@@ -377,16 +387,16 @@ export default function AppNav() {
                           />
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs text-stone-600">Delete my account<br /><span className="text-stone-400">Downloads a backup zip, then deletes everything.</span></p>
+                          <p className="text-xs text-stone-600">Delete my account<br /><span className="text-stone-400">Downloads a recipe bundle, then deletes everything.</span></p>
                           <ConfirmWithPasswordDialog
                             title="Delete your account?"
-                            description="A backup zip will be downloaded first, then your account and all its data will be permanently deleted. You will be signed out. Cannot be undone."
+                            description="A recipe/cookbook bundle will be downloaded first, then your account and all its data will be permanently deleted. You will be signed out. Cannot be undone."
                             confirmLabel="Delete account" destructive
                             trigger={<Button size="sm" variant="outline" className="gap-1 border-red-200 text-red-700 hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" />Delete account</Button>}
                             action={async (password) => {
                               try {
-                                const data = await exportAllData();
-                                await downloadZip(data, `dietledger-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+                                const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
+                                downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
                                 await getApiClient().deleteMyAccount(password);
                                 logout();
                                 router.replace('/');

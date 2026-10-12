@@ -64,6 +64,51 @@ describe('buildRescaledIngredientUpdate', () => {
     expect(update.linkedRecipeId).toBe('recipe-xyz');
   });
 
+  it('preserves nutrient values when editing non-nutrition parameters', () => {
+    const ingredient = makeIngredient({
+      calories: 120,
+      totalFat: 3,
+      saturatedFat: 1,
+      transFat: 0,
+      cholesterol: 5,
+      sodium: 80,
+      totalCarbs: 20,
+      dietaryFiber: 2,
+      totalSugars: 4,
+      addedSugars: 1,
+      protein: 6,
+      vitaminD: 0.5,
+      calcium: 30,
+      iron: 1.2,
+      potassium: 140,
+    });
+    const update = buildRescaledIngredientUpdate(ingredient, {
+      name: 'Whole Wheat Flour',
+      description: 'updated',
+      amount: 100,
+      unit: 'g',
+      prepInstructions: ['sifted'],
+      storageLocation: 'pantry',
+    });
+    expect(update).toMatchObject({
+      calories: 120,
+      totalFat: 3,
+      saturatedFat: 1,
+      transFat: 0,
+      cholesterol: 5,
+      sodium: 80,
+      totalCarbs: 20,
+      dietaryFiber: 2,
+      totalSugars: 4,
+      addedSugars: 1,
+      protein: 6,
+      vitaminD: 0.5,
+      calcium: 30,
+      iron: 1.2,
+      potassium: 140,
+    });
+  });
+
   it('still applies the edited fields', () => {
     const ingredient = makeIngredient({ groupId: 'group-abc' });
     const update = buildRescaledIngredientUpdate(ingredient, {

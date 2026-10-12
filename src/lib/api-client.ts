@@ -23,6 +23,7 @@ import type {
   SharedRecipeRecord,
   ShareVisibility,
   PantryStapleRecord,
+  ExportCandidateRecord,
 } from './types';
 
 export type {
@@ -46,6 +47,7 @@ export type {
   CustomFoodRecord,
   TemplateRecord,
   PantryStapleRecord,
+  ExportCandidateRecord,
   DietaryProfileRecord,
   AllergenRuleRecord,
   SharedRecipeRecord,
@@ -136,6 +138,38 @@ export interface UserSecretInfo {
   updatedAt?: string;
 }
 
+export interface RecipeBundle {
+  format: 'dietledger.recipe-bundle';
+  version: 1;
+  exportedAt: string;
+  source?: { app: string; version: string };
+  recipes?: unknown[];
+  books?: unknown[];
+  chapters?: unknown[];
+  chapterRecipes?: unknown[];
+  chapterPages?: unknown[];
+  bookPages?: unknown[];
+  categories?: unknown[];
+  recipeCategories?: unknown[];
+  templates?: unknown[];
+  foodItems?: unknown[];
+  customFoods?: unknown[];
+  nutritionProfiles?: NutritionProfileRecord[];
+  foodLogEntries?: FoodLogEntryRecord[];
+  weightEntries?: WeightEntryRecord[];
+  mealPlans?: MealPlanRecord[];
+  dayPlanEntries?: DayPlanEntryRecord[];
+  mealGroups?: MealGroupRecord[];
+}
+
+export interface RecipeBundleImportSummary {
+  created: Record<string, number>;
+  updated: Record<string, number>;
+  reused: Record<string, number>;
+  skipped: Record<string, number>;
+  conflicts: Array<{ objectType: string; objectKey: string; name: string; reason: string }>;
+}
+
 export interface ApiClient {
   // Auth
   register(email: string, password: string, displayName: string): Promise<AuthResult>;
@@ -189,6 +223,11 @@ export interface ApiClient {
     data: Partial<Omit<IngredientRecord, 'id' | 'recipeId'>>
   ): Promise<IngredientRecord>;
   removeIngredient(recipeId: string, ingredientId: string): Promise<void>;
+
+  // Recipe bundles
+  getRecipeBundleExportCandidates(): Promise<ExportCandidateRecord[]>;
+  exportRecipeBundle(request: { recipeIds?: string[]; bookIds?: string[]; profileIds?: string[]; mealPlanIds?: string[] }): Promise<RecipeBundle>;
+  importRecipeBundle(bundle: RecipeBundle): Promise<RecipeBundleImportSummary>;
 
   // Books
   getBooks(): Promise<BookRecord[]>;

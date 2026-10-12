@@ -30,6 +30,7 @@ import type {
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
+  ExportCandidateRecord,
   UserSecretInfo,
 } from './api-client';
 
@@ -310,6 +311,8 @@ export class GoApiClient implements ApiClient {
         potassium: ing.potassium,
         groupId: ing.groupId || null,
         linkedRecipeId: ing.linkedRecipeId || null,
+        sourceType: ing.sourceType || 'manual',
+        sourceKey: ing.sourceKey || null,
         prepInstructions: ing.prepInstructions || [],
         storageLocation: ing.storageLocation || '',
       }));
@@ -323,6 +326,29 @@ export class GoApiClient implements ApiClient {
 
   async deleteRecipe(id: string): Promise<void> {
     await this.request('DELETE', `/api/recipes/${id}`);
+  }
+
+  async getRecipeBundleExportCandidates(): Promise<ExportCandidateRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: ExportCandidateRecord[] }>('GET', '/api/recipe-bundles/candidates');
+    return this.unwrap(resp);
+  }
+
+  async exportRecipeBundle(request: { recipeIds?: string[]; bookIds?: string[]; profileIds?: string[]; mealPlanIds?: string[] }): Promise<import('./api-client').RecipeBundle> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundle }>(
+      'POST',
+      '/api/recipe-bundles/export',
+      { recipeIds: request.recipeIds ?? [], bookIds: request.bookIds ?? [], profileIds: request.profileIds ?? [], mealPlanIds: request.mealPlanIds ?? [] },
+    );
+    return this.unwrap(resp);
+  }
+
+  async importRecipeBundle(bundle: import('./api-client').RecipeBundle): Promise<import('./api-client').RecipeBundleImportSummary> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundleImportSummary }>(
+      'POST',
+      '/api/recipe-bundles/import',
+      bundle,
+    );
+    return this.unwrap(resp);
   }
 
   // ── Ingredients ──────────────────────────────────────────────────
@@ -357,6 +383,8 @@ export class GoApiClient implements ApiClient {
         potassium: ingredient.potassium,
         groupId: ingredient.groupId || null,
         linkedRecipeId: ingredient.linkedRecipeId || null,
+        sourceType: ingredient.sourceType || 'manual',
+        sourceKey: ingredient.sourceKey || null,
         prepInstructions: ingredient.prepInstructions || [],
         storageLocation: ingredient.storageLocation || '',
       }

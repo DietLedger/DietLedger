@@ -12,7 +12,6 @@ import {
 import { useUpdateSettings } from '@/hooks/use-settings';
 import { useCreateNutritionProfile } from '@/hooks/use-nutrition';
 import { getApiClient, type SeedJob } from '@/lib/api-client';
-import { importFromZip, summarizeCounts } from '@/lib/export-import';
 import {
   Card,
   CardContent,
@@ -33,7 +32,7 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { DEFAULT_MEAL_SLOT_TIMES, type ActivityLevel } from '@/lib/types';
-import { ChefHat, ArrowLeft, ArrowRight, Loader2, Check, AlertTriangle } from 'lucide-react';
+import { ChefHat, ArrowLeft, ArrowRight, Loader2, Check } from 'lucide-react';
 
 type StepKey = 'welcome' | 'account' | 'basics' | 'registration' | 'usda' | 'demo' | 'profile' | 'finish';
 
@@ -113,12 +112,8 @@ export function SetupWizard() {
   const [jobProgress, setJobProgress] = useState<Record<number, SeedJob>>({});
   const [seedStarting, setSeedStarting] = useState(false);
 
-  // Demo cookbook install. Client-orchestrated (runs the shared importer), so
-  // it must finish before leaving the step — hence progress + busy state.
-  const [demoChoice, setDemoChoice] = useState<'install' | 'skip'>('skip');
-  const [demoImporting, setDemoImporting] = useState(false);
-  const [demoImported, setDemoImported] = useState(0);
-  const [demoStatus, setDemoStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+  // Starter data is now owned by the server-side recipe bundle/import path.
+  // The old browser-driven demo zip installer has been intentionally removed.
 
   useEffect(() => {
     if (!instanceLoading && instance?.onboardingComplete) {
@@ -358,28 +353,6 @@ export function SetupWizard() {
     }
   };
 
-  const runDemoInstall = async () => {
-    setDemoImporting(true);
-    setDemoImported(0);
-    setDemoStatus(null);
-    try {
-      const res = await fetch('/demo/demo-cookbook.zip', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Demo bundle could not be loaded (404). It may not be deployed yet.');
-      const blob = await res.blob();
-      const file = new File([blob], 'demo-cookbook.zip', { type: 'application/zip' });
-      const result = await importFromZip(file, (counts) => setDemoImported(counts.recipes));
-      if (result.success) {
-        setDemoStatus({ kind: 'ok', msg: summarizeCounts(result.counts) || 'Import complete' });
-      } else {
-        setDemoStatus({ kind: 'err', msg: result.error || 'Import failed' });
-      }
-    } catch (e) {
-      setDemoStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Failed to install demo recipes' });
-    } finally {
-      setDemoImporting(false);
-    }
-  };
-
   const finish = async () => {
     setBusy(true);
     setError('');
@@ -416,17 +389,8 @@ export function SetupWizard() {
       if (usdaPreset !== 'skip' && seedJobs.length === 0) await startImport();
     }
     else if (currentStep === 'demo') {
-      // Run the installer to completion if the admin opted in. Finishes before
-      // advancing because the import is client-orchestrated and must not be
-      // abandoned mid-way. Errors are non-fatal (advance anyway).
-      if (demoChoice === 'install' && !demoStatus && !demoImporting) {
-        setBusy(true);
-        try {
-          await runDemoInstall();
-        } finally {
-          setBusy(false);
-        }
-      }
+      // Starter data import is handled outside the browser-driven onboarding
+      // flow by the server-side recipe bundle/import pipeline.
     }
     else if (currentStep === 'profile') ok = await saveProfile();
     if (ok) advance();
@@ -595,44 +559,13 @@ export function SetupWizard() {
         )}
 
         {currentStep === 'demo' && (
-          <div className="space-y-3">
-            <Field label="Install a starter recipe library?">
-              <RadioGroup value={demoChoice} onValueChange={(v) => setDemoChoice(v as 'install' | 'skip')} className="flex flex-col gap-2">
-                <div className="flex items-start gap-2">
-                  <RadioGroupItem value="install" id="demo-install" className="mt-1" />
-                  <div>
-                    <Label htmlFor="demo-install">Install demo recipes</Label>
-                    <p className="text-xs text-stone-400">
-                      Adds a starter cookbook of community recipes so you can explore right away. Takes about a minute.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <RadioGroupItem value="skip" id="demo-skip" className="mt-1" />
-                  <div>
-                    <Label htmlFor="demo-skip">Skip</Label>
-                    <p className="text-xs text-stone-400">You can import recipes later from the Books or Recipes page.</p>
-                  </div>
-                </div>
-              </RadioGroup>
-            </Field>
-
-            {demoImporting && (
-              <div className="flex items-center gap-2 text-xs text-stone-500">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
-                Installing recipes… {demoImported} imported
-              </div>
-            )}
-            {demoStatus && (
-              <p className={`text-xs rounded p-2 flex items-center gap-1.5 ${
-                demoStatus.kind === 'ok'
-                  ? 'text-green-700 bg-green-50 border border-green-200'
-                  : 'text-red-600 bg-red-50 border border-red-200'
-              }`}>
-                {demoStatus.kind === 'ok' ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                {demoStatus.msg}
-              </p>
-            )}
+          <div className="space-y-3 text-sm text-stone-600">
+            <p>
+              Starter recipe data is now handled by DietLedger recipe bundle imports instead of the old browser-driven demo zip installer.
+            </p>
+            <p className="text-xs text-stone-400">
+              Continue setup now; you can import a DietLedger recipe/cookbook bundle later from Recipes, Books, or Settings.
+            </p>
           </div>
         )}
 
@@ -687,7 +620,7 @@ export function SetupWizard() {
             <ul className="space-y-1.5">
               <li className="flex gap-2"><Check className="w-4 h-4 text-brand-600 mt-0.5" />Start creating recipes and cookbooks.</li>
               <li className="flex gap-2"><Check className="w-4 h-4 text-brand-600 mt-0.5" />Import USDA food data from Settings (administrator).</li>
-              <li className="flex gap-2"><Check className="w-4 h-4 text-brand-600 mt-0.5" />Install the demo cookbook from Settings (administrator).</li>
+              <li className="flex gap-2"><Check className="w-4 h-4 text-brand-600 mt-0.5" />Import DietLedger recipe/cookbook bundles from Recipes, Books, or Settings.</li>
             </ul>
           </div>
         )}
@@ -743,7 +676,7 @@ const SUBTITLE: Record<StepKey, string> = {
   basics: 'You can change these later in Settings.',
   registration: 'Control who can create accounts on this instance.',
   usda: 'Optional. Loads shared USDA food data for recipe and nutrition search.',
-  demo: 'Optional. Install a starter cookbook to explore DietLedger with real content.',
+  demo: 'Starter recipe bundles can be imported after setup.',
   profile: 'Profiles power nutrition tracking, BMI, BMR and TDEE.',
   finish: 'Complete setup to start using DietLedger.',
 };

@@ -58,6 +58,9 @@ func (s *Server) Routes() http.Handler {
 	// item route (Go's mux prefers the longest match).
 	mux.HandleFunc("/api/recipes/completions", s.requireAuth(s.recipeCompletionsRouter))
 	mux.HandleFunc("/api/recipes/completions/", s.requireAuth(s.recipeCompletionsRouter))
+	mux.HandleFunc("/api/recipe-bundles/candidates", s.requireAuth(s.recipeBundlesRouter))
+	mux.HandleFunc("/api/recipe-bundles/export", s.requireAuth(s.recipeBundlesRouter))
+	mux.HandleFunc("/api/recipe-bundles/import", s.requireAuth(s.recipeBundlesRouter))
 
 	mux.HandleFunc("/api/profiles/", s.requireAuth(s.profileRoutes))
 	mux.HandleFunc("/api/profiles", s.requireAuth(s.profilesRouter))

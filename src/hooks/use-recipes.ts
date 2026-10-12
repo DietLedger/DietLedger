@@ -193,6 +193,8 @@ export function buildIngredientData(food: FDAFood, amount: number, unit: string)
     potassium: scaleVal(food.nutrients.potassium),
     groupId: null,
     linkedRecipeId: null,
+    sourceType: 'usda',
+    sourceKey: String(food.fdcId),
     prepInstructions: [],
     storageLocation: '',
   };
@@ -226,6 +228,8 @@ export function buildCustomIngredientData(name: string, nutrition: Record<Nutrie
     potassium: scaleVal(nutrition.potassium),
     groupId: null,
     linkedRecipeId: null,
+    sourceType: 'manual',
+    sourceKey: null,
     prepInstructions: [],
     storageLocation: '',
   };
@@ -258,6 +262,8 @@ export function buildRecipeAsIngredientData(sourceRecipe: Recipe, multiplier: nu
     potassium: scaleVal(sourceNutrition.potassium),
     groupId: null,
     linkedRecipeId: sourceRecipe.id,
+    sourceType: 'recipe',
+    sourceKey: sourceRecipe.id,
     prepInstructions: [],
     storageLocation: '',
   };
@@ -266,40 +272,39 @@ export function buildRecipeAsIngredientData(sourceRecipe: Recipe, multiplier: nu
 export function buildRescaledIngredientUpdate(ingredient: Ingredient, data: { name?: string; description?: string; amount?: number; unit?: string; prepInstructions?: string[]; storageLocation?: string }): Record<string, unknown> {
   const newAmount = data.amount !== undefined ? data.amount : ingredient.amount;
   const newUnit = data.unit !== undefined ? data.unit : ingredient.unit;
-
-  const updateData: Record<string, unknown> = {
-    amount: newAmount,
-    unit: newUnit,
-    groupId: ingredient.groupId,
-    linkedRecipeId: ingredient.linkedRecipeId,
-  };
-
-  if (data.description !== undefined) updateData.description = data.description;
-  if (data.name !== undefined) updateData.name = data.name;
-  if (data.prepInstructions !== undefined) updateData.prepInstructions = data.prepInstructions;
-  if (data.storageLocation !== undefined) updateData.storageLocation = data.storageLocation;
+  let nutritionScaleFactor = 1;
 
   if (ingredient.linkedRecipeId) {
     const oldMultiplier = ingredient.amount;
-    const newMultiplier = newAmount;
-    if (oldMultiplier > 0 && newMultiplier !== oldMultiplier) {
-      const rescaleFactor = newMultiplier / oldMultiplier;
-      const rescaleVal = (val: number) => Math.round(val * rescaleFactor * 100) / 100;
-      for (const key of NUTRIENT_KEYS) {
-        updateData[key] = rescaleVal(ingredient[key]);
-      }
+    if (oldMultiplier > 0) {
+      nutritionScaleFactor = newAmount / oldMultiplier;
     }
   } else {
     const oldGrams = convertToGrams(ingredient.amount, ingredient.unit);
     const newGrams = convertToGrams(newAmount, newUnit);
-    const rescaleFactor = newGrams / oldGrams;
-
-    if (rescaleFactor !== 1) {
-      const rescaleVal = (val: number) => Math.round(val * rescaleFactor * 100) / 100;
-      for (const key of NUTRIENT_KEYS) {
-        updateData[key] = rescaleVal(ingredient[key]);
-      }
+    if (oldGrams > 0) {
+      nutritionScaleFactor = newGrams / oldGrams;
     }
+  }
+
+  const rescaleVal = (val: number) => Math.round(val * nutritionScaleFactor * 100) / 100;
+
+  const updateData: Record<string, unknown> = {
+    fdcId: ingredient.fdcId,
+    name: data.name !== undefined ? data.name : ingredient.name,
+    amount: newAmount,
+    unit: newUnit,
+    description: data.description !== undefined ? data.description : ingredient.description,
+    groupId: ingredient.groupId,
+    linkedRecipeId: ingredient.linkedRecipeId,
+    sourceType: ingredient.sourceType || 'manual',
+    sourceKey: ingredient.sourceKey || null,
+    prepInstructions: data.prepInstructions !== undefined ? data.prepInstructions : ingredient.prepInstructions,
+    storageLocation: data.storageLocation !== undefined ? data.storageLocation : ingredient.storageLocation,
+  };
+
+  for (const key of NUTRIENT_KEYS) {
+    updateData[key] = rescaleVal(ingredient[key]);
   }
 
   return updateData;

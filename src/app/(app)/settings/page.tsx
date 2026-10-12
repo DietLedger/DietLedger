@@ -9,6 +9,7 @@ import { useAppSettings, useUpdateSingleSlotTime, useUpdateSettings } from '@/ho
 import { useCreateSecret, useDeleteSecret, useFDAKey, useSecrets, useSetFDAKey } from '@/hooks/use-secrets';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { useRecipes } from '@/hooks/use-recipes';
+import { useBooks } from '@/hooks/use-books';
 import { queryKeys } from '@/lib/query-keys';
 import { getApiClient, type UserListEntry } from '@/lib/api-client';
 import { ConfirmWithPasswordDialog } from '@/components/confirm-with-password-dialog';
@@ -34,12 +35,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Clock, Key, Plus, Trash2, Copy, Check, Download, Upload, AlertTriangle, ShieldCheck,
-  Loader2, BookOpen, RotateCcw, Settings, Database, FolderOpen, Package, MapPin, LayoutTemplate,
+  Loader2, RotateCcw, Settings, Database, FolderOpen, Package, MapPin, LayoutTemplate,
   Eye, EyeOff,
   User, Palette,
 } from 'lucide-react';
 import { DEFAULT_MEAL_SLOT_TIMES, type DaySlot } from '@/lib/types';
-import { exportAllData, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { downloadRecipeBundle, importRecipeBundleFromFile, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: 'Morning', midMorning: 'Mid-Morning', noon: 'Noon', afternoon: 'Afternoon', evening: 'Evening', night: 'Night',
@@ -92,6 +93,7 @@ export default function SettingsPage() {
   const deleteSecretMutation = useDeleteSecret();
   const { themeId, setTheme, themes } = useAppTheme();
   const { data: recipes = [] } = useRecipes();
+  const { data: books = [] } = useBooks();
 
   const [tab, setTab] = useState<TabKey>('general');
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -114,26 +116,6 @@ export default function SettingsPage() {
       onError: (err) => setApiKeyError(err instanceof Error ? err.message : 'Failed to save API key'),
     });
   }, [apiKeyInput, setFDAKeyMutation]);
-
-  // ── Demo cookbook install ────────────────────────────────────────────
-  const [demoBusy, setDemoBusy] = useState(false);
-  const [demoStatus, setDemoStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
-  const installDemo = useCallback(async () => {
-    setDemoBusy(true); setDemoStatus(null);
-    try {
-      const res = await fetch('/demo/demo-cookbook.zip', { cache: 'no-store' });
-      if (!res.ok) throw new Error('demo bundle not found');
-      const file = new File([await res.blob()], 'demo-cookbook.zip', { type: 'application/zip' });
-      const result = await importFromZip(file);
-      if (result.success) {
-        setDemoStatus({ kind: 'ok', msg: summarizeCounts(result.counts) || 'Installed' });
-        qc.invalidateQueries({ queryKey: queryKeys.books.all });
-        qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
-      } else setDemoStatus({ kind: 'err', msg: result.error || 'Import failed' });
-    } catch (e) {
-      setDemoStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Failed to install' });
-    } finally { setDemoBusy(false); }
-  }, [qc]);
 
   // ── API keys ─────────────────────────────────────────────────────────
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
@@ -222,13 +204,16 @@ export default function SettingsPage() {
     });
   };
 
-  // ── Data: export / import (zip) ──────────────────────────────────────
+  // ── Data: recipe/cookbook bundle export / import ─────────────────────
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const handleExport = async () => {
     setExporting(true);
-    try { const data = await exportAllData(); await downloadZip(data, `dietledger-export-${new Date().toISOString().slice(0, 10)}.zip`); }
+    try {
+      const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
+      downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
+    }
     catch (e) { console.error('Export failed', e); } finally { setExporting(false); }
   };
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -236,9 +221,10 @@ export default function SettingsPage() {
     if (!file) return;
     setImporting(true); setImportStatus(null);
     try {
-      const result = await importFromZip(file);
-      if (result.success) { setImportStatus(summarizeCounts(result.counts) || 'Imported'); qc.invalidateQueries({ queryKey: queryKeys.recipes.all }); qc.invalidateQueries({ queryKey: queryKeys.books.all }); }
-      else setImportStatus(`Import failed: ${result.error ?? 'Unknown error'}`);
+      const result = await importRecipeBundleFromFile(file);
+      setImportStatus(`Imported: ${summarizeRecipeBundleImport(result)}`);
+      qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
+      qc.invalidateQueries({ queryKey: queryKeys.books.all });
     } catch (err) { setImportStatus(`Import failed: ${err instanceof Error ? err.message : 'Invalid file'}`); }
     finally { setImporting(false); e.target.value = ''; }
   };
@@ -261,9 +247,9 @@ export default function SettingsPage() {
     if (needSuccessor && !delAccSucc) { setDelAccErr('You are the only administrator — choose a successor.'); return; }
     setDelAccBusy(true);
     try {
-      // 1. download a backup zip, 2. delete the account, 3. sign out.
-      const data = await exportAllData();
-      await downloadZip(data, `dietledger-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+      // 1. download a recipe/cookbook bundle, 2. delete the account, 3. sign out.
+      const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
+      downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
       await getApiClient().deleteMyAccount(delAccPw, needSuccessor ? delAccSucc : undefined);
       logout();
       router.replace('/');
@@ -389,17 +375,17 @@ export default function SettingsPage() {
           {tab === 'data' && (
             <div className="space-y-6">
               <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2"><Download className="w-4 h-4 text-brand-600" />Export / Import (zip)</CardTitle>
-                  <p className="text-xs text-stone-400">Back up your account data or merge in an archive.</p>
+                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2"><Download className="w-4 h-4 text-brand-600" />Recipe Bundle Export / Import</CardTitle>
+                  <p className="text-xs text-stone-400">Export or import DietLedger-native recipe/cookbook bundles.</p>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-3">
-                    <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={handleExport} disabled={exporting}>
-                      {exporting ? 'Exporting...' : <><Download className="w-3.5 h-3.5" />Export</>}
+                    <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1" onClick={() => router.push('/export')} disabled={exporting}>
+                      <Download className="w-3.5 h-3.5" />Export
                     </Button>
                     <label className="inline-flex items-center gap-1 h-8 px-3 text-sm font-medium rounded-md border border-stone-200 hover:bg-stone-50 cursor-pointer">
                       <Upload className="w-3.5 h-3.5" />{importing ? 'Importing...' : 'Import'}
-                      <input type="file" accept=".zip" className="hidden" onChange={handleImport} disabled={importing} />
+                      <input type="file" accept=".json,application/json" className="hidden" onChange={handleImport} disabled={importing} />
                     </label>
                   </div>
                   {importStatus && <p className={`text-xs mt-2 ${importStatus.startsWith('Imported') ? 'text-green-600' : 'text-red-600'}`}>{importStatus}</p>}
@@ -536,25 +522,9 @@ export default function SettingsPage() {
                   </div>
                   <Switch checked={instance?.registrationEnabled ?? false} disabled={setRegistration.isPending || !instance} onCheckedChange={(v) => setRegistration.mutate(v)} />
                 </div>
-                <div className="border-t border-stone-100 pt-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-stone-700 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5 text-stone-400" />Demo cookbook</p>
-                    <p className="text-xs text-stone-400 mt-0.5">Install the starter recipe library. Re-running adds a second copy.</p>
-                    {demoStatus && <p className={`text-xs mt-1 ${demoStatus.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{demoStatus.msg}</p>}
-                  </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-1 shrink-0" disabled={demoBusy}>
-                        {demoBusy ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" />Installing…</>) : (<><Download className="w-3.5 h-3.5" />Install</>)}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader><AlertDialogTitle>Install the demo cookbook?</AlertDialogTitle>
-                        <AlertDialogDescription>Imports the bundled starter recipes into your account; may take a minute.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={installDemo}>Install</AlertDialogAction></AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                <div className="border-t border-stone-100 pt-4">
+                  <p className="text-sm font-medium text-stone-700">Starter data</p>
+                  <p className="text-xs text-stone-400 mt-0.5">Starter cookbook seeding is being replaced by the server-side recipe bundle pipeline.</p>
                 </div>
               </CardContent>
             </Card>

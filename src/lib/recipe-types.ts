@@ -41,6 +41,8 @@ export interface Ingredient {
   potassium: number;
   groupId: string | null;
   linkedRecipeId: string | null;
+  sourceType?: 'usda' | 'custom_food' | 'recipe' | 'manual';
+  sourceKey?: string | null;
   prepInstructions: string[];
   storageLocation: string;
 }

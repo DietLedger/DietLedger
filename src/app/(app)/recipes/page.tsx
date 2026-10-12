@@ -37,7 +37,7 @@ import {
 import { useCategories, useRecipeCategories, useCreateCategory, useDeleteCategory, useAssignCategory, useUnassignCategory, type CategoryNode } from '@/hooks/use-categories';
 import { getApiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { exportRecipes, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { downloadRecipeBundle, importRecipeBundleFromFile, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { ImportZipButton } from '@/components/import-zip-button';
 import { generateUUID } from '@/lib/utils';
 import { sumNutrition, emptyNutrition, type NutrientKeys } from '@/lib/recipe-types';
@@ -407,9 +407,8 @@ function RecipePage() {
     setTransferStatus(null);
     setExportingId(recipeId);
     try {
-      const manifest = await exportRecipes([recipeId]);
-      const safe = (name || 'recipe').replace(/[^\w-]+/g, '_').replace(/_+/g, '_').toLowerCase() || 'recipe';
-      await downloadZip(manifest, `${safe}.zip`);
+      const bundle = await getApiClient().exportRecipeBundle({ recipeIds: [recipeId] });
+      downloadRecipeBundle(bundle, safeBundleFilename(name, 'recipe'));
     } catch (e) {
       setTransferStatus({ kind: 'err', msg: `Export failed: ${e instanceof Error ? e.message : 'error'}` });
     } finally {
@@ -421,14 +420,10 @@ function RecipePage() {
     setImporting(true);
     setTransferStatus(null);
     try {
-      const result = await importFromZip(file);
-      if (result.success) {
-        setTransferStatus({ kind: 'ok', msg: summarizeCounts(result.counts) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
-      } else {
-        setTransferStatus({ kind: 'err', msg: `Import failed: ${result.error}` });
-      }
+      const result = await importRecipeBundleFromFile(file);
+      setTransferStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
     } catch (e) {
       setTransferStatus({ kind: 'err', msg: `Import failed: ${e instanceof Error ? e.message : 'error'}` });
     } finally {

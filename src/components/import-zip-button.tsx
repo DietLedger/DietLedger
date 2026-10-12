@@ -9,19 +9,21 @@ interface ImportZipButtonProps {
   busy?: boolean;
   disabled?: boolean;
   label?: string;
+  accept?: string;
   variant?: 'outline' | 'ghost' | 'default';
   size?: 'sm' | 'default';
   className?: string;
   children?: ReactNode;
 }
 
-// A button that triggers a hidden .zip file input. Used by the books and
-// recipes pages (and reusable by the demo-cookbook installer later).
+// A button that triggers a hidden import file input. The name is legacy from
+// the former zip importer; callers can set accept for bundle formats.
 export function ImportZipButton({
   onFile,
   busy,
   disabled,
   label = 'Import',
+  accept = '.json,application/json',
   variant = 'outline',
   size = 'sm',
   className,
@@ -44,7 +46,7 @@ export function ImportZipButton({
       <input
         ref={ref}
         type="file"
-        accept=".zip,application/zip"
+        accept={accept}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

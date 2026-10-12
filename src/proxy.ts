@@ -8,6 +8,7 @@ const PROXY_ROUTES = [
   '/api/instance',
   '/api/account',
   '/api/recipes',
+  '/api/recipe-bundles',
   '/api/books',
   '/api/chapters/',
   '/api/pages/',

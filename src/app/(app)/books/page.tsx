@@ -4,7 +4,8 @@ import React, { useState, useCallback } from 'react';
 import { useBooks, useCreateBook, useDeleteBook } from '@/hooks/use-books';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { exportBook, downloadZip, importFromZip, summarizeCounts } from '@/lib/export-import';
+import { getApiClient } from '@/lib/api-client';
+import { downloadRecipeBundle, importRecipeBundleFromFile, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { ImportZipButton } from '@/components/import-zip-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,9 +59,8 @@ export default function BooksPage() {
     setTransferStatus(null);
     setExportingId(bookId);
     try {
-      const manifest = await exportBook(bookId);
-      const safe = (title || 'cookbook').replace(/[^\w-]+/g, '_').replace(/_+/g, '_').toLowerCase() || 'cookbook';
-      await downloadZip(manifest, `${safe}.zip`);
+      const bundle = await getApiClient().exportRecipeBundle({ bookIds: [bookId] });
+      downloadRecipeBundle(bundle, safeBundleFilename(title, 'cookbook'));
     } catch (e) {
       setTransferStatus({ kind: 'err', msg: `Export failed: ${e instanceof Error ? e.message : 'error'}` });
     } finally {
@@ -72,14 +72,10 @@ export default function BooksPage() {
     setImporting(true);
     setTransferStatus(null);
     try {
-      const result = await importFromZip(file);
-      if (result.success) {
-        setTransferStatus({ kind: 'ok', msg: summarizeCounts(result.counts) });
-        qc.invalidateQueries({ queryKey: queryKeys.books.all });
-        qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
-      } else {
-        setTransferStatus({ kind: 'err', msg: `Import failed: ${result.error}` });
-      }
+      const result = await importRecipeBundleFromFile(file);
+      setTransferStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
+      qc.invalidateQueries({ queryKey: queryKeys.books.all });
+      qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
     } catch (e) {
       setTransferStatus({ kind: 'err', msg: `Import failed: ${e instanceof Error ? e.message : 'error'}` });
     } finally {

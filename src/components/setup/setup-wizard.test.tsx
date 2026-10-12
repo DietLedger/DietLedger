@@ -83,11 +83,6 @@ vi.mock('@/lib/api-client', () => ({
   }),
 }))
 
-vi.mock('@/lib/export-import', () => ({
-  importFromZip: vi.fn(),
-  summarizeCounts: vi.fn(() => ''),
-}))
-
 describe('SetupWizard — account -> basics transition', () => {
   beforeEach(() => {
     authState = { user: null, isAuthenticated: false }

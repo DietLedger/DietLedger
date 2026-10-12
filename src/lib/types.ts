@@ -365,8 +365,20 @@ export interface IngredientRecord {
   potassium: number;
   groupId: string | null;
   linkedRecipeId: string | null;
+  sourceType?: 'usda' | 'custom_food' | 'recipe' | 'manual';
+  sourceKey?: string | null;
   prepInstructions: string[];
   storageLocation?: string;
+}
+
+export interface ExportCandidateRecord {
+  id: string;
+  type: 'recipe' | 'book' | 'nutritionProfile' | 'mealPlan';
+  name: string;
+  description: string;
+  searchText: string;
+  ownerUserId: string;
+  access: 'owned' | 'public' | 'admin';
 }
 
 export interface RecipeRecord {
