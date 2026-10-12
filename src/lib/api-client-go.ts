@@ -5,6 +5,7 @@ import type {
   SeedJob,
   UserListEntry,
   RecipeRecord,
+  RecipeCompletionRecord,
   IngredientRecord,
   BookRecord,
   ChapterRecord,
@@ -173,6 +174,19 @@ export class GoApiClient implements ApiClient {
   async completeOnboarding(): Promise<InstanceState> {
     const resp = await this.request<{ ok: boolean; data: InstanceState }>('POST', '/api/instance/onboarding/complete');
     return this.unwrap(resp);
+  }
+
+  async getRecipeCompletions(): Promise<RecipeCompletionRecord[]> {
+    const resp = await this.request<{ ok: boolean; data: RecipeCompletionRecord[] }>('GET', '/api/recipes/completions');
+    return this.unwrap(resp) ?? [];
+  }
+
+  async markRecipeCompleted(recipeId: string, date: string): Promise<void> {
+    await this.request<{ ok: boolean }>('PUT', `/api/recipes/completions/${recipeId}`, { date });
+  }
+
+  async deleteRecipeCompletion(recipeId: string): Promise<void> {
+    await this.request<{ ok: boolean }>('DELETE', `/api/recipes/completions/${recipeId}`);
   }
 
   async setRegistrationEnabled(enabled: boolean): Promise<InstanceState> {

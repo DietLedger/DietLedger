@@ -57,6 +57,7 @@ export const queryKeys = {
     lists: () => [...queryKeys.recipes.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.recipes.all, 'detail', id] as const,
     search: (query: string) => [...queryKeys.recipes.all, 'search', query] as const,
+    completions: () => [...queryKeys.recipes.all, 'completions'] as const,
   },
   customFoods: {
     all: ['custom-foods'] as const,

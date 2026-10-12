@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRecipes, type Recipe } from '@/hooks/use-recipes';
 import { useMealPlans } from '@/hooks/use-meal-plans';
+import { useRecipeCompletions } from '@/hooks/use-recipe-completions';
 import { getApiClient } from '@/lib/api-client';
 import type { MealGroupRecord, DayPlanEntryRecord } from '@/lib/types';
 import { format, startOfWeek, parseISO } from 'date-fns';
@@ -25,55 +26,6 @@ const SLOT_LABELS: Record<DaySlot, string> = {
   evening: 'Evening',
   night: 'Night',
 };
-
-const COMPLETED_KEY = 'kitchen-helper-completed';
-
-function getCompletedRecipes(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-  try {
-    return JSON.parse(localStorage.getItem(COMPLETED_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function markRecipeCompleted(recipeId: string, date: string) {
-  const data = getCompletedRecipes();
-  data[recipeId] = date;
-  localStorage.setItem(COMPLETED_KEY, JSON.stringify(data));
-}
-
-function isRecipeCompletedOnDate(recipeId: string, date: string): boolean {
-  const data = getCompletedRecipes();
-  return data[recipeId] === date;
-}
-
-function saveCompletedRecipes(
-  mode: 'recipe' | 'meal' | 'today',
-  selectedRecipeId: string | null,
-  selectedGroupId: string | null,
-  mealEntries: DayPlanEntryRecord[],
-  mealGroups: MealGroupRecord[]
-) {
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
-  if (mode === 'recipe') {
-    return;
-  }
-  if (mode === 'meal' && selectedGroupId) {
-    const group = mealGroups.find((g) => g.id === selectedGroupId);
-    const groupEnts = mealEntries.filter((e) => e.groupId === selectedGroupId);
-    const date = group?.date || todayStr;
-    const seen = new Set<string>();
-    for (const e of groupEnts) {
-      if (e.recipeId && !seen.has(e.recipeId)) {
-        seen.add(e.recipeId);
-        markRecipeCompleted(e.recipeId, date);
-      }
-    }
-  } else if (mode === 'today' && selectedRecipeId) {
-    markRecipeCompleted(selectedRecipeId, todayStr);
-  }
-}
 
 function getRecipeDependencyOrder(recipeId: string, recipes: Recipe[]): string[] {
   const visited = new Set<string>();
@@ -130,12 +82,32 @@ function KitchenHelperContent() {
   const [mealEntries, setMealEntries] = useState<DayPlanEntryRecord[]>([]);
   const [playMode, setPlayMode] = useState(false);
   const [playStepIndex, setPlayStepIndex] = useState(0);
-  const [completedRecipeMap, setCompletedRecipeMap] = useState<Record<string, string>>({});
   const [startWithPrep, setStartWithPrep] = useState(false);
+  // Recipe completions ("cooked on date Y") persist server-side (Phase P1).
+  const { completionMap: completedRecipeMap, markCompleted } = useRecipeCompletions();
 
-  useEffect(() => {
-    setCompletedRecipeMap(getCompletedRecipes());
-  }, []);
+  // Records completion for the current run: the whole group's recipes when
+  // cooking a meal, otherwise the single selected recipe today.
+  const saveCompletedRecipes = () => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (mode === 'recipe') {
+      return;
+    }
+    if (mode === 'meal' && selectedGroupId) {
+      const group = mealGroups.find((g) => g.id === selectedGroupId);
+      const groupEnts = mealEntries.filter((e) => e.groupId === selectedGroupId);
+      const date = group?.date || todayStr;
+      const seen = new Set<string>();
+      for (const e of groupEnts) {
+        if (e.recipeId && !seen.has(e.recipeId)) {
+          seen.add(e.recipeId);
+          markCompleted.mutate({ recipeId: e.recipeId, date });
+        }
+      }
+    } else if (mode === 'today' && selectedRecipeId) {
+      markCompleted.mutate({ recipeId: selectedRecipeId, date: todayStr });
+    }
+  };
 
   useEffect(() => {
     if (initialRecipeId && recipes.length > 0) {
@@ -936,8 +908,7 @@ function KitchenHelperContent() {
                       if (playStepIndex === allSteps.length - 1) {
                         const allIds = new Set(allSteps.map((s) => s.id));
                         setCompletedSteps(allIds);
-                        saveCompletedRecipes(mode, selectedRecipeId, selectedGroupId, mealEntries, mealGroups);
-                        setCompletedRecipeMap(getCompletedRecipes());
+                        saveCompletedRecipes();
                         setPlayMode(false);
                         setPlayStepIndex(0);
                       } else {

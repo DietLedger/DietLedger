@@ -92,6 +92,13 @@ export interface AuthResult {
   user: { id: string; email: string; displayName: string; isAdmin?: boolean };
 }
 
+// "Recipe X was cooked on date Y" — one record per recipe (latest win).
+export interface RecipeCompletionRecord {
+  recipeId: string;
+  completedDate: string;
+  completedAt: string;
+}
+
 export interface InstanceState {
   onboardingComplete: boolean;
   onboardingCompletedAt?: string;
@@ -138,6 +145,9 @@ export interface ApiClient {
   // Instance metadata
   getInstanceState(): Promise<InstanceState>;
   completeOnboarding(): Promise<InstanceState>;
+  getRecipeCompletions(): Promise<RecipeCompletionRecord[]>;
+  markRecipeCompleted(recipeId: string, date: string): Promise<void>;
+  deleteRecipeCompletion(recipeId: string): Promise<void>;
   setRegistrationEnabled(enabled: boolean): Promise<InstanceState>;
   resetUserData(password: string): Promise<void>;
   factoryReset(password: string): Promise<void>;
