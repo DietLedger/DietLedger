@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Upload, Loader2 } from 'lucide-react';
 
 interface ImportZipButtonProps {
-  onFile: (file: File) => void;
+  onFile?: (file: File) => void;
+  onFiles?: (files: File[]) => void;
   busy?: boolean;
   disabled?: boolean;
   label?: string;
@@ -14,12 +15,14 @@ interface ImportZipButtonProps {
   size?: 'sm' | 'default';
   className?: string;
   children?: ReactNode;
+  multiple?: boolean;
 }
 
 // A button that triggers a hidden import file input. The name is legacy from
 // the former zip importer; callers can set accept for bundle formats.
 export function ImportZipButton({
   onFile,
+  onFiles,
   busy,
   disabled,
   label = 'Import',
@@ -28,6 +31,7 @@ export function ImportZipButton({
   size = 'sm',
   className,
   children,
+  multiple,
 }: ImportZipButtonProps) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -47,10 +51,14 @@ export function ImportZipButton({
         ref={ref}
         type="file"
         accept={accept}
+        multiple={multiple}
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFile(f);
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) {
+            if (onFiles) onFiles(files);
+            else if (onFile) onFile(files[0]);
+          }
           e.target.value = '';
         }}
       />

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useMovePageBetweenChapters, useAddRecipeToChapter } from '@/hooks/use-books';
+import { useBookDetail, useAddChapter, useDeleteChapter, useRemoveRecipeFromChapter, useCreateChapterPage, useDeleteChapterPage, useCreateBookPage, useDeleteBookPage, useUpdateBookPage, useUpdateChapterPage, useReorderBookLevelItems, useReorderChapterItems, useMoveRecipeToChapter, useMovePageToBookLevel, useMovePageToChapter, useMovePageBetweenChapters, useAddRecipeToChapter } from '@/hooks/use-books';
 import { useRecipes } from '@/hooks/use-recipes';
 import type { RecipeRecord } from '@/lib/types';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
@@ -36,6 +36,7 @@ import {
   X,
   Loader2,
   ChevronRight,
+  ChevronDown,
   Salad,
   FileText,
   FilePlus,
@@ -74,7 +75,7 @@ interface SortableData {
   pageId?: string;
 }
 
-function SortableBookPageItem({ page, onDeleteConfirm, onDelete }) {
+function SortableBookPageItem({ page, deleteConfirmId, onDeleteConfirm, onDelete, onOpen }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: `bp-${page.id}`,
     data: { containerId: 'book-level', itemType: 'book-page', dbId: page.id, pageId: page.id } satisfies SortableData,
@@ -83,22 +84,22 @@ function SortableBookPageItem({ page, onDeleteConfirm, onDelete }) {
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="group flex items-center gap-2 p-2.5 rounded-lg border border-stone-200 hover:bg-stone-50 text-sm">
-        <button ref={setActivatorNodeRef} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
+      <div role="button" tabIndex={0} aria-label={`Open ${page.title}`} onClick={(e) => { if (!isDragging && !(e.target as Element).closest('button')) onOpen(page.id); }} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(page.id); } }} className="group flex items-center gap-2 p-2.5 rounded-lg border border-stone-200 hover:bg-stone-50 text-sm cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-600">
+        <button ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Reorder ${page.title}`} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
           <GripVertical className="w-4 h-4" />
         </button>
         <FileText className="w-3.5 h-3.5 text-stone-400 shrink-0" />
         <div className="flex-1 min-w-0">
-          <span className="font-medium text-stone-800 truncate">{page.title}</span>
+          <span className="font-medium text-stone-800 group-hover:text-brand-600">{page.title}</span>
           {page.content && <p className="text-xs text-stone-400 line-clamp-1">{page.content}</p>}
         </div>
-        {onDeleteConfirm === page.id ? (
+        {deleteConfirmId === page.id ? (
           <div className="flex items-center gap-1">
             <Button variant="destructive" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(page.id)}>Remove</Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(null)}><X className="w-3 h-3" /></Button>
+            <Button variant="ghost" size="sm" aria-label={`Cancel removing ${page.title}`} className="h-6 px-2 text-xs" onClick={() => onDelete(null)}><X className="w-3 h-3" /></Button>
           </div>
         ) : (
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(page.id)}>
+          <Button variant="ghost" size="sm" aria-label={`Remove ${page.title}`} className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(page.id)}>
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
@@ -107,7 +108,7 @@ function SortableBookPageItem({ page, onDeleteConfirm, onDelete }) {
   );
 }
 
-function SortableChapterPageItem({ page, onDeleteConfirm, onDelete }) {
+function SortableChapterPageItem({ page, deleteConfirmId, onDeleteConfirm, onDelete, onOpen }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: `cp-${page.id}`,
     data: { containerId: page.chapterId, itemType: 'page', dbId: page.id, pageId: page.id } satisfies SortableData,
@@ -116,22 +117,22 @@ function SortableChapterPageItem({ page, onDeleteConfirm, onDelete }) {
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="group flex items-center gap-2 p-2.5 rounded-lg hover:bg-stone-50 text-sm">
-        <button ref={setActivatorNodeRef} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
+      <div role="button" tabIndex={0} aria-label={`Open ${page.title}`} onClick={(e) => { if (!isDragging && !(e.target as Element).closest('button')) onOpen(page.id, page.chapterId); }} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(page.id, page.chapterId); } }} className="group flex items-center gap-2 p-2.5 rounded-lg hover:bg-stone-50 text-sm cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-600">
+        <button ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Reorder ${page.title}`} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
           <GripVertical className="w-4 h-4" />
         </button>
         <FileText className="w-3.5 h-3.5 text-stone-400 shrink-0" />
         <div className="flex-1 min-w-0">
-          <span className="font-medium text-stone-800 truncate">{page.title}</span>
+          <span className="font-medium text-stone-800 group-hover:text-brand-600">{page.title}</span>
           {page.content && <p className="text-xs text-stone-400 line-clamp-1">{page.content}</p>}
         </div>
-        {onDeleteConfirm === page.id ? (
+        {deleteConfirmId === page.id ? (
           <div className="flex items-center gap-1">
             <Button variant="destructive" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(page.id)}>Remove</Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(null)}><X className="w-3 h-3" /></Button>
+            <Button variant="ghost" size="sm" aria-label={`Cancel removing ${page.title}`} className="h-6 px-2 text-xs" onClick={() => onDelete(null)}><X className="w-3 h-3" /></Button>
           </div>
         ) : (
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(page.id)}>
+          <Button variant="ghost" size="sm" aria-label={`Remove ${page.title}`} className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(page.id)}>
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
@@ -140,7 +141,7 @@ function SortableChapterPageItem({ page, onDeleteConfirm, onDelete }) {
   );
 }
 
-function SortableRecipeItem({ cr, onDeleteConfirm, onDelete, onClick }) {
+function SortableRecipeItem({ cr, deleteConfirmId, onDeleteConfirm, onDelete, onClick }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: `cr-${cr.chapterRecipeId}`,
     data: { containerId: cr.chapterId, itemType: 'recipe', dbId: cr.chapterRecipeId, chapterRecipeId: cr.chapterRecipeId, recipeId: cr.recipeId } satisfies SortableData,
@@ -149,11 +150,11 @@ function SortableRecipeItem({ cr, onDeleteConfirm, onDelete, onClick }) {
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="group flex items-center gap-2 p-2.5 rounded-lg hover:bg-stone-50 text-sm">
-        <button ref={setActivatorNodeRef} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
+      <div role="button" tabIndex={0} aria-label={`Open ${cr.recipe?.name || 'Unknown Recipe'}`} onClick={(e) => { if (!isDragging && !(e.target as Element).closest('button')) onClick(cr.recipeId); }} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick(cr.recipeId); } }} className="group flex items-center gap-2 p-2.5 rounded-lg hover:bg-stone-50 text-sm cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-600">
+        <button ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Reorder ${cr.recipe?.name || 'Unknown Recipe'}`} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
           <GripVertical className="w-4 h-4" />
         </button>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onClick(cr.recipeId)}>
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <Salad className="w-3.5 h-3.5 text-brand-500 shrink-0" />
             <span className="font-medium text-stone-800 truncate">{cr.recipe?.name || 'Unknown Recipe'}</span>
@@ -164,13 +165,13 @@ function SortableRecipeItem({ cr, onDeleteConfirm, onDelete, onClick }) {
             </div>
           )}
         </div>
-        {onDeleteConfirm === cr.chapterRecipeId ? (
+        {deleteConfirmId === cr.chapterRecipeId ? (
           <div className="flex items-center gap-1">
             <Button variant="destructive" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(cr.chapterRecipeId, cr.recipeId)}>Remove</Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onDelete(null, null)}><X className="w-3 h-3" /></Button>
+            <Button variant="ghost" size="sm" aria-label={`Cancel removing ${cr.recipe?.name || 'Unknown Recipe'}`} className="h-6 px-2 text-xs" onClick={() => onDelete(null, null)}><X className="w-3 h-3" /></Button>
           </div>
         ) : (
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(cr.chapterRecipeId)}>
+          <Button variant="ghost" size="sm" aria-label={`Remove ${cr.recipe?.name || 'Unknown Recipe'}`} className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-destructive" onClick={() => onDeleteConfirm(cr.chapterRecipeId)}>
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
@@ -180,6 +181,7 @@ function SortableRecipeItem({ cr, onDeleteConfirm, onDelete, onClick }) {
 }
 
 function SortableChapterCard({ chapter, chapterRecipes, children, onAddPage, onAddRecipe, deleteConfirmId, onDeleteChapter, onDeleteChapterCancel }) {
+  const [expanded, setExpanded] = useState(false);
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: `ch-${chapter.id}`,
     data: { containerId: 'book-level', itemType: 'chapter', dbId: chapter.id } satisfies SortableData,
@@ -196,11 +198,14 @@ function SortableChapterCard({ chapter, chapterRecipes, children, onAddPage, onA
               <button ref={setActivatorNodeRef} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500 p-0.5 touch-none">
                 <GripVertical className="w-4 h-4" />
               </button>
-              <FileText className="w-4 h-4 text-brand-600" />
-              {chapter.title}
-              <Badge variant="secondary" className="text-[10px] h-5">
-                {itemCount} item{itemCount !== 1 ? 's' : ''}
-              </Badge>
+              <button type="button" aria-expanded={expanded} aria-controls={`chapter-items-${chapter.id}`} onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-left">
+                {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                <FileText className="w-4 h-4 text-brand-600" />
+                {chapter.title}
+                <Badge variant="secondary" className="text-[10px] h-5">
+                  {itemCount} item{itemCount !== 1 ? 's' : ''}
+                </Badge>
+              </button>
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={onAddPage}>
@@ -222,8 +227,8 @@ function SortableChapterCard({ chapter, chapterRecipes, children, onAddPage, onA
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-0">
-          {children}
+        <CardContent id={`chapter-items-${chapter.id}`} className="pt-0" hidden={!expanded}>
+          {expanded && children}
         </CardContent>
       </Card>
     </div>
@@ -262,6 +267,8 @@ export default function BookDetailPage() {
   const deleteChapterPageMutation = useDeleteChapterPage();
   const createBookPageMutation = useCreateBookPage();
   const deleteBookPageMutation = useDeleteBookPage();
+  const updateBookPageMutation = useUpdateBookPage();
+  const updateChapterPageMutation = useUpdateChapterPage();
   const reorderBookLevelItemsMutation = useReorderBookLevelItems();
   const reorderChapterItemsMutation = useReorderChapterItems();
   const moveRecipeToChapterMutation = useMoveRecipeToChapter();
@@ -288,6 +295,11 @@ export default function BookDetailPage() {
   const [deleteRecipeConfirm, setDeleteRecipeConfirm] = useState<string | null>(null);
   const [deletePageConfirmId, setDeletePageConfirmId] = useState<string | null>(null);
   const [deleteBookPageConfirmId, setDeleteBookPageConfirmId] = useState<string | null>(null);
+  const [selectedPage, setSelectedPage] = useState<{ id: string; chapterId?: string } | null>(null);
+  const [editingPage, setEditingPage] = useState(false);
+  const [pageTitle, setPageTitle] = useState('');
+  const [pageContent, setPageContent] = useState('');
+  const [pageError, setPageError] = useState('');
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -298,7 +310,7 @@ export default function BookDetailPage() {
     return [
       ...activeBook.chapters.map(ch => ({ type: 'chapter' as const, id: ch.id, position: ch.position, sortableId: `ch-${ch.id}` })),
       ...activeBook.bookPages.map(p => ({ type: 'book-page' as const, id: p.id, position: p.position, sortableId: `bp-${p.id}` })),
-    ].sort((a, b) => a.position - b.position);
+    ].sort((a, b) => a.position - b.position || (a.type === 'book-page' ? -1 : 1));
   }, [activeBook]);
 
   const chapterItemsMap = useMemo(() => {
@@ -324,6 +336,20 @@ export default function BookDetailPage() {
 
     const aContainer = aData.containerId;
     const oContainer = oData.containerId;
+
+    // Chapter headers remain drop targets even while their contents are collapsed.
+    // Handle page drops before book-level reordering or conversion to a book page.
+    if (oData.itemType === 'chapter' && (aData.itemType === 'page' || aData.itemType === 'book-page')) {
+      const targetChapterId = oData.dbId;
+      if (aContainer === targetChapterId) return;
+      const position = chapterItemsMap.get(targetChapterId)?.length ?? 0;
+      if (aData.itemType === 'book-page') {
+        await movePageToChapterMutation.mutateAsync({ pageId: aData.dbId, chapterId: targetChapterId, position, bookId });
+      } else if (aData.pageId) {
+        await movePageBetweenChaptersMutation.mutateAsync({ pageId: aData.pageId, targetChapterId, position, bookId });
+      }
+      return;
+    }
 
     if (aContainer === oContainer) {
       if (aContainer === 'book-level') {
@@ -422,6 +448,37 @@ export default function BookDetailPage() {
     setNewPageContent('');
     setAddPageChapterId(null);
   }, [addPageChapterId, newPageTitle, newPageContent, createChapterPageMutation]);
+
+  const openPage = (id: string, chapterId?: string) => {
+    const page = chapterId
+      ? activeBook?.chapters.find(ch => ch.id === chapterId)?.chapterPages.find(p => p.id === id)
+      : activeBook?.bookPages.find(p => p.id === id);
+    if (!page) return;
+    setSelectedPage({ id, chapterId });
+    setPageTitle(page.title);
+    setPageContent(page.content);
+    setEditingPage(false);
+    setPageError('');
+  };
+
+  const selectedPageRecord = selectedPage?.chapterId
+    ? activeBook?.chapters.find(ch => ch.id === selectedPage.chapterId)?.chapterPages.find(p => p.id === selectedPage.id)
+    : activeBook?.bookPages.find(p => p.id === selectedPage?.id);
+
+  const savePage = async () => {
+    if (!selectedPage || !pageTitle.trim()) return;
+    try {
+      if (selectedPage.chapterId) {
+        await updateChapterPageMutation.mutateAsync({ id: selectedPage.id, bookId, data: { title: pageTitle.trim(), content: pageContent } });
+      } else {
+        await updateBookPageMutation.mutateAsync({ id: selectedPage.id, bookId, data: { title: pageTitle.trim(), content: pageContent } });
+      }
+      setEditingPage(false);
+      setSelectedPage(null);
+    } catch {
+      setPageError('Could not save this page. Please try again.');
+    }
+  };
 
   const handleAddBookPage = useCallback(async () => {
     if (!bookId || !newBookPageTitle.trim()) return;
@@ -556,7 +613,9 @@ export default function BookDetailPage() {
                     <SortableBookPageItem
                       key={item.sortableId}
                       page={page}
-                      onDeleteConfirm={deleteBookPageConfirmId}
+                      onOpen={openPage}
+                      deleteConfirmId={deleteBookPageConfirmId}
+                      onDeleteConfirm={setDeleteBookPageConfirmId}
                       onDelete={(id) => { if (id) { deleteBookPageMutation.mutate({ id, bookId }); setDeleteBookPageConfirmId(null); } else { setDeleteBookPageConfirmId(null); } }}
                     />
                   );
@@ -591,7 +650,9 @@ export default function BookDetailPage() {
                                 <SortableChapterPageItem
                                   key={ci.sortableId}
                                   page={{ ...page, chapterId: chapter.id }}
-                                  onDeleteConfirm={deletePageConfirmId}
+                                  onOpen={openPage}
+                                  deleteConfirmId={deletePageConfirmId}
+                                  onDeleteConfirm={setDeletePageConfirmId}
                                   onDelete={(id) => { if (id) { deleteChapterPageMutation.mutate({ id, bookId }); setDeletePageConfirmId(null); } else { setDeletePageConfirmId(null); } }}
                                 />
                               );
@@ -602,7 +663,8 @@ export default function BookDetailPage() {
                               <SortableRecipeItem
                                 key={ci.sortableId}
                                 cr={{ ...cr, chapterId: chapter.id }}
-                                onDeleteConfirm={deleteRecipeConfirm}
+                                deleteConfirmId={deleteRecipeConfirm}
+                                onDeleteConfirm={setDeleteRecipeConfirm}
                                 onDelete={(crId, recipeId) => { if (crId) handleRemoveRecipe(crId, recipeId); else setDeleteRecipeConfirm(null); }}
                                 onClick={(recipeId) => router.push(`/recipes?recipeId=${recipeId}`)}
                               />
@@ -618,6 +680,25 @@ export default function BookDetailPage() {
           </SortableContext>
         </DndContext>
       )}
+
+      <Dialog open={selectedPage !== null} onOpenChange={(open) => { if (!open) setSelectedPage(null); }}>
+        <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{selectedPageRecord?.title || pageTitle}</DialogTitle></DialogHeader>
+          {editingPage ? (
+            <div className="space-y-4">
+              <div><label htmlFor="edit-page-title" className="block text-sm font-medium mb-1">Page Title</label><Input id="edit-page-title" value={pageTitle} onChange={e => setPageTitle(e.target.value)} /></div>
+              <div><label htmlFor="edit-page-content" className="block text-sm font-medium mb-1">Content</label><Textarea id="edit-page-content" className="min-h-[220px]" value={pageContent} onChange={e => setPageContent(e.target.value)} /></div>
+              {pageError && <p role="alert" className="text-sm text-red-600">{pageError}</p>}
+              <div className="flex gap-2 justify-end"><Button variant="ghost" onClick={() => { setPageTitle(selectedPageRecord?.title || ''); setPageContent(selectedPageRecord?.content || ''); setEditingPage(false); setPageError(''); }}>Cancel</Button><Button onClick={savePage} disabled={!pageTitle.trim() || updateBookPageMutation.isPending || updateChapterPageMutation.isPending}>Save Page</Button></div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="text-sm text-stone-700 whitespace-pre-wrap break-words">{(selectedPageRecord?.content || '').split(/(https?:\/\/[^\s]+)/g).map((part, index) => part.startsWith('https://') || part.startsWith('http://') ? <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="text-brand-600 underline">{part}</a> : part)}</div>
+              <Button variant="outline" size="sm" onClick={() => setEditingPage(true)}>Edit Page</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addPageChapterId !== null} onOpenChange={(open) => { if (!open) setAddPageChapterId(null); }}>
         <DialogContent className="sm:max-w-[500px]">

@@ -270,6 +270,10 @@ Avoid complex estimation models unless clearly justified.
 
 ---
 
+## Food Selection Eligibility
+
+Food selection eligibility depends on meaningful canonical nutrition data, not calories alone. Positive-calorie foods remain eligible. Zero-calorie foods are eligible for seeding, live-search caching, database searches, and food-record selectors when at least one other canonical nutrient is positive (for example, table salt's sodium); records with no positive canonical nutrient values remain excluded. Do not fabricate calories from generic macro factors: a zero-calorie food keeps its source calorie value of zero while its other nutrients are retained. In recipe Change match and recipe import, a separate explicit **Use no nutrition** action remains available for ingredients with no useful nutrition data; it creates a manual zero-nutrient snapshot, distinct from selecting a zero-calorie food record.
+
 ## Snapshot Semantics
 
 Food log entries are historical records.
@@ -399,6 +403,8 @@ Examples:
 
 Unit conversion behavior must remain consistent across the application.
 
+Printable cookbook PDF units are presentation-only: they do not change stored ingredient amounts or nutrient snapshots. Weight-to-weight conversion uses exact unit factors, and small nonzero printable weights must not round to zero. A volume or count may be printed in grams only when an unambiguous USDA portion for that specific matched food supplies a positive gram weight for the same measure. Nutrition's existing water-density and whole-item heuristics are **not** reliable printable ingredient weights. Where food-specific weight data is absent or ambiguous, Grams PDF mode leaves the ingredient's original amount and unit visible with a notice; older imported foods need their USDA portion metadata re-seeded to become convertible.
+
 ---
 
 # Goal Tracking
@@ -506,6 +512,7 @@ They should remain visible to contributors.
   >= 1; logs > 0), body measurements (height <= 300cm, weight <= 1000kg),
   and enum whitelists (meal slots, source types, sex, activity level) on
   create and update paths. See `sync-server/validation_nutrition.go`.
+- USDA Foundation energy ingestion: use kcal nutrient 2048/958 (Atwater specific) when available, then 2047/957 (general), then legacy 1008/208; do not sum variants or derive calories from macros when USDA provides no energy. The shared Go converter accepts both nested bulk-dataset `nutrient`/`amount` and flat live-search `nutrientNumber`/`value` records. Food eligibility is based on meaningful canonical nutrition, not calories alone: zero-calorie records with another positive nutrient (e.g. table salt's sodium) remain selectable, while records with no positive canonical nutrients are excluded. USDA can report negative analytical differences (e.g., FDC 2727569 has −0.42825 g carbohydrate by difference per 100 g); canonical ingested nutrient quantities are floored at zero, not rederived. Ingredient creation likewise floors negative values from previously stored food rows. The Go API still rejects direct negative ingredient nutrients. Reimporting USDA data updates food items by FDC ID, but does not silently rewrite ingredient or historical food-log nutrient snapshots.
 - snapshot staleness tradeoffs
 - glycemic index coverage gaps
 - source type inconsistencies

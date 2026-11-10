@@ -11,10 +11,14 @@ import {
   useDeleteRecipe,
   useAddIngredient,
   useUpdateIngredient,
+  useFoodStorageDefaults,
+  useFoodStorageDefaultLookup,
+  defaultLocationForFood,
   useRemoveIngredient,
   useReorderIngredients,
   useUpdateRecipeGroups,
   buildIngredientData,
+  buildIngredientRematchUpdate,
   buildCustomIngredientData,
   buildRecipeAsIngredientData,
   buildRescaledIngredientUpdate,
@@ -40,8 +44,9 @@ import { queryKeys } from '@/lib/query-keys';
 import { downloadRecipeBundle, importRecipeBundleFromFile, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { ImportZipButton } from '@/components/import-zip-button';
 import { generateUUID } from '@/lib/utils';
-import { sumNutrition, emptyNutrition, type NutrientKeys } from '@/lib/recipe-types';
+import { sumNutrition, emptyNutrition, serializeInstructions, type NutrientKeys } from '@/lib/recipe-types';
 import { searchFDAFoods } from '@/lib/fda-client';
+import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
 import { computeRecipeGL, type GLResult } from '@/lib/glycemic-load';
 import { GL_HOVER_KEY } from '@/data/glycemic-index';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
@@ -95,8 +100,6 @@ import {
   Eye,
   Share2,
   Download,
-  CheckCircle2,
-  AlertTriangle,
   Clock,
 } from 'lucide-react';
 import { toCanvas } from 'html-to-image';
@@ -107,7 +110,13 @@ import { useDietaryProfiles } from '@/hooks/use-dietary';
 import type { DietaryTag } from '@/lib/types';
 import RecipeRenderer from '@/components/recipe-renderer';
 import { ShareDialog } from '@/components/recipe/share-dialog';
-import { STORAGE_LOCATIONS, STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
+import { RecipeImportDialog } from '@/components/recipe/recipe-import-dialog';
+import { cloneImportDraft, isImportDraftReady, parseSeedRecipeMarkdown, resetImportDraft, type ImportRecipeDraft } from '@/lib/recipe-import';
+import { STORAGE_LOCATIONS, STORAGE_LOCATION_META } from '@/data/storage-locations';
+import { StorageDefaultControl } from '@/components/recipe/storage-default-control';
+import { IngredientStorageTag } from '@/components/recipe/ingredient-storage-tag';
+import { IngredientMatchEditor } from '@/components/recipe/ingredient-match-editor';
+import { RecipeTransferStatus } from '@/components/recipe/recipe-transfer-status';
 
 type IngredientSlot =
   | { type: 'item'; ingredient: Ingredient }
@@ -214,7 +223,7 @@ function RecipePage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
-  const { data: recipes = [], isMutating: recipesLoading } = useRecipes();
+  const { data: recipes = [] } = useRecipes();
   const [activeRecipeId, setActiveRecipeId] = useState<string | null>(searchParams.get('recipeId'));
   const { data: activeRecipe } = useRecipe(activeRecipeId ?? '');
 
@@ -223,6 +232,8 @@ function RecipePage() {
   const deleteRecipeMutation = useDeleteRecipe();
   const addIngredientMutation = useAddIngredient();
   const updateIngredientMutation = useUpdateIngredient();
+  useFoodStorageDefaults();
+  const lookupFoodStorageDefaults = useFoodStorageDefaultLookup();
   const removeIngredientMutation = useRemoveIngredient();
   const reorderIngredientsMutation = useReorderIngredients();
   const updateGroupsMutation = useUpdateRecipeGroups();
@@ -306,6 +317,10 @@ function RecipePage() {
   const [editUnit, setEditUnit] = useState('g');
   const [editPrepInstructions, setEditPrepInstructions] = useState<string[]>([]);
   const [editStorageLocation, setEditStorageLocation] = useState<string>('');
+  const [ingredientSaveStatus, setIngredientSaveStatus] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
+  const [foodSelectionError, setFoodSelectionError] = useState('');
+  const [isAddingFood, setIsAddingFood] = useState(false);
+  const addingFoodRef = useRef(false);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [stepText, setStepText] = useState('');
   const [selectedIngredientIds, setSelectedIngredientIds] = useState<string[]>([]);
@@ -400,6 +415,10 @@ function RecipePage() {
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [markdownImportOpen, setMarkdownImportOpen] = useState(false);
+  const [markdownImportDrafts, setMarkdownImportDrafts] = useState<ImportRecipeDraft[]>([]);
+  const [markdownImportIndex, setMarkdownImportIndex] = useState(0);
+  const [markdownImportSaving, setMarkdownImportSaving] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [transferStatus, setTransferStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
@@ -431,6 +450,98 @@ function RecipePage() {
     }
   }, [queryClient]);
 
+  const handleMarkdownImportFiles = useCallback(async (files: File[]) => {
+    setImporting(true);
+    setTransferStatus(null);
+    try {
+      const markdownFiles = files.filter((file) => {
+        const path = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, '/');
+        return /\.md$/i.test(file.name) && !path.includes('seed-recipes/dist/') && !path.includes('/dist/');
+      });
+      if (markdownFiles.length === 0) {
+        setTransferStatus({ kind: 'err', msg: 'No supported markdown recipe files selected.' });
+        return;
+      }
+      const drafts = await Promise.all(markdownFiles.map(async (file) => parseSeedRecipeMarkdown(await file.text(), file.name)));
+      setMarkdownImportDrafts(drafts);
+      setMarkdownImportIndex(0);
+      setMarkdownImportOpen(true);
+      if (markdownFiles.length !== files.length) {
+        setTransferStatus({ kind: 'ok', msg: `Queued ${drafts.length} markdown recipe${drafts.length === 1 ? '' : 's'}; ignored unsupported/dist files.` });
+      }
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Markdown import failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setImporting(false);
+    }
+  }, []);
+
+  const removeCurrentMarkdownDraft = useCallback((message?: string) => {
+    setMarkdownImportDrafts((prev) => {
+      const next = prev.filter((_, index) => index !== markdownImportIndex);
+      if (next.length === 0) {
+        setMarkdownImportOpen(false);
+        setMarkdownImportIndex(0);
+        if (message) setTransferStatus({ kind: 'ok', msg: message });
+        return [];
+      }
+      setMarkdownImportIndex((idx) => Math.min(idx, next.length - 1));
+      return next;
+    });
+  }, [markdownImportIndex]);
+
+  const handleMarkdownDraftChange = useCallback((index: number, draft: ImportRecipeDraft) => {
+    setMarkdownImportDrafts((prev) => prev.map((item, idx) => idx === index ? cloneImportDraft(draft) : item));
+  }, []);
+
+  const handleUndoMarkdownDraft = useCallback(() => {
+    setMarkdownImportDrafts((prev) => prev.map((draft, index) => index === markdownImportIndex ? resetImportDraft(draft) : draft));
+  }, [markdownImportIndex]);
+
+  const handleSkipMarkdownDraft = useCallback(() => {
+    removeCurrentMarkdownDraft('Skipped recipe import.');
+  }, [removeCurrentMarkdownDraft]);
+
+  const handleSaveMarkdownDraft = useCallback(async () => {
+    const draft = markdownImportDrafts[markdownImportIndex];
+    if (!draft || !isImportDraftReady(draft)) return;
+    setMarkdownImportSaving(true);
+    setTransferStatus(null);
+    try {
+      const recipe = await createRecipeMutation.mutateAsync(draft.title.trim());
+      await updateRecipeMutation.mutateAsync({
+        id: recipe.id,
+        data: {
+          servings: draft.servings,
+          servingName: draft.servingName.trim() || 'servings',
+          prepTime: draft.prepTime.trim() || undefined,
+          cookTime: draft.cookTime.trim() || undefined,
+          instructions: serializeInstructions({ steps: draft.instructionSteps, groups: [] }),
+          ingredientGroups: draft.ingredientGroups,
+        },
+      });
+      for (const ingredient of draft.ingredients) {
+        if (!ingredient.matchedFood) continue;
+        const isManualNutrition = ingredient.matchedFood.dataType === 'Manual' || ingredient.matchedFood.dataType === 'Custom' || ingredient.matchedFood.fdcId < 0;
+        const ingredientData = isManualNutrition
+          ? buildCustomIngredientData(ingredient.name.trim() || ingredient.matchedFood.description, ingredient.matchedFood.nutrients, ingredient.amount, ingredient.unit)
+          : buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit);
+        ingredientData.name = ingredient.name.trim() || ingredient.matchedFood.description;
+        ingredientData.description = ingredient.originalText !== ingredientData.name ? `Imported: ${ingredient.originalText}` : '';
+        ingredientData.groupId = ingredient.groupId;
+        ingredientData.prepInstructions = ingredient.prepInstructions;
+        await addIngredientMutation.mutateAsync({ recipeId: recipe.id, ingredient: ingredientData });
+      }
+      setActiveRecipeId(recipe.id);
+      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
+      removeCurrentMarkdownDraft(`Imported ${draft.title}.`);
+    } catch (e) {
+      setTransferStatus({ kind: 'err', msg: `Markdown import save failed: ${e instanceof Error ? e.message : 'error'}` });
+    } finally {
+      setMarkdownImportSaving(false);
+    }
+  }, [markdownImportDrafts, markdownImportIndex, createRecipeMutation, updateRecipeMutation, addIngredientMutation, queryClient, removeCurrentMarkdownDraft]);
+
   const handleCreateRecipe = useCallback(async () => {
     if (!newRecipeName.trim()) return;
     const recipe = await createRecipeMutation.mutateAsync(newRecipeName.trim());
@@ -451,9 +562,10 @@ function RecipePage() {
         const allCustom = await api.getCustomFoods();
         const q = searchQuery.trim().toLowerCase();
         customFoods = allCustom
-          .filter((f) => f.name.toLowerCase().includes(q))
+          .filter((f) => f.name.toLowerCase().includes(q) && hasMeaningfulNutrition(f))
           .map((f) => ({
-            fdcId: -(Date.now() + Math.random() * 1000),
+            fdcId: -2,
+            customFoodId: f.id,
             description: f.name,
             brandOwner: null as string | null,
             dataType: 'Custom',
@@ -468,7 +580,7 @@ function RecipePage() {
             },
           }));
       } catch {}
-      const allFoods = [...customFoods, ...result.foods.map((r) => ({ ...r }))];
+      const allFoods = [...customFoods, ...result.foods.map((r) => ({ ...r }))].filter((food) => hasMeaningfulNutrition(food.nutrients));
       setSearchResults(allFoods);
       setSearchSource(customFoods.length > 0 && result.foods.length === 0 ? 'local' : result.source === 'fallback' ? 'fallback' : result.source === 'local' ? 'local' : 'fda');
     } catch {
@@ -479,15 +591,50 @@ function RecipePage() {
     }
   }, [searchQuery]);
 
+  const handleRematchIngredient = useCallback(async (ingredient: Ingredient, food: FDAFood, amount: number, unit: string) => {
+    if (!activeRecipeId || ingredient.linkedRecipeId) return;
+    const previousEditLocation = editStorageLocation;
+    const defaults = await lookupFoodStorageDefaults();
+    const nextLocation = defaultLocationForFood(food, defaults);
+    await updateIngredientMutation.mutateAsync({
+      recipeId: activeRecipeId,
+      ingredientId: ingredient.id,
+      data: buildIngredientRematchUpdate(ingredient, food, nextLocation, amount, unit),
+    });
+    if (editIngredientId === ingredient.id && !ingredient.storageLocation && nextLocation) {
+      setEditStorageLocation(current => current === previousEditLocation ? nextLocation : current);
+    }
+  }, [activeRecipeId, updateIngredientMutation, lookupFoodStorageDefaults, editIngredientId, editStorageLocation]);
+
+  const handleSaveIngredientStorageLocation = useCallback(async (ingredient: Ingredient, location: string) => {
+    if (!activeRecipeId || ingredient.linkedRecipeId) throw new Error('This ingredient cannot be updated.');
+    await updateIngredientMutation.mutateAsync({
+      recipeId: activeRecipeId,
+      ingredientId: ingredient.id,
+      data: buildRescaledIngredientUpdate(ingredient, { storageLocation: location }),
+    });
+  }, [activeRecipeId, updateIngredientMutation]);
+
   const handleAddIngredient = useCallback(async () => {
-    if (!selectedFood || !ingredientAmount || !activeRecipeId) return;
-    const ingredientData = buildIngredientData(selectedFood, parseFloat(ingredientAmount), ingredientUnit);
-    await addIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredient: ingredientData });
-    setSelectedFood(null);
-    setIngredientAmount('100');
-    setIngredientUnit('g');
-    setSearchDialogOpen(false);
-  }, [selectedFood, ingredientAmount, ingredientUnit, activeRecipeId, addIngredientMutation]);
+    if (!selectedFood || !ingredientAmount || !activeRecipeId || addingFoodRef.current) return;
+    addingFoodRef.current = true;
+    setIsAddingFood(true);
+    setFoodSelectionError('');
+    try {
+      const defaults = await lookupFoodStorageDefaults();
+      const ingredientData = buildIngredientData(selectedFood, parseFloat(ingredientAmount), ingredientUnit, defaultLocationForFood(selectedFood, defaults));
+      await addIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredient: ingredientData });
+      setSelectedFood(null);
+      setIngredientAmount('100');
+      setIngredientUnit('g');
+      setSearchDialogOpen(false);
+    } catch (error) {
+      setFoodSelectionError(`Could not add ingredient: ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally {
+      addingFoodRef.current = false;
+      setIsAddingFood(false);
+    }
+  }, [selectedFood, ingredientAmount, ingredientUnit, activeRecipeId, addIngredientMutation, lookupFoodStorageDefaults]);
 
   const handleAddRecipeAsIngredient = useCallback(async () => {
     if (!selectedRecipeToAdd || !activeRecipeId) return;
@@ -620,8 +767,14 @@ function RecipePage() {
       prepInstructions: editPrepInstructions,
       storageLocation: editStorageLocation,
     });
-    await updateIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredientId: editIngredientId, data: updateData as any });
-    setEditIngredientId(null);
+    setIngredientSaveStatus(null);
+    try {
+      await updateIngredientMutation.mutateAsync({ recipeId: activeRecipeId, ingredientId: editIngredientId, data: updateData as any });
+      setEditIngredientId(null);
+      setIngredientSaveStatus({ kind: 'ok', message: 'Ingredient saved.' });
+    } catch (error) {
+      setIngredientSaveStatus({ kind: 'err', message: `Ingredient save failed: ${error instanceof Error ? error.message : 'Please try again.'}` });
+    }
   }, [editIngredientId, editName, editDescription, editAmount, editUnit, editPrepInstructions, editStorageLocation, activeRecipe, activeRecipeId, updateIngredientMutation]);
 
   const handleIngredientDragEnd = useCallback((event: DragEndEvent) => {
@@ -790,29 +943,27 @@ function RecipePage() {
 
           {/* Left Panel: Recipe List */}
           <div className="lg:col-span-3">
-            <Card className="border-stone-200 shadow-sm">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-2">
+            <Card className="border-stone-200 shadow-sm h-[calc(100vh-154px)] flex flex-col overflow-hidden">
+              <CardHeader className="pb-3 shrink-0">
+                <div className="space-y-2">
                   <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-brand-600" />My Recipes
                   </CardTitle>
-                  <ImportZipButton onFile={handleImport} busy={importing} />
-                </div>
-                {transferStatus && (
-                  <div
-                    className={`mt-2 text-xs flex items-center gap-1.5 px-2 py-1.5 rounded ${
-                      transferStatus.kind === 'ok'
-                        ? 'text-green-700 bg-green-50 border border-green-200'
-                        : 'text-red-600 bg-red-50 border border-red-200'
-                    }`}
-                  >
-                    {transferStatus.kind === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
-                    <span className="truncate">{transferStatus.msg}</span>
+                  <div className="flex items-center gap-1.5">
+                    <ImportZipButton onFile={handleImport} busy={importing} label="Bundle" />
+                    <ImportZipButton
+                      onFiles={handleMarkdownImportFiles}
+                      busy={importing}
+                      accept=".md,text/markdown,text/plain"
+                      label="Recipes"
+                      multiple
+                    />
                   </div>
-                )}
+                </div>
+                <RecipeTransferStatus status={transferStatus} />
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex gap-2 mb-4">
+              <CardContent className="pt-0 flex-1 min-h-0 flex flex-col">
+                <div className="flex gap-2 mb-4 shrink-0">
                   <Input placeholder="New recipe name..." value={newRecipeName} onChange={(e) => setNewRecipeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateRecipe()} className="text-sm h-9" />
                   <Button onClick={handleCreateRecipe} disabled={!newRecipeName.trim() || isMutating} size="sm" className="bg-brand-600 hover:bg-brand-700 shrink-0">
                     <Plus className="w-4 h-4" />
@@ -892,8 +1043,8 @@ function RecipePage() {
                     onExcludeAllergensChange={setExcludeAllergens}
                   />
                 </div>
-                <ScrollArea className="max-h-[calc(100vh-280px)]">
-                  <div className="space-y-1.5">
+                <ScrollArea className="flex-1 min-h-0">
+                  <div className="space-y-1.5 pr-2">
                     {displayRecipes.length === 0 ? (
                       <p className="text-xs text-stone-400 text-center py-8">
                         {recipeSearchQuery.trim()
@@ -963,8 +1114,8 @@ function RecipePage() {
           {/* Center Panel: Recipe Editor */}
           <div className="lg:col-span-5">
             {activeRecipe ? (
-              <Card className="border-stone-200 shadow-sm">
-                <CardHeader className="pb-4">
+              <Card className="border-stone-200 shadow-sm h-[calc(100vh-154px)] flex flex-col overflow-hidden">
+                <CardHeader className="pb-4 shrink-0">
                     <div className="flex-1">
                       {editingName ? (
                         <div className="flex gap-2">
@@ -1083,7 +1234,7 @@ function RecipePage() {
                               <div className="flex-1 min-h-0 overflow-y-auto">
                                 <div className="space-y-1">
                                   {searchResults.map((food) => (
-                                    <div key={food.fdcId} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedFood?.fdcId === food.fdcId ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`} onClick={() => { setSelectedFood(food); setIngredientAmount('100'); setIngredientUnit(food.servingSizeUnit || 'g'); }}>
+                                    <div key={food.customFoodId ?? food.fdcId} className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedFood?.customFoodId === food.customFoodId && selectedFood?.fdcId === food.fdcId ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`} onClick={() => { if (isAddingFood) return; setSelectedFood(food); setIngredientAmount('100'); setIngredientUnit(food.servingSizeUnit || 'g'); }}>
                                       <div className="font-medium text-sm text-stone-900">{food.description}</div>
                                       <div className="flex items-center gap-2 mt-1">
                                         <Badge variant="outline" className="text-[10px] h-5">{food.dataType}</Badge>
@@ -1100,6 +1251,7 @@ function RecipePage() {
                             )}
                             {selectedFood && (
                               <div className="border-t pt-4 space-y-3 flex-shrink-0">
+                                {foodSelectionError && <p role="alert" className="text-xs text-destructive">{foodSelectionError}</p>}
                                 <div className="bg-brand-50 p-3 rounded-lg">
                                   <p className="font-medium text-sm text-brand-900">{selectedFood.description}</p>
                                   <p className="text-xs text-brand-700 mt-1">
@@ -1120,7 +1272,7 @@ function RecipePage() {
                                       <option value="lb">lb</option><option value="whole">whole</option>
                                     </select>
                                   </div>
-                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isMutating} className="bg-brand-600 hover:bg-brand-700 h-9">
+                                  <Button onClick={handleAddIngredient} disabled={!ingredientAmount || isMutating || isAddingFood} className="bg-brand-600 hover:bg-brand-700 h-9">
                                     {isMutating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" />Add</>}
                                   </Button>
                                 </div>
@@ -1289,7 +1441,7 @@ function RecipePage() {
                        </DialogContent>
                      </Dialog>
 
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 flex-1 min-h-0 overflow-y-auto">
                   <Separator className="mb-4" />
 
                   {/* Ingredients List */}
@@ -1305,6 +1457,7 @@ function RecipePage() {
                         </Button>
                       )}
                     </div>
+                    {ingredientSaveStatus?.kind === 'ok' && <p role="status" className="text-xs text-brand-700 mb-2">{ingredientSaveStatus.message}</p>}
                     {activeRecipe.ingredients.length === 0 ? (
                       <div className="text-center py-8 border-2 border-dashed border-stone-200 rounded-lg">
                         <Salad className="w-8 h-8 text-stone-300 mx-auto mb-2" />
@@ -1360,12 +1513,15 @@ function RecipePage() {
                                           editAmount={editAmount}
                                           editUnit={editUnit}
                                           isMutating={isMutating}
+                                          ingredientSaveError={ingredientSaveStatus?.kind === 'err' && editIngredientId === ingredient.id ? ingredientSaveStatus.message : null}
                                           isGrouped
                                           onToggleSelect={() => toggleIngredientSelect(ingredient.id)}
-                                           onEdit={() => { setEditIngredientId(ingredient.id); setEditName(ingredient.name); setEditDescription(ingredient.description || ''); setEditAmount(String(ingredient.amount)); setEditUnit(ingredient.unit); setEditPrepInstructions(ingredient.prepInstructions || []); setEditStorageLocation((ingredient as any).storageLocation || ''); }}
+                                           onEdit={() => { setIngredientSaveStatus(null); setEditIngredientId(ingredient.id); setEditName(ingredient.name); setEditDescription(ingredient.description || ''); setEditAmount(String(ingredient.amount)); setEditUnit(ingredient.unit.trim() || 'g'); setEditPrepInstructions(ingredient.prepInstructions || []); setEditStorageLocation((ingredient as any).storageLocation || ''); }}
                                             onRemove={() => removeIngredientMutation.mutate({ recipeId: activeRecipeId!, ingredientId: ingredient.id })}
                                             onRemoveFromGroup={() => { if (activeRecipe && activeRecipeId) { const ings = computeMoveIngredientToGroup(activeRecipe, ingredient.id, null); updateGroupsMutation.mutate({ recipeId: activeRecipeId, ingredients: ings }); } }}
                                             onSaveEdit={handleSaveIngredientEdit}
+                                            onRematch={(food, amount, unit) => handleRematchIngredient(ingredient, food, amount, unit)}
+                                            onSaveIngredientStorageLocation={(location) => handleSaveIngredientStorageLocation(ingredient, location)}
                                             onCancelEdit={() => setEditIngredientId(null)}
                                             onEditName={setEditName}
                                            onEditDescription={setEditDescription}
@@ -1395,11 +1551,14 @@ function RecipePage() {
                                   editAmount={editAmount}
                                   editUnit={editUnit}
                                   isMutating={isMutating}
+                                  ingredientSaveError={ingredientSaveStatus?.kind === 'err' && editIngredientId === slot.ingredient.id ? ingredientSaveStatus.message : null}
                                   isGrouped={false}
                                   onToggleSelect={() => toggleIngredientSelect(slot.ingredient.id)}
-                                  onEdit={() => { setEditIngredientId(slot.ingredient.id); setEditName(slot.ingredient.name); setEditDescription(slot.ingredient.description || ''); setEditAmount(String(slot.ingredient.amount)); setEditUnit(slot.ingredient.unit); setEditPrepInstructions(slot.ingredient.prepInstructions || []); setEditStorageLocation((slot.ingredient as any).storageLocation || ''); }}
+                                  onEdit={() => { setIngredientSaveStatus(null); setEditIngredientId(slot.ingredient.id); setEditName(slot.ingredient.name); setEditDescription(slot.ingredient.description || ''); setEditAmount(String(slot.ingredient.amount)); setEditUnit(slot.ingredient.unit.trim() || 'g'); setEditPrepInstructions(slot.ingredient.prepInstructions || []); setEditStorageLocation((slot.ingredient as any).storageLocation || ''); }}
                                   onRemove={() => removeIngredientMutation.mutate({ recipeId: activeRecipeId!, ingredientId: slot.ingredient.id })}
                                   onSaveEdit={handleSaveIngredientEdit}
+                                  onRematch={(food, amount, unit) => handleRematchIngredient(slot.ingredient, food, amount, unit)}
+                                  onSaveIngredientStorageLocation={(location) => handleSaveIngredientStorageLocation(slot.ingredient, location)}
                                   onCancelEdit={() => setEditIngredientId(null)}
                                   onEditName={setEditName}
                                   onEditDescription={setEditDescription}
@@ -1552,7 +1711,7 @@ function RecipePage() {
                 </CardContent>
               </Card>
             ) : (
-              <Card className="border-stone-200 shadow-sm flex items-center justify-center min-h-[500px]">
+              <Card className="border-stone-200 shadow-sm flex items-center justify-center h-[calc(100vh-154px)]">
                 <div className="text-center py-16">
                   <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-4">
                     <ChefHat className="w-8 h-8 text-stone-300" />
@@ -1567,8 +1726,8 @@ function RecipePage() {
           {/* Right Panel: Nutrition Label + Preview Button */}
           <div className="lg:col-span-4">
             <div className="lg:sticky lg:top-6">
-              <Card className="border-stone-200 shadow-sm">
-                <CardHeader className="pb-3">
+              <Card className="border-stone-200 shadow-sm h-[calc(100vh-154px)] flex flex-col overflow-hidden">
+                <CardHeader className="pb-3 shrink-0">
                   <CardTitle className="text-sm font-semibold text-stone-700 flex items-center gap-2">
                     <Salad className="w-4 h-4 text-brand-600" />Nutrition Facts Label
                   </CardTitle>
@@ -1599,7 +1758,7 @@ function RecipePage() {
                     </div>
                   )}
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 flex-1 min-h-0 overflow-y-auto">
                   <div className="flex justify-center" ref={nutritionLabelRef}>
                     <NutritionLabel
                       data={activeRecipe && activeRecipe.servings > 1 ? perServingNutrition : nutritionData}
@@ -1626,6 +1785,18 @@ function RecipePage() {
           </div>
         </div>
       </main>
+
+      <RecipeImportDialog
+        open={markdownImportOpen}
+        drafts={markdownImportDrafts}
+        currentIndex={markdownImportIndex}
+        isSaving={markdownImportSaving}
+        onOpenChange={setMarkdownImportOpen}
+        onDraftChange={handleMarkdownDraftChange}
+        onUndoCurrent={handleUndoMarkdownDraft}
+        onSaveCurrent={handleSaveMarkdownDraft}
+        onSkipCurrent={handleSkipMarkdownDraft}
+      />
 
       {/* Full-Screen Preview Dialog */}
       <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
@@ -1926,6 +2097,7 @@ interface SortableIngredientItemProps {
   editAmount: string;
   editUnit: string;
   isMutating: boolean;
+  ingredientSaveError?: string | null;
   isGrouped: boolean;
   prepInstructions: string[];
   editStorageLocation: string;
@@ -1934,6 +2106,8 @@ interface SortableIngredientItemProps {
   onRemove: () => void;
   onRemoveFromGroup?: () => void;
   onSaveEdit: () => void;
+  onRematch: (food: FDAFood, amount: number, unit: string) => Promise<void>;
+  onSaveIngredientStorageLocation: (location: string) => Promise<void>;
   onCancelEdit: () => void;
   onEditName: (v: string) => void;
   onEditDescription: (v: string) => void;
@@ -1954,12 +2128,15 @@ function SortableIngredientItem({
   editAmount,
   editUnit,
   isMutating,
+  ingredientSaveError,
   isGrouped,
   onToggleSelect,
   onEdit,
   onRemove,
   onRemoveFromGroup,
   onSaveEdit,
+  onRematch,
+  onSaveIngredientStorageLocation,
   onCancelEdit,
   onEditName,
   onEditDescription,
@@ -1989,6 +2166,11 @@ function SortableIngredientItem({
   };
 
   const isRecipe = !!ingredient.linkedRecipeId;
+  const defaultIdentity = isRecipe ? null : (ingredient.sourceType === 'custom_food' && ingredient.sourceKey
+    ? { sourceType: 'custom_food' as const, sourceKey: ingredient.sourceKey }
+    : ingredient.sourceType === 'usda' && ingredient.fdcId > 0 && (!ingredient.sourceKey || ingredient.sourceKey === String(ingredient.fdcId))
+      ? { sourceType: 'usda' as const, sourceKey: String(ingredient.fdcId) }
+      : null);
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -2013,21 +2195,17 @@ function SortableIngredientItem({
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} className="h-3.5 w-3.5" />
         </div>
         <div className="flex-1 min-w-0 ml-2">
-          <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${isRecipe ? 'text-blue-800' : 'text-stone-800'}`}>
+          <p className={`text-sm font-medium flex items-center gap-1.5 min-w-0 ${isRecipe ? 'text-blue-800' : 'text-stone-800'}`}>
             {isRecipe && <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
-            {ingredient.name}
+            <span className="min-w-0 flex-1 truncate">{ingredient.name}</span>
             {isRecipe && <Link2 className="w-3 h-3 text-blue-400 shrink-0" />}
-            {(ingredient as any).storageLocation && STORAGE_LOCATION_META[(ingredient as any).storageLocation as StorageLocation] && (
-              <span className="text-[9px] px-1 py-0.5 rounded bg-stone-100 text-stone-500">
-                {STORAGE_LOCATION_META[(ingredient as any).storageLocation as StorageLocation].icon} {(ingredient as any).storageLocation}
-              </span>
-            )}
+            <IngredientStorageTag location={ingredient.storageLocation} />
           </p>
           <p className={`text-xs mt-0.5 ${isRecipe ? 'text-blue-500' : 'text-stone-400'}`}>
             {isRecipe ? (
               <>{fmt(ingredient.amount)}× recipe · {fmt(ingredient.calories)} cal</>
             ) : (
-              <>{fmt(ingredient.amount)}{ingredient.unit} · {fmt(ingredient.calories)} cal</>
+              <>{fmt(ingredient.amount)} {ingredient.unit} · {fmt(ingredient.calories)} cal</>
             )}
             {ingredient.description && <span className="text-stone-500 ml-1">· {ingredient.description}</span>}
           </p>
@@ -2080,6 +2258,8 @@ function SortableIngredientItem({
             </Button>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onCancelEdit}>Cancel</Button>
           </div>
+          {ingredientSaveError && <p role="alert" className="text-xs text-destructive">{ingredientSaveError}</p>}
+          {!isRecipe && <IngredientMatchEditor ingredient={ingredient} amount={parseFloat(editAmount) || ingredient.amount} unit={editUnit} onRematch={onRematch} />}
           <div className="border-t border-brand-200 pt-2 mt-1">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-stone-600">Prep Instructions</label>
@@ -2104,19 +2284,7 @@ function SortableIngredientItem({
               </div>
             ))}
           </div>
-          <div className="border-t border-brand-200 pt-2 mt-1">
-            <label className="text-xs font-medium text-stone-600 mb-1 block">Store in</label>
-            <select
-              value={editStorageLocation}
-              onChange={(e) => onEditStorageLocation(e.target.value)}
-              className="w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
-            >
-              <option value="">Not set</option>
-              {STORAGE_LOCATIONS.map((loc) => (
-                <option key={loc} value={loc}>{STORAGE_LOCATION_META[loc].icon} {loc}</option>
-              ))}
-            </select>
-          </div>
+          <StorageDefaultControl key={ingredient.id} identity={defaultIdentity} location={editStorageLocation} onLocationChange={onEditStorageLocation} onSaveIngredientLocation={onSaveIngredientStorageLocation} />
         </div>
       )}
     </div>

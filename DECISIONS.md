@@ -632,6 +632,46 @@ Negative:
 
 ---
 
+# ADR: Food-Specific Portion Weights for Cookbook PDF Units
+
+## Status
+
+Accepted
+
+## Decision
+
+Keep positive USDA `foodPortions` gram weights on shared food rows. The browser may use them for cookbook PDF *display* when a portion unambiguously matches the matched ingredient's measure. Exact weight-to-weight conversions need no USDA portion. Grams PDF mode retains original units with a notice when no reliable match exists; saved recipe amounts, nutrient snapshots, and portable bundle exports remain unchanged.
+
+## Rationale
+
+A generic cup-to-gram water density or a fixed whole-item weight would misstate the weight of many foods. USDA publishes food-specific portions for some, but not all, records; previously imported DietLedger foods discarded those portions, so they must be re-seeded to gain them.
+
+## Consequences
+
+A small PostgreSQL JSONB portion collection and explicit conversion tests add maintenance cost, but avoid fabricating print weights. Existing foods without portions and sparse live-search results safely retain original units; no automatic data rewrite is required.
+
+---
+
+# ADR: Per-User Storage Defaults for Matched Foods
+
+## Status
+
+Accepted
+
+## Decision
+
+Store the default storage location separately from shared USDA foods and recipe ingredient locations, keyed by authenticated user and stable database-food identity. The Go API inserts the first choice atomically with the ingredient location edit and offers an authenticated explicit replacement action. In the ingredient editor, that action saves the selected location on the current ingredient and updates the per-user default. React Query caches defaults; the browser preselects them on subsequent additions. Other existing recipe ingredients are not rewritten.
+
+## Rationale
+
+Milk may normally go in a refrigerator for one user, but individual recipe ingredients can differ. A user-scoped preference prevents users from modifying shared food metadata and preserves per-recipe overrides.
+
+## Consequences
+
+A narrow preference table and API add persistence and tests; first-write-wins prevents incidental recipe edits or rematches from changing a deliberate default. Bundle JSON stays focused on recipe data rather than exporting user-specific preferences.
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:

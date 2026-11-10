@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,7 +158,7 @@ var userDataTables = []string{
 	"chapters", "recipe_books", "shared_recipes", "community_categories",
 	"day_plan_entries", "meal_groups", "grocery_checklists", "meal_plans",
 	"food_log_entries", "weight_entries", "person_profiles",
-	"custom_foods", "allergen_rules", "dietary_profiles",
+	"custom_foods", "food_storage_defaults", "allergen_rules", "dietary_profiles",
 	"templates", "brand_kits", "pantry_staples", "seasonal_foods",
 	"user_secrets", "user_locations", "devices", "api_keys",
 }
@@ -426,25 +427,119 @@ func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientR
 	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
 }
 
-func (s *PostgresStore) UpdateIngredient(id string, ing *CreateIngredientReq) (*Ingredient, error) {
+func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *CreateIngredientReq) (*Ingredient, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Lock the existing ingredient: both authorization and the first-choice
+	// transition must refer to this same row, even under concurrent updates.
+	var oldLocation, oldType string
+	var oldKey sql.NullString
+	var oldFdcID int
+	var oldLinkedRecipe sql.NullString
+	err = tx.QueryRow(`SELECT COALESCE(i.storage_location,''), COALESCE(i.source_type,'manual'), i.source_key, i.fdc_id, i.linked_recipe_id
+		FROM ingredients i JOIN recipes r ON r.id = i.recipe_id
+		WHERE i.id=$1 AND i.recipe_id=$2 AND r.user_id=$3 FOR UPDATE OF i`, id, recipeID, userID).
+		Scan(&oldLocation, &oldType, &oldKey, &oldFdcID, &oldLinkedRecipe)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 	sourceType := ing.SourceType
 	if sourceType == "" {
 		sourceType = "manual"
 	}
-	_, err := s.db.Exec(
-		`UPDATE ingredients SET fdc_id=$1, name=$2, amount=$3, unit=$4, description=$5, calories=$6, total_fat=$7, saturated_fat=$8, trans_fat=$9, cholesterol=$10, sodium=$11, total_carbs=$12, dietary_fiber=$13, total_sugars=$14, added_sugars=$15, protein=$16, vitamin_d=$17, calcium=$18, iron=$19, potassium=$20, prep_instructions=$21, storage_location=$22, group_id=$23, linked_recipe_id=$24, source_type=$25, source_key=$26 WHERE id=$27`,
-		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, id,
+	_, err = tx.Exec(
+		`UPDATE ingredients SET fdc_id=$1, name=$2, amount=$3, unit=$4, description=$5, calories=$6, total_fat=$7, saturated_fat=$8, trans_fat=$9, cholesterol=$10, sodium=$11, total_carbs=$12, dietary_fiber=$13, total_sugars=$14, added_sugars=$15, protein=$16, vitamin_d=$17, calcium=$18, iron=$19, potassium=$20, prep_instructions=$21, storage_location=$22, group_id=$23, linked_recipe_id=$24, source_type=$25, source_key=$26 WHERE id=$27 AND recipe_id=$28`,
+		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, id, recipeID,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Ingredient{ID: id, RecipeID: "", FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+
+	// A rematch is not a first choice for the new item. USDA identity is its
+	// FDC ID (an absent legacy source_key is fine); custom identity is its ID.
+	if oldLocation == "" && validFoodStorageLocation(ing.StorageLocation) && !oldLinkedRecipe.Valid && ing.LinkedRecipeID == nil && sourceType == oldType {
+		key := ""
+		switch sourceType {
+		case "usda":
+			key = strconv.Itoa(ing.FdcID)
+			if ing.FdcID <= 0 || oldFdcID != ing.FdcID || (oldKey.Valid && oldKey.String != "" && oldKey.String != key) || (ing.SourceKey != nil && *ing.SourceKey != key) {
+				key = ""
+			}
+		case "custom_food":
+			if oldKey.Valid && oldKey.String != "" && ing.SourceKey != nil && *ing.SourceKey == oldKey.String {
+				key = oldKey.String
+			}
+		}
+		if key != "" {
+			_, err = tx.Exec(`INSERT INTO food_storage_defaults (user_id, source_type, source_key, custom_food_id, location)
+				SELECT $1, $2, $3, CASE WHEN $2 = 'custom_food' THEN $3 ELSE NULL END, $4
+				WHERE ($2 = 'usda' AND EXISTS (SELECT 1 FROM food_items WHERE fdc_id = $5))
+				   OR ($2 = 'custom_food' AND EXISTS (SELECT 1 FROM custom_foods WHERE id = $3 AND user_id = $1))
+				ON CONFLICT (user_id, source_type, source_key) DO NOTHING`, userID, sourceType, key, ing.StorageLocation, ing.FdcID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
 }
 
-func (s *PostgresStore) DeleteIngredient(id string) error {
-	_, err := s.db.Exec(`DELETE FROM ingredients WHERE id = $1`, id)
-	return err
+func (s *PostgresStore) DeleteIngredient(userID, recipeID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM ingredients i USING recipes r WHERE i.id=$1 AND i.recipe_id=$2 AND r.id=$2 AND r.user_id=$3`, id, recipeID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListFoodStorageDefaults(userID string) ([]FoodStorageDefault, error) {
+	rows, err := s.db.Query(`SELECT source_type, source_key, location FROM food_storage_defaults WHERE user_id=$1 ORDER BY source_type, source_key`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	defaults := []FoodStorageDefault{}
+	for rows.Next() {
+		var d FoodStorageDefault
+		if err := rows.Scan(&d.SourceType, &d.SourceKey, &d.Location); err != nil {
+			return nil, err
+		}
+		defaults = append(defaults, d)
+	}
+	return defaults, rows.Err()
+}
+
+func (s *PostgresStore) UpsertFoodStorageDefault(userID, sourceType, sourceKey, location string) (*FoodStorageDefault, error) {
+	fdcID, _ := strconv.Atoi(sourceKey) // Handler validates positive canonical FDC IDs.
+	var d FoodStorageDefault
+	err := s.db.QueryRow(`INSERT INTO food_storage_defaults (user_id, source_type, source_key, custom_food_id, location)
+		SELECT $1, $2, $3, CASE WHEN $2 = 'custom_food' THEN $3 ELSE NULL END, $4
+		WHERE ($2 = 'usda' AND EXISTS (SELECT 1 FROM food_items WHERE fdc_id = $5))
+		   OR ($2 = 'custom_food' AND EXISTS (SELECT 1 FROM custom_foods WHERE id=$3 AND user_id=$1))
+		ON CONFLICT (user_id, source_type, source_key) DO UPDATE SET location=EXCLUDED.location
+		RETURNING source_type, source_key, location`, userID, sourceType, sourceKey, location, fdcID).Scan(&d.SourceType, &d.SourceKey, &d.Location)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []CreateIngredientReq) error {
@@ -476,6 +571,61 @@ func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []Create
 
 // ── Food Items ───────────────────────────────────────────────────────
 
+// Live search may carry only a subset of a food's portions. Retain existing
+// weights for the same measure and append genuinely new portions without
+// creating ambiguous duplicate weights for a previously known measure.
+func mergeLivePortions(existing, incoming []FoodPortion) []FoodPortion {
+	merged := append([]FoodPortion{}, existing...)
+	for _, candidate := range incoming {
+		found := false
+		for _, saved := range merged {
+			if saved.Amount == candidate.Amount && saved.MeasureUnit == candidate.MeasureUnit &&
+				saved.Modifier == candidate.Modifier && saved.PortionDescription == candidate.PortionDescription {
+				found = true
+				break
+			}
+		}
+		if !found {
+			merged = append(merged, candidate)
+		}
+	}
+	return merged
+}
+
+func foodPortionsJSON(portions []FoodPortion) (string, error) {
+	if portions == nil {
+		portions = []FoodPortion{}
+	}
+	data, err := json.Marshal(portions)
+	return string(data), err
+}
+
+func (f *FoodItem) scanPortions(data []byte) error {
+	if err := json.Unmarshal(data, &f.Portions); err != nil {
+		return err
+	}
+	if f.Portions == nil {
+		f.Portions = []FoodPortion{}
+	}
+	return nil
+}
+
+const meaningfulFoodNutritionSQL = `(calories > 0 OR total_fat > 0 OR saturated_fat > 0 OR trans_fat > 0 OR
+	cholesterol > 0 OR sodium > 0 OR total_carbs > 0 OR dietary_fiber > 0 OR total_sugars > 0 OR
+	added_sugars > 0 OR protein > 0 OR vitamin_d > 0 OR calcium > 0 OR iron > 0 OR potassium > 0)`
+
+// Literal matches outrank English full-text stemming. In particular, the
+// exact token "salt" in "Salt, table" should beat broad descriptions that
+// merely contain or stem from the query.
+const foodSearchRelevanceOrderSQL = `CASE
+	WHEN btrim(regexp_replace(lower(description), '[^[:alnum:]]+', ' ', 'g')) = btrim(regexp_replace(lower($1), '[^[:alnum:]]+', ' ', 'g')) THEN 0
+	WHEN strpos(btrim(regexp_replace(lower(description), '[^[:alnum:]]+', ' ', 'g')) || ' ', btrim(regexp_replace(lower($1), '[^[:alnum:]]+', ' ', 'g')) || ' ') = 1 THEN 1
+	WHEN strpos(' ' || btrim(regexp_replace(lower(description), '[^[:alnum:]]+', ' ', 'g')) || ' ', ' ' || btrim(regexp_replace(lower($1), '[^[:alnum:]]+', ' ', 'g')) || ' ') > 0 THEN 2
+	ELSE 3
+END,
+ts_rank(search_vector, plainto_tsquery('english', $1)) DESC,
+description ASC`
+
 func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem, int, error) {
 	if perPage <= 0 {
 		perPage = 20
@@ -489,21 +639,21 @@ func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem
 	var err error
 	args := []interface{}{}
 	if query != "" {
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM food_items WHERE search_vector @@ plainto_tsquery('english', $1)`, query).Scan(&total); err != nil {
+		if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM food_items WHERE %s AND search_vector @@ plainto_tsquery('english', $1)`, meaningfulFoodNutritionSQL), query).Scan(&total); err != nil {
 			return nil, 0, err
 		}
 		args = []interface{}{query, perPage, offset}
 		rows, err = s.db.Query(
-			`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC LIMIT $2 OFFSET $3`,
+			fmt.Sprintf(`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions FROM food_items WHERE %s AND search_vector @@ plainto_tsquery('english', $1) ORDER BY %s LIMIT $2 OFFSET $3`, meaningfulFoodNutritionSQL, foodSearchRelevanceOrderSQL),
 			args...,
 		)
 	} else {
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM food_items`).Scan(&total); err != nil {
+		if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM food_items WHERE %s`, meaningfulFoodNutritionSQL)).Scan(&total); err != nil {
 			return nil, 0, err
 		}
 		args = []interface{}{perPage, offset}
 		rows, err = s.db.Query(
-			`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items ORDER BY description LIMIT $1 OFFSET $2`,
+			fmt.Sprintf(`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions FROM food_items WHERE %s ORDER BY description LIMIT $1 OFFSET $2`, meaningfulFoodNutritionSQL),
 			args...,
 		)
 	}
@@ -514,7 +664,11 @@ func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem
 	var foods []FoodItem
 	for rows.Next() {
 		var f FoodItem
-		if err := rows.Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		var portions []byte
+		if err := rows.Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt, &portions); err != nil {
+			return nil, 0, err
+		}
+		if err := f.scanPortions(portions); err != nil {
 			return nil, 0, err
 		}
 		foods = append(foods, f)
@@ -524,14 +678,18 @@ func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem
 
 func (s *PostgresStore) GetFoodByFdcID(fdcID int) (*FoodItem, error) {
 	f := &FoodItem{}
+	var portions []byte
 	err := s.db.QueryRow(
-		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE fdc_id = $1`,
+		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions FROM food_items WHERE fdc_id = $1`,
 		fdcID,
-	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt)
+	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt, &portions)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := f.scanPortions(portions); err != nil {
 		return nil, err
 	}
 	return f, nil
@@ -539,24 +697,35 @@ func (s *PostgresStore) GetFoodByFdcID(fdcID int) (*FoodItem, error) {
 
 func (s *PostgresStore) GetFoodByGtinUpc(gtinUpc string) (*FoodItem, error) {
 	f := &FoodItem{}
+	var portions []byte
 	err := s.db.QueryRow(
-		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at FROM food_items WHERE gtin_upc = $1`,
+		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions FROM food_items WHERE gtin_upc = $1`,
 		gtinUpc,
-	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt)
+	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt, &portions)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	if err := f.scanPortions(portions); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
 func (s *PostgresStore) CreateFoodItem(f *FoodItem) (*FoodItem, error) {
+	portions, err := foodPortionsJSON(f.Portions)
+	if err != nil {
+		return nil, err
+	}
+	if f.Portions == nil {
+		f.Portions = []FoodPortion{}
+	}
 	now := time.Now().UTC()
-	err := s.db.QueryRow(
-		`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24) RETURNING id`,
-		f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit, f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium, f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein, f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now,
+	err = s.db.QueryRow(
+		`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24,$25) RETURNING id`,
+		f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit, f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium, f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein, f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now, portions,
 	).Scan(&f.ID)
 	if err != nil {
 		return nil, err
@@ -660,15 +829,33 @@ func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
 	now := time.Now().UTC()
 	inserted := 0
 	for _, f := range items {
+		portions, err := foodPortionsJSON(f.Portions)
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
 		var existingID int
-		err := tx.QueryRow(`SELECT id FROM food_items WHERE fdc_id = $1`, f.FdcID).Scan(&existingID)
+		var existingPortions []byte
+		err = tx.QueryRow(`SELECT id, portions FROM food_items WHERE fdc_id = $1 FOR UPDATE`, f.FdcID).Scan(&existingID, &existingPortions)
 		if err == nil {
+			if f.Source == "usda" && len(f.Portions) > 0 {
+				var saved []FoodPortion
+				if err := json.Unmarshal(existingPortions, &saved); err != nil {
+					tx.Rollback()
+					return inserted, err
+				}
+				portions, err = foodPortionsJSON(mergeLivePortions(saved, f.Portions))
+				if err != nil {
+					tx.Rollback()
+					return inserted, err
+				}
+			}
 			_, err := tx.Exec(
-				`UPDATE food_items SET description=$1, data_type=$2, brand_owner=$3, gtin_upc=$4, serving_size=$5, serving_size_unit=$6, calories=$7, total_fat=$8, saturated_fat=$9, trans_fat=$10, cholesterol=$11, sodium=$12, total_carbs=$13, dietary_fiber=$14, total_sugars=$15, added_sugars=$16, protein=$17, vitamin_d=$18, calcium=$19, iron=$20, potassium=$21, source=$22, updated_at=$23 WHERE fdc_id=$24`,
+				`UPDATE food_items SET description=$1, data_type=$2, brand_owner=$3, gtin_upc=$4, serving_size=$5, serving_size_unit=$6, calories=$7, total_fat=$8, saturated_fat=$9, trans_fat=$10, cholesterol=$11, sodium=$12, total_carbs=$13, dietary_fiber=$14, total_sugars=$15, added_sugars=$16, protein=$17, vitamin_d=$18, calcium=$19, iron=$20, potassium=$21, source=$22, updated_at=$23, portions=CASE WHEN $25::jsonb = '[]'::jsonb THEN portions ELSE $25::jsonb END WHERE fdc_id=$24`,
 				f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
 				f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
 				f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein,
-				f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now, f.FdcID,
+				f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now, f.FdcID, portions,
 			)
 			if err != nil {
 				tx.Rollback()
@@ -677,12 +864,16 @@ func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
 			inserted++
 			continue
 		}
+		if err != sql.ErrNoRows {
+			tx.Rollback()
+			return inserted, err
+		}
 		_, err = tx.Exec(
-			`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24)`,
+			`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24,$25)`,
 			f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
 			f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
 			f.TotalCarbs, f.DietaryFiber, f.TotalSugars, f.AddedSugars, f.Protein,
-			f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now,
+			f.VitaminD, f.Calcium, f.Iron, f.Potassium, f.Source, now, portions,
 		)
 		if err != nil {
 			tx.Rollback()
@@ -2402,7 +2593,7 @@ func (s *PostgresStore) DeleteUserData(userID string) error {
 		"recipes", "recipe_books", "meal_plans", "person_profiles",
 		"food_log_entries", "weight_entries", "dietary_profiles", "allergen_rules",
 		"custom_foods", "templates", "brand_kits", "shared_recipes",
-		"recipe_ratings", "pantry_staples", "user_secrets", "user_locations", "api_keys",
+		"recipe_ratings", "pantry_staples", "user_secrets", "user_locations", "api_keys", "food_storage_defaults",
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

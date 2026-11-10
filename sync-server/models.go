@@ -41,6 +41,12 @@ type IngredientGroupJSON struct {
 	Title string `json:"title"`
 }
 
+type FoodStorageDefault struct {
+	SourceType string `json:"sourceType"`
+	SourceKey  string `json:"sourceKey"`
+	Location   string `json:"location"`
+}
+
 type Ingredient struct {
 	ID               string   `json:"id"`
 	RecipeID         string   `json:"recipeId"`
@@ -89,33 +95,43 @@ func PrepInstructionsJSON(v []string) string {
 	return string(b)
 }
 
+// FoodPortion is a food-specific USDA serving weight; it is not a generic density.
+type FoodPortion struct {
+	Amount             float64 `json:"amount"`
+	MeasureUnit        string  `json:"measureUnit"`
+	Modifier           string  `json:"modifier"`
+	PortionDescription string  `json:"portionDescription"`
+	GramWeight         float64 `json:"gramWeight"`
+}
+
 type FoodItem struct {
-	ID              int       `json:"id"`
-	FdcID           int       `json:"fdcId"`
-	Description     string    `json:"description"`
-	DataType        string    `json:"dataType"`
-	BrandOwner      *string   `json:"brandOwner,omitempty"`
-	GtinUpc         *string   `json:"gtinUpc,omitempty"`
-	ServingSize     float64   `json:"servingSize"`
-	ServingSizeUnit string    `json:"servingSizeUnit"`
-	Calories        float64   `json:"calories"`
-	TotalFat        float64   `json:"totalFat"`
-	SaturatedFat    float64   `json:"saturatedFat"`
-	TransFat        float64   `json:"transFat"`
-	Cholesterol     float64   `json:"cholesterol"`
-	Sodium          float64   `json:"sodium"`
-	TotalCarbs      float64   `json:"totalCarbs"`
-	DietaryFiber    float64   `json:"dietaryFiber"`
-	TotalSugars     float64   `json:"totalSugars"`
-	AddedSugars     float64   `json:"addedSugars"`
-	Protein         float64   `json:"protein"`
-	VitaminD        float64   `json:"vitaminD"`
-	Calcium         float64   `json:"calcium"`
-	Iron            float64   `json:"iron"`
-	Potassium       float64   `json:"potassium"`
-	Source          string    `json:"source"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID              int           `json:"id"`
+	FdcID           int           `json:"fdcId"`
+	Description     string        `json:"description"`
+	DataType        string        `json:"dataType"`
+	BrandOwner      *string       `json:"brandOwner,omitempty"`
+	GtinUpc         *string       `json:"gtinUpc,omitempty"`
+	ServingSize     float64       `json:"servingSize"`
+	ServingSizeUnit string        `json:"servingSizeUnit"`
+	Portions        []FoodPortion `json:"portions"`
+	Calories        float64       `json:"calories"`
+	TotalFat        float64       `json:"totalFat"`
+	SaturatedFat    float64       `json:"saturatedFat"`
+	TransFat        float64       `json:"transFat"`
+	Cholesterol     float64       `json:"cholesterol"`
+	Sodium          float64       `json:"sodium"`
+	TotalCarbs      float64       `json:"totalCarbs"`
+	DietaryFiber    float64       `json:"dietaryFiber"`
+	TotalSugars     float64       `json:"totalSugars"`
+	AddedSugars     float64       `json:"addedSugars"`
+	Protein         float64       `json:"protein"`
+	VitaminD        float64       `json:"vitaminD"`
+	Calcium         float64       `json:"calcium"`
+	Iron            float64       `json:"iron"`
+	Potassium       float64       `json:"potassium"`
+	Source          string        `json:"source"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 }
 
 type PersonProfile struct {

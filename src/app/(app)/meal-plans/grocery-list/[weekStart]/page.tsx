@@ -71,9 +71,9 @@ export default function GroceryListPage() {
         const ents = await client.getDayEntriesByMealPlanId(plan.id);
         setEntries(ents as DayPlanEntryRecord[]);
       }
-      let cl = await getApiClient().getGroceryChecklist(weekStart);
+      let cl = await client.getGroceryChecklist(weekStart);
       if (!cl) {
-        cl = await getApiClient().upsertGroceryChecklist({ weekStart, checkedItems: [] });
+        cl = await client.upsertGroceryChecklist({ weekStart, checkedItems: [] });
       }
       setChecklist(cl);
     }
@@ -123,11 +123,11 @@ export default function GroceryListPage() {
     for (const entry of nonLeftoverEntries) {
       const recipe = enrichedRecipes.find((r) => r.id === entry.recipeId);
       if (!recipe) continue;
-      const existing = map.get(entry.recipeId);
+      const existing = map.get(recipe.id);
       if (existing) {
         existing.count++;
       } else {
-        map.set(entry.recipeId, { id: recipe.id, name: recipe.name, count: 1 });
+        map.set(recipe.id, { id: recipe.id, name: recipe.name, count: 1 });
       }
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -74,6 +75,67 @@ func (s *Server) refreshHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// ── Food storage defaults ───────────────────────────────────────────
+
+func validFoodStorageLocation(location string) bool {
+	switch location {
+	case "Pantry", "Refrigerator", "Freezer", "Countertop":
+		return true
+	}
+	return false
+}
+
+func (s *Server) foodStorageDefaultsRouter(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	defaults, err := s.store.ListFoodStorageDefaults(getUserFromContext(r).ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list food storage defaults")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: defaults})
+}
+
+func (s *Server) foodStorageDefaultItemRouter(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/food-storage-defaults/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] == "" || (parts[0] != "usda" && parts[0] != "custom_food") {
+		writeError(w, http.StatusBadRequest, "invalid food source")
+		return
+	}
+	if parts[0] == "usda" {
+		id, err := strconv.ParseInt(parts[1], 10, 32)
+		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != parts[1] {
+			writeError(w, http.StatusBadRequest, "invalid FDC ID")
+			return
+		}
+	}
+	var req struct {
+		Location string `json:"location"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !validFoodStorageLocation(req.Location) {
+		writeError(w, http.StatusBadRequest, "invalid storage location")
+		return
+	}
+	d, err := s.store.UpsertFoodStorageDefault(getUserFromContext(r).ID, parts[0], parts[1], req.Location)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save food storage default")
+		return
+	}
+	if d == nil {
+		writeError(w, http.StatusNotFound, "food not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: d})
 }
 
 // ── Recipes ──────────────────────────────────────────────────────────
@@ -281,14 +343,26 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		ing, err := s.store.UpdateIngredient(ingID, &req)
+		if req.StorageLocation != "" && !validFoodStorageLocation(req.StorageLocation) {
+			writeError(w, http.StatusBadRequest, "invalid storage location")
+			return
+		}
+		ing, err := s.store.UpdateIngredient(user.ID, recipeID, ingID, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update ingredient")
 			return
 		}
+		if ing == nil {
+			writeError(w, http.StatusNotFound, "ingredient not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: ing})
 	case "DELETE":
-		if err := s.store.DeleteIngredient(ingID); err != nil {
+		if err := s.store.DeleteIngredient(user.ID, recipeID, ingID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "ingredient not found")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to delete ingredient")
 			return
 		}
@@ -979,7 +1053,9 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 			writeError(w, http.StatusInternalServerError, "failed to list chapter recipes")
 			return
 		}
-		if crs == nil { crs = []ChapterRecipe{} }
+		if crs == nil {
+			crs = []ChapterRecipe{}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: crs})
 	case "POST":
 		var req struct {
@@ -1031,7 +1107,9 @@ func (s *Server) chapterPagesRouter(w http.ResponseWriter, r *http.Request, chap
 			writeError(w, http.StatusInternalServerError, "failed to list pages")
 			return
 		}
-		if pages == nil { pages = []ChapterPage{} }
+		if pages == nil {
+			pages = []ChapterPage{}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: pages})
 	case "POST":
 		var req struct {
@@ -1242,7 +1320,9 @@ func (s *Server) bookPagesRouter(w http.ResponseWriter, r *http.Request, bookID 
 			writeError(w, http.StatusInternalServerError, "failed to list pages")
 			return
 		}
-		if pages == nil { pages = []BookPage{} }
+		if pages == nil {
+			pages = []BookPage{}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: pages})
 	case "POST":
 		var req struct {
@@ -1275,7 +1355,9 @@ func (s *Server) categoriesRouter(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to list categories")
 			return
 		}
-		if cats == nil { cats = []Category{} }
+		if cats == nil {
+			cats = []Category{}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: cats})
 	case "POST":
 		var req CreateCategoryRequest
@@ -1354,7 +1436,9 @@ func (s *Server) categoryRecipes(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusInternalServerError, "failed to list recipes by category")
 		return
 	}
-	if rcs == nil { rcs = []RecipeCategory{} }
+	if rcs == nil {
+		rcs = []RecipeCategory{}
+	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: rcs})
 }
 
@@ -1369,7 +1453,9 @@ func (s *Server) customFoodsRouter(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to list custom foods")
 			return
 		}
-		if foods == nil { foods = []CustomFood{} }
+		if foods == nil {
+			foods = []CustomFood{}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: foods})
 	case "POST":
 		var req CreateCustomFoodRequest
@@ -1454,9 +1540,13 @@ func (s *Server) communityCustomFoodsRouter(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to list community foods")
 		return
 	}
-	if foods == nil { foods = []CustomFood{} }
+	if foods == nil {
+		foods = []CustomFood{}
+	}
 	totalPages := total / perPage
-	if total%perPage > 0 { totalPages++ }
+	if total%perPage > 0 {
+		totalPages++
+	}
 	writeJSON(w, http.StatusOK, PaginatedResponse{Data: foods, Total: total, Page: page, PerPage: perPage, TotalPages: totalPages})
 }
 

@@ -498,7 +498,7 @@ function KitchenHelperContent() {
                       {entries.map((entry) => {
                         const recipe = recipes.find((r) => r.id === entry.recipeId);
                         const group = entry.groupId ? weekGroups.find((g) => g.id === entry.groupId) : null;
-                        const isDone = entry.recipeId ? completedRecipeMap[entry.recipeId] === entry.date : false;
+                        const isDone = entry.recipeId ? completedRecipeMap?.[entry.recipeId] === entry.date : false;
                         return (
                           <button
                             key={entry.id}

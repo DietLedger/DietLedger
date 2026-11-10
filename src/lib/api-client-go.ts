@@ -23,6 +23,7 @@ import type {
   WeightEntryRecord,
   CustomFoodRecord,
   FDAFood,
+  FoodStorageDefault,
   PaginatedResult,
   TemplateRecord,
   PantryStapleRecord,
@@ -33,6 +34,17 @@ import type {
   ExportCandidateRecord,
   UserSecretInfo,
 } from './api-client';
+import type { TemplateLayout } from './types';
+
+type GroceryChecklistWire = Omit<GroceryChecklistRecord, 'checkedItems'> & { checkedItems: string };
+
+function parseGroceryChecklist(wire: GroceryChecklistWire): GroceryChecklistRecord {
+  const checkedItems: unknown = JSON.parse(wire.checkedItems);
+  if (!Array.isArray(checkedItems) || !checkedItems.every(item => typeof item === 'string')) {
+    throw new Error('Invalid grocery checklist items from server');
+  }
+  return { ...wire, checkedItems };
+}
 
 const TOKEN_KEY = 'dietledger_access_token';
 const REFRESH_KEY = 'dietledger_refresh_token';
@@ -347,6 +359,20 @@ export class GoApiClient implements ApiClient {
       'POST',
       '/api/recipe-bundles/import',
       bundle,
+    );
+    return this.unwrap(resp);
+  }
+
+  // ── Food storage defaults ────────────────────────────────────────
+
+  async getFoodStorageDefaults(): Promise<FoodStorageDefault[]> {
+    const resp = await this.request<{ ok: boolean; data: FoodStorageDefault[] }>('GET', '/api/food-storage-defaults');
+    return this.unwrap(resp);
+  }
+
+  async updateFoodStorageDefault(sourceType: FoodStorageDefault['sourceType'], sourceKey: string, location: string): Promise<FoodStorageDefault> {
+    const resp = await this.request<{ ok: boolean; data: FoodStorageDefault }>(
+      'PUT', `/api/food-storage-defaults/${sourceType}/${encodeURIComponent(sourceKey)}`, { location },
     );
     return this.unwrap(resp);
   }
@@ -771,23 +797,24 @@ export class GoApiClient implements ApiClient {
 
   async getGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord | null> {
     try {
-      const resp = await this.request<{ ok: boolean; data: GroceryChecklistRecord }>(
+      const resp = await this.request<{ ok: boolean; data: GroceryChecklistWire | null }>(
         'GET',
         `/api/grocery?weekStart=${weekStart}`
       );
-      return this.unwrap(resp);
+      const wire = this.unwrap(resp);
+      return wire ? parseGroceryChecklist(wire) : null;
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes('not found')) return null;
       throw e;
     }
   }
 
-  async upsertGroceryChecklist(record: GroceryChecklistRecord): Promise<GroceryChecklistRecord> {
-    const resp = await this.request<{ ok: boolean; data: GroceryChecklistRecord }>('PUT', '/api/grocery', {
+  async upsertGroceryChecklist(record: Pick<GroceryChecklistRecord, 'weekStart' | 'checkedItems'>): Promise<GroceryChecklistRecord> {
+    const resp = await this.request<{ ok: boolean; data: GroceryChecklistWire }>('PUT', '/api/grocery', {
       weekStart: record.weekStart,
       checkedItems: JSON.stringify(record.checkedItems),
     });
-    return this.unwrap(resp);
+    return parseGroceryChecklist(this.unwrap(resp));
   }
 
   // ── Nutrition Profiles ───────────────────────────────────────────
@@ -946,11 +973,11 @@ export class GoApiClient implements ApiClient {
   // ── Food Search ──────────────────────────────────────────────────
 
   async searchFoods(query: string, page = 1, perPage = 20): Promise<PaginatedResult<FDAFood>> {
-    const resp = await this.request<PaginatedResult<FDAFood> & { ok?: boolean }>(
+    const resp = await this.request<{ foods: FDAFood[]; total: number; page: number; perPage: number; totalPages: number }>(
       'GET',
       `/api/foods/search?q=${encodeURIComponent(query)}&page=${page}&perPage=${perPage}`
     );
-    return resp;
+    return { data: resp.foods, total: resp.total, page: resp.page, perPage: resp.perPage, totalPages: resp.totalPages };
   }
 
   async getFoodByFdcId(fdcId: number): Promise<FDAFood | null> {
@@ -1022,13 +1049,18 @@ export class GoApiClient implements ApiClient {
   // ── Dietary Profiles (server-persisted) ──────────────────────────
 
   async getDietaryProfiles(): Promise<DietaryProfileRecord[]> {
-    const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord[] }>('GET', '/api/dietary-profiles');
+    type ProfileResponse = Omit<DietaryProfileRecord, 'allergens' | 'dietaryTags' | 'nutrientThresholds'> & {
+      allergens: DietaryProfileRecord['allergens'] | string;
+      dietaryTags: DietaryProfileRecord['dietaryTags'] | string;
+      nutrientThresholds: DietaryProfileRecord['nutrientThresholds'] | string;
+    };
+    const resp = await this.request<{ ok: boolean; data: ProfileResponse[] }>('GET', '/api/dietary-profiles');
     const profiles = resp?.data ?? [];
-    return profiles.map((p: DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string }) => ({
+    return profiles.map((p) => ({
       ...p,
-      allergens: typeof (p as any).allergens === 'string' ? JSON.parse((p as any).allergens) : p.allergens,
-      dietaryTags: typeof (p as any).dietaryTags === 'string' ? JSON.parse((p as any).dietaryTags) : p.dietaryTags,
-      nutrientThresholds: typeof (p as any).nutrientThresholds === 'string' ? JSON.parse((p as any).nutrientThresholds) : p.nutrientThresholds,
+      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
+      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
+      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
     }));
   }
   async createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
@@ -1067,11 +1099,14 @@ export class GoApiClient implements ApiClient {
     await this.request('DELETE', `/api/dietary-profiles/${id}`);
   }
   async getAllergenRulesByProfile(profileId: string): Promise<AllergenRuleRecord[]> {
-    const resp = await this.request<{ ok: boolean; data: AllergenRuleRecord[] }>('GET', `/api/dietary-profiles/${profileId}/allergen-rules`);
+    type RuleResponse = Omit<AllergenRuleRecord, 'customKeywords'> & {
+      customKeywords: AllergenRuleRecord['customKeywords'] | string;
+    };
+    const resp = await this.request<{ ok: boolean; data: RuleResponse[] }>('GET', `/api/dietary-profiles/${profileId}/allergen-rules`);
     const rules = resp?.data ?? [];
-    return rules.map((r: AllergenRuleRecord & { customKeywords?: string }) => ({
+    return rules.map((r) => ({
       ...r,
-      customKeywords: typeof (r as any).customKeywords === 'string' ? JSON.parse((r as any).customKeywords) : r.customKeywords,
+      customKeywords: typeof r.customKeywords === 'string' ? JSON.parse(r.customKeywords) : r.customKeywords,
     }));
   }
   async createAllergenRule(data: Omit<AllergenRuleRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AllergenRuleRecord> {

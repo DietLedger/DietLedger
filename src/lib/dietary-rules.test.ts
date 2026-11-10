@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { DietaryProfileRecord } from './types';
 import {
   detectAllergens,
   inferDietaryTags,
@@ -87,15 +88,18 @@ describe('inferDietaryTags', () => {
 });
 
 describe('isRecipeCompliant', () => {
-  const veganProfile = {
-    allergens: [] as string[],
-    dietaryTags: ['vegan'] as string[],
+  const profile: DietaryProfileRecord = {
+    id: 'profile-1',
+    name: 'Dietary profile',
+    allergens: [],
+    dietaryTags: [],
+    nutrientThresholds: [],
+    isActive: true,
+    createdAt: '',
+    updatedAt: '',
   };
-
-  const peanutAllergyProfile = {
-    allergens: ['peanuts'] as string[],
-    dietaryTags: [] as string[],
-  };
+  const veganProfile: DietaryProfileRecord = { ...profile, dietaryTags: ['vegan'] };
+  const peanutAllergyProfile: DietaryProfileRecord = { ...profile, allergens: ['peanuts'] };
 
   it('compliant for vegan recipe with vegan profile', () => {
     const result = isRecipeCompliant(

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -212,7 +213,7 @@ func TestIngredientCascade(t *testing.T) {
 		t.Fatalf("name = %q", ing.Name)
 	}
 
-	updated, err := s.UpdateIngredient(ing.ID, &CreateIngredientReq{FdcID: 3, Name: "Red Onion", Amount: 75, Unit: "g"})
+	updated, err := s.UpdateIngredient(u.ID, r.ID, ing.ID, &CreateIngredientReq{FdcID: 3, Name: "Red Onion", Amount: 75, Unit: "g"})
 	if err != nil {
 		t.Fatalf("update ingredient: %v", err)
 	}
@@ -753,10 +754,38 @@ func TestGroceryChecklist(t *testing.T) {
 	assertJSONEqual(t, `{"milk":true,"eggs":true}`, upserted2.CheckedItems)
 }
 
+func TestFoodSearchRanksLiteralStapleAheadOfBroadMatches(t *testing.T) {
+	s := testStore(t)
+	for i := 0; i < 20; i++ {
+		food := &FoodItem{
+			FdcID: 150000 + i, Description: fmt.Sprintf("Recipe ingredient %d, with salt and salt and salt", i),
+			DataType: "SR Legacy", Calories: 80, Sodium: 500, Source: "usda",
+		}
+		if _, err := s.CreateFoodItem(food); err != nil {
+			t.Fatalf("create broad salt result: %v", err)
+		}
+	}
+	staple := &FoodItem{FdcID: 150100, Description: "Salt, table", DataType: "SR Legacy", Calories: 0, Sodium: 38758, Source: "usda"}
+	if _, err := s.CreateFoodItem(staple); err != nil {
+		t.Fatalf("create table salt: %v", err)
+	}
+
+	results, total, err := s.SearchFoods("salt", 1, 10)
+	if err != nil {
+		t.Fatalf("search salt: %v", err)
+	}
+	if total != 21 || len(results) != 10 {
+		t.Fatalf("total=%d results=%d; want 21 matches and first page of 10", total, len(results))
+	}
+	if results[0].FdcID != staple.FdcID {
+		t.Fatalf("first result = %q (%d), want exact staple %q (%d)", results[0].Description, results[0].FdcID, staple.Description, staple.FdcID)
+	}
+}
+
 func TestFoodItemSearch(t *testing.T) {
 	s := testStore(t)
 
-	food := &FoodItem{FdcID: 12345, Description: "Apple, Raw", DataType: "SR Legacy", ServingSize: 100, ServingSizeUnit: "g", Source: "usda"}
+	food := &FoodItem{FdcID: 12345, Description: "Apple, Raw", DataType: "SR Legacy", ServingSize: 100, ServingSizeUnit: "g", Calories: 52, Source: "usda"}
 	created, err := s.CreateFoodItem(food)
 	if err != nil {
 		t.Fatalf("create food: %v", err)
@@ -764,16 +793,38 @@ func TestFoodItemSearch(t *testing.T) {
 	if created.ID == 0 {
 		t.Fatal("expected non-zero ID")
 	}
+	if _, err := s.CreateFoodItem(&FoodItem{FdcID: 12346, Description: "Apple, nutritionally empty", DataType: "Foundation", Calories: 0, Source: "usda"}); err != nil {
+		t.Fatalf("create empty food: %v", err)
+	}
+	if _, err := s.CreateFoodItem(&FoodItem{FdcID: 12347, Description: "Apple with sodium", DataType: "Foundation", Calories: 0, Sodium: 12, Source: "usda"}); err != nil {
+		t.Fatalf("create meaningful zero-calorie food: %v", err)
+	}
 
 	results, total, err := s.SearchFoods("Apple", 1, 10)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if total < 1 {
-		t.Fatalf("total = %d, want >= 1", total)
+	if total != 2 {
+		t.Fatalf("total = %d, want one positive-calorie food and one zero-calorie food with sodium", total)
 	}
-	if len(results) < 1 {
-		t.Fatalf("results = %d, want >= 1", len(results))
+	if len(results) != 2 {
+		t.Fatalf("results = %+v, want the two eligible foods", results)
+	}
+	foundZeroCalorieWithSodium := false
+	for _, result := range results {
+		if result.FdcID == 12347 && result.Calories == 0 && result.Sodium == 12 {
+			foundZeroCalorieWithSodium = true
+		}
+	}
+	if !foundZeroCalorieWithSodium {
+		t.Fatalf("search did not include meaningful zero-calorie food: %+v", results)
+	}
+	all, allTotal, err := s.SearchFoods("", 1, 10)
+	if err != nil {
+		t.Fatalf("search all foods: %v", err)
+	}
+	if allTotal != 2 || len(all) != 2 {
+		t.Fatalf("unfiltered search returned total=%d foods=%+v; want only foods with meaningful nutrition", allTotal, all)
 	}
 
 	got, err := s.GetFoodByFdcID(12345)
@@ -867,4 +918,3 @@ func TestLoadMigrationsOrdering(t *testing.T) {
 		}
 	}
 }
-

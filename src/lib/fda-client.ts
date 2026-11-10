@@ -1,4 +1,6 @@
 import { searchFallbackFoodsAsResult } from '@/lib/fallback-foods';
+import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
+import type { FoodPortion } from '@/lib/types';
 
 export interface FDASearchResult {
   fdcId: number;
@@ -8,6 +10,7 @@ export interface FDASearchResult {
   gtinUpc?: string | null;
   servingSize: number;
   servingSizeUnit: string;
+  portions?: FoodPortion[];
   nutrients: {
     calories: number;
     totalFat: number;
@@ -32,7 +35,7 @@ export interface FDASearchResponse {
   source: 'fda' | 'fallback' | 'local';
 }
 
-function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
+export function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
   if (f.nutrients && typeof f.nutrients === 'object') return f as FDASearchResult;
   return {
     fdcId: f.fdcId,
@@ -42,6 +45,7 @@ function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
     gtinUpc: f.gtinUpc ?? null,
     servingSize: f.servingSize ?? 0,
     servingSizeUnit: f.servingSizeUnit ?? '',
+    portions: f.portions ?? [],
     nutrients: {
       calories: f.calories ?? 0,
       totalFat: f.totalFat ?? 0,
@@ -74,7 +78,7 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
     if (response.ok) {
       const data = await response.json();
       if (data.foods && data.foods.length > 0) {
-        const foods = data.foods.map(mapFoodItemToFDASearchResult);
+        const foods = data.foods.map(mapFoodItemToFDASearchResult).filter((food) => hasMeaningfulNutrition(food.nutrients));
         return { foods, source: data.source || 'local' };
       }
       // Server returned no matches — if it didn't go to the live API, fall
@@ -87,6 +91,6 @@ export async function searchFDAFoods(query: string): Promise<FDASearchResponse> 
     // Server unavailable (offline mode) - fall through to fallback
   }
 
-  const fallbackFoods = searchFallbackFoodsAsResult(query);
+  const fallbackFoods = searchFallbackFoodsAsResult(query).filter((food) => hasMeaningfulNutrition(food.nutrients));
   return { foods: fallbackFoods, source: 'fallback' };
 }

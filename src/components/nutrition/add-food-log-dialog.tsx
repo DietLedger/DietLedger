@@ -31,6 +31,7 @@ import type {
 } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
+import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
 import { convertToGrams } from '@/lib/recipe-types';
 import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
@@ -177,7 +178,7 @@ export function AddFoodLogDialog({
         setTime(editEntry.time ?? (() => { const n = new Date(); return `${n.getHours().toString().padStart(2, '0')}:${n.getMinutes().toString().padStart(2, '0')}`; })());
         setServings(editEntry.servings.toString());
         const n: Record<string, string> = {};
-        for (const f of NUTRIENT_FIELDS) n[f.key] = (editEntry as Record<string, unknown>)[f.key]?.toString() ?? '0';
+        for (const f of NUTRIENT_FIELDS) n[f.key] = editEntry[f.key]?.toString() ?? '0';
         setNutrients(n as Record<NutrientKey, string>);
         if (editEntry.sourceType === 'recipe') setTab('recipes');
         else if (editEntry.sourceType === 'customFood') setTab('custom');
@@ -214,7 +215,7 @@ export function AddFoodLogDialog({
     for (const f of NUTRIENT_FIELDS) totals[f.key] = 0;
     for (const ing of recipe.ingredients ?? []) {
       for (const f of NUTRIENT_FIELDS) {
-        totals[f.key] += (ing as Record<string, number>)[f.key] ?? 0;
+        totals[f.key] += ing[f.key] ?? 0;
       }
     }
     if (recipe.servings > 0) {
@@ -230,9 +231,9 @@ export function AddFoodLogDialog({
   }, [recipes, searchQuery]);
 
   const filteredCustomFoods = useMemo(() => {
-    if (!searchQuery) return customFoods;
+    if (!searchQuery) return customFoods.filter((f) => hasMeaningfulNutrition(f));
     const q = searchQuery.toLowerCase();
-    return customFoods.filter((f) => f.name.toLowerCase().includes(q));
+    return customFoods.filter((f) => hasMeaningfulNutrition(f) && f.name.toLowerCase().includes(q));
   }, [customFoods, searchQuery]);
 
   const selectRecipe = useCallback(async (recipe: RecipeRecord) => {
@@ -248,7 +249,7 @@ export function AddFoodLogDialog({
 
   const selectCustomFood = useCallback((food: CustomFoodRecord) => {
     const nutrition: Record<string, number> = {};
-    for (const f of NUTRIENT_FIELDS) nutrition[f.key] = (food as Record<string, number>)[f.key] ?? 0;
+    for (const f of NUTRIENT_FIELDS) nutrition[f.key] = food[f.key] ?? 0;
     setSelectedItem({ id: food.id, name: food.name, type: 'customFood', nutrition });
     setName(food.name);
     const n: Record<string, string> = {};

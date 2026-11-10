@@ -1,9 +1,11 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { toCanvas } from 'html-to-image';
-import type { CookbookExportOptions, BrandKit, TemplateTheme } from '@/lib/types';
+import type { CookbookExportOptions, BrandKit, TemplateTheme, FoodPortion } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
 import { parseInstructions } from '@/lib/recipe-types';
+import { formatCookbookIngredient } from '@/lib/cookbook-unit-display';
+import { toBaseUnit } from '@/lib/unit-conversion';
 
 interface RecipeData {
   id: string;
@@ -16,6 +18,7 @@ interface RecipeData {
     name: string;
     amount: number;
     unit: string;
+    portions?: FoodPortion[];
   }>;
   nutrition: {
     calories: number;
@@ -108,6 +111,7 @@ function renderRecipePageHtml(
   brandKit?: BrandKit,
   pageNum?: number,
   totalPages?: number,
+  measurementSystem?: CookbookExportOptions['measurementSystem'],
 ): string {
   const bg = theme?.backgroundColor ?? '#ffffff';
   const text = theme?.textColor ?? '#000000';
@@ -115,7 +119,14 @@ function renderRecipePageHtml(
   const accent = theme?.accentColor ?? '#666666';
   const fontFamily = theme?.fontFamily === 'inherit' || !theme?.fontFamily ? 'system-ui' : theme.fontFamily;
 
-  const ingredientList = recipe.ingredients.map(i => `<li>${i.amount ? Math.round(i.amount * 100) / 100 : ''} ${i.unit} ${i.name}</li>`).join('');
+  const formattedIngredients = recipe.ingredients.map((ingredient) => ({
+    name: ingredient.name,
+    quantity: measurementSystem
+      ? formatCookbookIngredient(ingredient.amount, ingredient.unit, measurementSystem, ingredient.portions)
+      : { text: `${ingredient.amount ? Math.round(ingredient.amount * 100) / 100 : ''} ${ingredient.unit}`, retainedOriginal: false },
+  }));
+  const ingredientList = formattedIngredients.map(({ name, quantity }) => `<li>${quantity.text} ${name}</li>`).join('');
+  const hasUnconvertedGrams = measurementSystem === 'grams' && formattedIngredients.some(({ quantity }) => quantity.retainedOriginal);
 
   const steps = (recipe.instructionSteps ?? []).map(s => s.text).filter(s => s.trim());
   const stepList = steps.map((s, i) => `<li style="margin-bottom:8px"><span style="font-weight:700;color:${accent}">${i + 1}.</span> ${s}</li>`).join('');
@@ -135,6 +146,7 @@ ${brandHeader}
 <div style="flex:1">
 <h2 style="font-size:16px;font-weight:600;color:${primary};margin:0 0 12px;border-bottom:1px solid ${accent};padding-bottom:4px">Ingredients</h2>
 <ul style="list-style:none;padding:0;margin:0;font-size:13px;line-height:1.8">${ingredientList}</ul>
+${hasUnconvertedGrams ? '<p style="font-size:10px;color:#666;margin-top:12px">Ingredients without a known food-specific gram weight retain their original units.</p>' : ''}
 </div>
 ${steps.length > 0 ? `<div style="flex:1.5">
 <h2 style="font-size:16px;font-weight:600;color:${primary};margin:0 0 12px;border-bottom:1px solid ${accent};padding-bottom:4px">Instructions</h2>
@@ -308,7 +320,7 @@ export async function exportNutritionDashboard(
   }
 }
 
-async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; chapterMap: Map<string, string[]> }> {
+async function collectRecipes(bookId: string, measurementSystem: CookbookExportOptions['measurementSystem']): Promise<{ recipes: RecipeData[]; chapterMap: Map<string, string[]> }> {
   const api = getApiClient();
   const book = await api.getBook(bookId);
   if (!book) throw new Error('Book not found');
@@ -317,6 +329,7 @@ async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; 
   const chapterMap = new Map<string, string[]>();
 
   const allRecipes: RecipeData[] = [];
+  const portionIngredients = new Map<number, RecipeData['ingredients']>();
 
   for (const chapter of chapters.sort((a, b) => a.position - b.position)) {
     const chapterRecipes = await api.getChapterRecipes(chapter.id);
@@ -350,6 +363,15 @@ async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; 
         { calories: 0, totalFat: 0, saturatedFat: 0, transFat: 0, cholesterol: 0, sodium: 0, totalCarbs: 0, dietaryFiber: 0, totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0, calcium: 0, iron: 0, potassium: 0 },
       );
 
+      const printableIngredients = ingredients.map((i) => {
+        const printable = { name: i.name, amount: i.amount, unit: i.unit, portions: undefined as FoodPortion[] | undefined };
+        if (measurementSystem === 'grams' && i.sourceType === 'usda' && i.fdcId > 0 && toBaseUnit(i.amount, i.unit)?.type !== 'weight') {
+          const matching = portionIngredients.get(i.fdcId) ?? [];
+          matching.push(printable);
+          portionIngredients.set(i.fdcId, matching);
+        }
+        return printable;
+      });
       allRecipes.push({
         id: recipe.id,
         name: recipe.name,
@@ -357,30 +379,42 @@ async function collectRecipes(bookId: string): Promise<{ recipes: RecipeData[]; 
         servingName: recipe.servingName,
         instructionSteps: parseInstructions(recipe.instructions ?? null).steps,
         instructionGroups: parseInstructions(recipe.instructions ?? null).groups,
-        ingredients: ingredients.map(i => ({ name: i.name, amount: i.amount, unit: i.unit })),
+        ingredients: printableIngredients,
         nutrition,
-      } as RecipeData);
+      });
     }
 
     chapterMap.set(chapter.title, recipeNames);
+  }
+
+  // Fetch unique food portions across the whole book rather than waiting for
+  // each recipe in turn. Small batches bound concurrent API requests.
+  const fdcIds = [...portionIngredients.keys()];
+  for (let start = 0; start < fdcIds.length; start += 6) {
+    await Promise.all(fdcIds.slice(start, start + 6).map(async (fdcId) => {
+      const food = await api.getFoodByFdcId(fdcId);
+      for (const ingredient of portionIngredients.get(fdcId)!) {
+        ingredient.portions = food?.portions ?? [];
+      }
+    }));
   }
 
   return { recipes: allRecipes, chapterMap };
 }
 
 export async function exportCookbook(options: CookbookExportOptions): Promise<Blob> {
-  const { bookId, pageSize = 'letter', includeCover, includeToc, includeIndex, includePageNumbers, onProgress } = options;
+  const { bookId, pageSize = 'letter', includeCover, includeToc, includeIndex, includePageNumbers, onProgress, measurementSystem } = options;
 
   const api = getApiClient();
   const book = await api.getBook(bookId);
   if (!book) throw new Error('Book not found');
 
-  const brandKit = options.brandKitId ? await api.getBrandKit(options.brandKitId) : undefined;
+  const brandKit = options.brandKitId ? (await api.getBrandKit(options.brandKitId) ?? undefined) : undefined;
 
   const template = options.templateId ? await api.getTemplate(options.templateId) : undefined;
   const theme = template?.layout?.theme;
 
-  const { recipes, chapterMap } = await collectRecipes(bookId);
+  const { recipes, chapterMap } = await collectRecipes(bookId, measurementSystem);
 
   const { w: pageW, h: pageH } = pageSizeToMm(pageSize);
   const pxWidth = pageSizeToPx(pageSize);
@@ -422,7 +456,7 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
 
     const recipe = recipes[i];
     const canvas = await htmlToCanvas(
-      renderRecipePageHtml(recipe, theme, brandKit, includePageNumbers ? pageNum : undefined, includePageNumbers ? totalPages : undefined),
+      renderRecipePageHtml(recipe, theme, brandKit, includePageNumbers ? pageNum : undefined, includePageNumbers ? totalPages : undefined, measurementSystem),
       pxWidth,
     );
     doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);

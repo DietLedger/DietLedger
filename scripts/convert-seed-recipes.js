@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Convert the markdown recipes in seed-recipes/ into an importable bundle
+ * Convert the markdown recipes in seed-recipes/{complete,incomplete}/ into an importable bundle
  * (ExportData JSON + zip) at seed-recipes/dist/seed-recipes.{json,zip}.
  *
  * Transformations (per the spec):
@@ -17,6 +17,7 @@
  *    otherwise falls back to fdcId -2 / zero nutrition.
  *
  * Run: node scripts/convert-seed-recipes.js
+ *      node scripts/convert-seed-recipes.js --complete-only (writes a native recipe bundle JSON)
  *      (SEED_API_URL=http://localhost:8080 SEED_API_TOKEN=<key> node ... for matching)
  */
 'use strict';
@@ -334,8 +335,8 @@ function parseIngredientsSection(sectionLines, slugSet, recipeSlug) {
       currentGroupId = id;
       continue;
     }
-    if (!ln.startsWith('-') && !ln.startsWith('•')) continue; // skip non-bullets (side notes)
-    const text = ln.replace(/^[-•]\s*/, '');
+    if (!/^[-•*]\s+/.test(ln)) continue; // skip non-bullets (side notes)
+    const text = ln.replace(/^[-•*]\s+/, '');
     const parsed = parseIngredientLine(text, slugSet, recipeSlug);
     for (const ing of parsed) {
       items.push({ ...ing, groupId: currentGroupId });
@@ -388,15 +389,22 @@ function parseDirectionsSection(sectionLines, recipeSlug) {
   return { steps, groups };
 }
 
-async function buildRecipes() {
-  const files = fs.readdirSync(SEED_DIR).filter((f) => f.endsWith('.md'));
-  const slugSet = new Set(files.map((f) => f.replace(/\.md$/, '')));
+function recipeFiles(completeOnly = false) {
+  return (completeOnly ? ['complete'] : ['complete', 'incomplete']).flatMap((dir) =>
+    fs.readdirSync(path.join(SEED_DIR, dir))
+      .filter((file) => file.endsWith('.md'))
+      .map((file) => path.join(dir, file)));
+}
+
+async function buildRecipes(completeOnly = false) {
+  const files = recipeFiles(completeOnly);
+  const slugSet = new Set(files.map((file) => path.basename(file, '.md')));
   const bySlug = new Map();
   const stats = { files: files.length, matched: 0, unmatched: 0, embedded: 0 };
 
   // Pass 1: parse structure (no matching yet).
   for (const file of files) {
-    const slug = file.replace(/\.md$/, '');
+    const slug = path.basename(file, '.md');
     let raw;
     try { raw = fs.readFileSync(path.join(SEED_DIR, file), 'utf8'); }
     catch { continue; }
@@ -502,10 +510,49 @@ function stripInternal(recipe) {
   return rest;
 }
 
+function nativeCompleteBundle(bySlug, categories, recipeCategories) {
+  return {
+    format: 'dietledger.recipe-bundle',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    source: { app: 'DietLedger', version: 'seed-recipes' },
+    recipes: topoOrder(bySlug).map((recipe) => ({
+      bundleRecipeId: recipe.id,
+      name: recipe.name,
+      servings: recipe.servings,
+      servingName: recipe.servingName,
+      prepTime: recipe.prepTime,
+      cookTime: recipe.cookTime,
+      instructions: recipe.instructions,
+      ingredientGroups: recipe.ingredientGroups.map((group) => ({ bundleGroupId: group.id, title: group.title })),
+      ingredients: recipe.ingredients.map((ingredient, index) => ({
+        bundleIngredientId: `${recipe.id}-i${index}`,
+        name: ingredient.name,
+        amount: ingredient.amount,
+        unit: ingredient.unit,
+        description: ingredient.description,
+        bundleGroupId: ingredient.groupId,
+        prepInstructions: ingredient.prepInstructions || [],
+        source: ingredient.linkedRecipeId
+          ? { type: 'recipe', bundleRecipeId: ingredient.linkedRecipeId }
+          : { type: 'manual' },
+        nutrients: Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, ingredient[key] || 0])),
+      })),
+    })),
+    books: [], chapters: [], chapterRecipes: [], chapterPages: [], bookPages: [],
+    categories: categories.map((category) => ({ bundleCategoryId: category.id, name: category.name })),
+    recipeCategories: recipeCategories.map((link) => ({
+      bundleRecipeId: link.recipeId, bundleCategoryId: link.categoryId,
+    })),
+    templates: [], foodItems: [], customFoods: [],
+  };
+}
+
 (async () => {
-  console.log(`Converting ${fs.readdirSync(SEED_DIR).filter(f => f.endsWith('.md')).length} recipes...`);
+  const completeOnly = process.argv.includes('--complete-only');
+  console.log(`Converting ${recipeFiles(completeOnly).length} recipes...`);
   console.log(`Food matching: ${MATCH_ENABLED ? 'ENABLED (' + API_URL + ')' : 'DISABLED (set SEED_API_URL + SEED_API_TOKEN to enable)'}`);
-  const { bySlug, stats } = await buildRecipes();
+  const { bySlug, stats } = await buildRecipes(completeOnly);
   process.stdout.write('\n');
 
   const recipes = topoOrder(bySlug).map(stripInternal);
@@ -549,6 +596,14 @@ function stripInternal(recipe) {
   };
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  if (completeOnly) {
+    const nativePath = path.join(OUT_DIR, 'complete-recipes.dietledger-bundle.json');
+    fs.writeFileSync(nativePath, JSON.stringify(nativeCompleteBundle(bySlug, manifest.data.categories, recipeCategories), null, 2));
+    console.log(`\nRecipes: ${bySlug.size}`);
+    console.log(`Wrote ${path.relative(process.cwd(), nativePath)}`);
+    return;
+  }
+
   const jsonPath = path.join(OUT_DIR, 'seed-recipes.json');
   fs.writeFileSync(jsonPath, JSON.stringify(manifest, null, 2));
 
@@ -557,7 +612,7 @@ function stripInternal(recipe) {
   const zipPath = path.join(OUT_DIR, 'seed-recipes.zip');
   zip.writeZip(zipPath);
 
-  // Also publish the bundle where the setup wizard can fetch it.
+  // Publish the all-recipes bundle where the setup wizard can fetch it.
   const publicDemoDir = path.join(__dirname, '..', 'public', 'demo');
   try {
     fs.mkdirSync(publicDemoDir, { recursive: true });

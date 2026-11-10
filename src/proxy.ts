@@ -9,6 +9,7 @@ const PROXY_ROUTES = [
   '/api/account',
   '/api/recipes',
   '/api/recipe-bundles',
+  '/api/food-storage-defaults',
   '/api/books',
   '/api/chapters/',
   '/api/pages/',
@@ -57,7 +58,7 @@ export async function proxy(request: NextRequest) {
     headers.delete('host');
     headers.set('x-forwarded-for', request.headers.get('x-forwarded-for') || '127.0.0.1');
 
-    const init: RequestInit = {
+    const init: RequestInit & { duplex?: 'half' } = {
       method: request.method,
       headers,
     };

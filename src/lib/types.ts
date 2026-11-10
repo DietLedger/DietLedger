@@ -303,8 +303,17 @@ export interface ScaledRecipe {
   warnings: string[];
 }
 
+export interface FoodPortion {
+  amount: number;
+  measureUnit: string;
+  modifier: string;
+  portionDescription: string;
+  gramWeight: number;
+}
+
 export interface CookbookExportOptions {
   bookId: string;
+  measurementSystem: 'imperial' | 'metric' | 'grams';
   templateId?: string;
   brandKitId?: string;
   pageSize: 'a4' | 'letter';

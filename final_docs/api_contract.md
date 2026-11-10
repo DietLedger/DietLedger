@@ -188,6 +188,7 @@ in account settings.
 - PUT /api/recipes/{id}/ingredients/{ingId} — update ingredient
 - DELETE /api/recipes/{id}/ingredients/{ingId} — delete ingredient
 - POST /api/recipes/{id}/ingredients/replace — replace all ingredients
+- PUT/DELETE return 404 when `{ingId}` does not belong to the authorized `{id}` recipe. A first saved nonempty storage location for a matching USDA/custom food atomically records that user's first default without overwriting any existing default.
 - Ownership: Private (recipe owner only)
 
 ### Recipe category sub-routes
@@ -305,6 +306,7 @@ in account settings.
 - Auth: None
 - Query: `q` (search query), `page` (default 1), `perPage` (default 20)
 - Response 200: `{ "foods": FoodItem[], "total": N, "page": N, "perPage": N, "totalPages": N }`
+- `FoodItem.portions` is an array of `{ amount: number, measureUnit: string, modifier: string, portionDescription: string, gramWeight: number }`; missing USDA portions are `[]`. These are food-specific weights, not generic volume densities. Imported foods from before migration 000026 have `[]` until USDA data is re-seeded. Sparse live-search upserts do not remove previously stored portions.
 - Ownership: Public (read-only reference data)
 
 ### GET /api/foods/{fdcId}
@@ -345,6 +347,25 @@ in account settings.
 - Auth: None
 - Response: seed job status
 - Ownership: TBD — should require admin auth
+
+---
+
+## Per-user food storage defaults
+
+### GET /api/food-storage-defaults
+
+- Auth: Required
+- Response 200: `{ "ok": true, "data": [{ "sourceType": "usda" | "custom_food", "sourceKey": string, "location": string }] }` (empty array when none)
+- Ownership: Only the authenticated user's defaults are returned.
+
+### PUT /api/food-storage-defaults/{sourceType}/{sourceKey}
+
+- Auth: Required
+- Source: `usda` with a canonical positive FDC ID that exists in `food_items`, or `custom_food` with a custom-food ID owned by the authenticated user.
+- Request: `{ "location": "Pantry" | "Refrigerator" | "Freezer" | "Countertop" }`
+- Response 200: `{ "ok": true, "data": { "sourceType": string, "sourceKey": string, "location": string } }`
+- Response 400: invalid source, key, or location; response 404: food not found or not owned.
+- This changes the default for **future** ingredients only. It does not alter existing recipes. The first location saved for a matched ingredient inserts a default if none exists; later recipe edits do not replace it.
 
 ---
 
@@ -562,8 +583,8 @@ in account settings.
 ### POST /api/grocery
 
 - Auth: Required
-- Request: `GroceryChecklist` `{ "weekStart": string, "checkedItems": string }`
-- Response 200: `{ "ok": true, "data": GroceryChecklist }`
+- Request: `{ "weekStart": string, "checkedItems": string }` where `checkedItems` is a JSON-encoded string array; `id` and `updatedAt` are server-managed. The frontend API client accepts a `string[]` and encodes/decodes this wire field.
+- Response 200: `{ "ok": true, "data": GroceryChecklist }` with JSON-string `checkedItems`
 - Ownership: Private (owned by authenticated user)
 
 ### PUT /api/grocery

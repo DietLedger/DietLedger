@@ -52,7 +52,7 @@ export function NutrientTrendChart({ entries, period, defaultNutrients, targets 
       const d = entry.date;
       if (!aggregated[d]) aggregated[d] = {};
       for (const t of TRACKED) {
-        aggregated[d][t.key] = (aggregated[d][t.key] || 0) + (entry as Record<string, number>)[t.key];
+        aggregated[d][t.key] = (aggregated[d][t.key] || 0) + entry[t.key];
       }
     }
 

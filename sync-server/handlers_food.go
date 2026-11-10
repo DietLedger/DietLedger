@@ -96,7 +96,7 @@ func (s *Server) foodItemHandler(w http.ResponseWriter, r *http.Request, path st
 			writeError(w, http.StatusInternalServerError, "failed to get food")
 			return
 		}
-		if food == nil {
+		if food == nil || !hasMeaningfulFoodNutrition(*food) {
 			writeError(w, http.StatusNotFound, "food not found")
 			return
 		}
@@ -121,7 +121,7 @@ func (s *Server) foodItemHandler(w http.ResponseWriter, r *http.Request, path st
 		writeError(w, http.StatusInternalServerError, "failed to get food")
 		return
 	}
-	if food == nil {
+	if food == nil || !hasMeaningfulFoodNutrition(*food) {
 		writeError(w, http.StatusNotFound, "food not found")
 		return
 	}
@@ -216,6 +216,11 @@ func (s *Server) foodSeedUploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: array of food items expected")
 		return
 	}
+	foods = foodsWithMeaningfulNutrition(foods)
+	if len(foods) == 0 {
+		writeError(w, http.StatusBadRequest, "no foods with meaningful nutrition to import")
+		return
+	}
 	job, err := s.store.CreateSeedJob(dataType, "", "upload")
 	if err != nil {
 		log.Printf("Error creating seed job: %v", err)
@@ -247,13 +252,13 @@ func (s *Server) foodSeedUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listSeedJobsHandler(w http.ResponseWriter, r *http.Request) {
 	type datasetStatus struct {
-		Key          string `json:"key"`
-		Name         string `json:"name"`
-		ReleaseDate  string `json:"releaseDate"`
+		Key          string  `json:"key"`
+		Name         string  `json:"name"`
+		ReleaseDate  string  `json:"releaseDate"`
 		LastImported *string `json:"lastImported"`
-		RecordCount  int    `json:"recordCount"`
-		Status       string `json:"status"`
-		Format       string `json:"format"`
+		RecordCount  int     `json:"recordCount"`
+		Status       string  `json:"status"`
+		Format       string  `json:"format"`
 	}
 
 	catalog := []struct {
@@ -360,7 +365,12 @@ func (s *Server) cacheFoodsHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "foods array is required")
 		return
 	}
-	inserted, err := s.store.CreateFoodItems(req.Foods)
+	foods := foodsWithMeaningfulNutrition(req.Foods)
+	if len(foods) == 0 {
+		writeError(w, http.StatusBadRequest, "no foods with meaningful nutrition to cache")
+		return
+	}
+	inserted, err := s.store.CreateFoodItems(foods)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to cache foods")
 		return

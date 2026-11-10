@@ -16,7 +16,7 @@ export function detectAllergens(
   for (const ingredient of ingredients) {
     const lowerName = ingredient.name.toLowerCase().trim();
 
-    const excludedAllergens = new Set<Allergen>();
+    const excludedAllergens = new Set<string>();
     for (const [keyword, allergens] of Object.entries(ALLERGEN_EXCLUSIONS)) {
       if (lowerName.includes(keyword.toLowerCase())) {
         for (const a of allergens) excludedAllergens.add(a);

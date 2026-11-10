@@ -27,7 +27,6 @@ function buildCategoryTree(categories: CategoryRecord[]): CategoryNode[] {
 }
 
 export { buildCategoryTree };
-export type { CategoryNode };
 
 export function useCategories() {
   const { data, ...rest } = useQuery({

@@ -159,6 +159,7 @@ All persistent application data belongs in PostgreSQL.
 * nutrition data
 * health data
 * application settings
+* USDA food-specific portion weights and per-user defaults for storing matched foods
 
 PostgreSQL is the authoritative source of domain data.
 
@@ -172,7 +173,7 @@ PostgreSQL is the authoritative source of domain data.
 * calculation orchestration
 * persistence operations
 
-Business logic belongs in the API.
+Business logic belongs in the API. The Go API validates matched-food identities and storage locations, creates a user's first storage default atomically with the first ingredient location edit, and authorizes explicit default updates. Shared USDA food rows do not store user preferences. Cookbook PDF unit formatting in the browser is presentation-only; it reads food-specific USDA portion weights but never changes stored amounts or nutrient snapshots.
 
 ---
 
@@ -188,6 +189,7 @@ Examples:
 * meal plans
 * food logs
 * books
+* food storage defaults
 
 React Query is the only client-side cache for server-owned data.
 

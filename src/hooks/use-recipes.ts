@@ -5,6 +5,7 @@ import { getApiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { generateUUID } from '@/lib/utils';
 import {
+  toPublicIngredient,
   toPublicRecipe,
   convertToGrams,
   sumNutrition,
@@ -14,12 +15,48 @@ import {
   type Ingredient,
   type InstructionStep,
   type InstructionGroup,
-  type FDAFood,
+  type FDAFood as BaseFDAFood,
   type NutrientKeys,
 } from '@/lib/recipe-types';
-import type { IngredientGroup } from '@/lib/api-client';
+import type { IngredientGroup, FoodStorageDefault } from '@/lib/api-client';
 
-export type { Recipe, Ingredient, InstructionStep, InstructionGroup, FDAFood, NutrientKeys };
+export type FDAFood = BaseFDAFood & { customFoodId?: string };
+export type { Recipe, Ingredient, IngredientGroup, InstructionStep, InstructionGroup, NutrientKeys };
+
+const foodStorageDefaultsKey = ['food-storage-defaults'] as const;
+
+export function useFoodStorageDefaults() {
+  return useQuery({ queryKey: foodStorageDefaultsKey, queryFn: () => getApiClient().getFoodStorageDefaults() });
+}
+
+export function useUpdateFoodStorageDefault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceType, sourceKey, location }: FoodStorageDefault) => getApiClient().updateFoodStorageDefault(sourceType, sourceKey, location),
+    onSuccess: () => qc.invalidateQueries({ queryKey: foodStorageDefaultsKey }),
+  });
+}
+
+export function foodStorageIdentity(food: FDAFood): Pick<FoodStorageDefault, 'sourceType' | 'sourceKey'> | null {
+  if (food.dataType === 'Custom') return food.customFoodId ? { sourceType: 'custom_food', sourceKey: food.customFoodId } : null;
+  if (food.dataType === 'Manual' || !Number.isSafeInteger(food.fdcId) || food.fdcId <= 0) return null;
+  return { sourceType: 'usda', sourceKey: String(food.fdcId) };
+}
+
+export function defaultLocationForFood(food: FDAFood, defaults: FoodStorageDefault[]): string {
+  const identity = foodStorageIdentity(food);
+  return defaults.find((item) => item.sourceType === identity?.sourceType && item.sourceKey === identity.sourceKey)?.location ?? '';
+}
+
+export function useFoodStorageDefaultLookup() {
+  const qc = useQueryClient();
+  return () => {
+    // Defaults are preloaded by useFoodStorageDefaults. Do not issue an
+    // authenticated lookup in the middle of an ingredient mutation: if that
+    // optional request fails, the nutrition update must still be submitted.
+    return Promise.resolve(qc.getQueryData<FoodStorageDefault[]>(foodStorageDefaultsKey) ?? []);
+  };
+}
 
 export function useRecipes() {
   return useQuery({
@@ -98,7 +135,18 @@ export function useAddIngredient() {
     mutationFn: async ({ recipeId, ingredient }: { recipeId: string; ingredient: Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'> }) => {
       return getApiClient().addIngredient(recipeId, ingredient);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (created, variables) => {
+      qc.setQueryData<Recipe>(queryKeys.recipes.detail(variables.recipeId), (recipe) => {
+        if (!recipe) return recipe;
+        const savedIngredient = toPublicIngredient(created);
+        const exists = recipe.ingredients.some((ingredient) => ingredient.id === savedIngredient.id);
+        return {
+          ...recipe,
+          ingredients: exists
+            ? recipe.ingredients.map((ingredient) => ingredient.id === savedIngredient.id ? savedIngredient : ingredient)
+            : [...recipe.ingredients, savedIngredient],
+        };
+      });
       qc.invalidateQueries({ queryKey: queryKeys.recipes.detail(variables.recipeId) });
       qc.invalidateQueries({ queryKey: queryKeys.recipes.lists() });
     },
@@ -111,9 +159,20 @@ export function useUpdateIngredient() {
     mutationFn: async ({ recipeId, ingredientId, data }: { recipeId: string; ingredientId: string; data: Partial<Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'>> }) => {
       return getApiClient().updateIngredient(recipeId, ingredientId, data as any);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (updated, variables) => {
+      qc.setQueryData<Recipe>(queryKeys.recipes.detail(variables.recipeId), (recipe) => {
+        if (!recipe) return recipe;
+        const savedIngredient = toPublicIngredient(updated);
+        return {
+          ...recipe,
+          ingredients: recipe.ingredients.map((ingredient) =>
+            ingredient.id === variables.ingredientId ? savedIngredient : ingredient,
+          ),
+        };
+      });
       qc.invalidateQueries({ queryKey: queryKeys.recipes.detail(variables.recipeId) });
       qc.invalidateQueries({ queryKey: queryKeys.recipes.lists() });
+      qc.invalidateQueries({ queryKey: foodStorageDefaultsKey });
     },
   });
 }
@@ -162,16 +221,35 @@ export function useUpdateRecipeGroups() {
   });
 }
 
-export function buildIngredientData(food: FDAFood, amount: number, unit: string): Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'> {
-  const grams = convertToGrams(amount, unit);
+function foodAmountInGrams(food: FDAFood, amount: number, unit: string): number {
+  const normalizedUnit = unit.toLowerCase().trim().replace(/s$/, '');
+  const matchingPortions = (food.portions ?? []).filter((portion) =>
+    portion.measureUnit.toLowerCase().trim().replace(/s$/, '') === normalizedUnit &&
+    Number.isFinite(portion.amount) && portion.amount > 0 &&
+    Number.isFinite(portion.gramWeight) && portion.gramWeight > 0,
+  );
+  if (matchingPortions.length > 0) {
+    const gramRatios = matchingPortions.map((portion) => portion.gramWeight / portion.amount);
+    if (gramRatios.every((ratio) => Math.abs(ratio - gramRatios[0]) < 0.001)) {
+      return amount * gramRatios[0];
+    }
+  }
+  return convertToGrams(amount, unit);
+}
+
+export function buildIngredientData(food: FDAFood, amount: number, unit: string, storageLocation = ''): Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'> {
+  const grams = foodAmountInGrams(food, amount, unit);
   const scaleFactor = grams / 100;
   const scaleVal = (val: number) => {
     const v = parseFloat(String(val)) || 0;
-    return Math.round(v * scaleFactor * 100) / 100;
+    // Older USDA rows may contain negative analytical differences (e.g.
+    // carbohydrate by difference). Never send negative nutrient snapshots.
+    return Math.max(0, Math.round(v * scaleFactor * 100) / 100);
   };
 
+  const identity = foodStorageIdentity(food);
   return {
-    fdcId: food.fdcId,
+    fdcId: identity?.sourceType === 'custom_food' ? -2 : food.fdcId,
     name: food.description,
     amount,
     unit,
@@ -193,10 +271,10 @@ export function buildIngredientData(food: FDAFood, amount: number, unit: string)
     potassium: scaleVal(food.nutrients.potassium),
     groupId: null,
     linkedRecipeId: null,
-    sourceType: 'usda',
-    sourceKey: String(food.fdcId),
+    sourceType: identity?.sourceType ?? 'manual',
+    sourceKey: identity?.sourceKey ?? null,
     prepInstructions: [],
-    storageLocation: '',
+    storageLocation,
   };
 }
 
@@ -266,6 +344,18 @@ export function buildRecipeAsIngredientData(sourceRecipe: Recipe, multiplier: nu
     sourceKey: sourceRecipe.id,
     prepInstructions: [],
     storageLocation: '',
+  };
+}
+
+export function buildIngredientRematchUpdate(ingredient: Ingredient, food: FDAFood, defaultLocation?: string, amount = ingredient.amount, unit = ingredient.unit): Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'> {
+  const resolvedUnit = unit.trim() ? unit : 'g';
+  return {
+    ...buildIngredientData(food, amount, resolvedUnit),
+    name: ingredient.name,
+    description: ingredient.description,
+    groupId: ingredient.groupId,
+    prepInstructions: ingredient.prepInstructions,
+    storageLocation: ingredient.storageLocation || defaultLocation || '',
   };
 }
 

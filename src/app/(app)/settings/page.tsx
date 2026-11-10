@@ -11,6 +11,7 @@ import { useAppTheme } from '@/hooks/use-app-theme';
 import { useRecipes } from '@/hooks/use-recipes';
 import { useBooks } from '@/hooks/use-books';
 import { queryKeys } from '@/lib/query-keys';
+import { getApiAuthHeaders } from '@/lib/api-auth';
 import { getApiClient, type UserListEntry } from '@/lib/api-client';
 import { ConfirmWithPasswordDialog } from '@/components/confirm-with-password-dialog';
 import FoodDatabasePanel from '@/components/food-database-panel';
@@ -129,7 +130,7 @@ export default function SettingsPage() {
   const [copied, setCopied] = useState(false);
   const loadKeys = useCallback(async () => {
     try {
-      const res = await fetch('/api/keys');
+      const res = await fetch('/api/keys', { headers: getApiAuthHeaders() });
       if (res.ok) { const json = await res.json(); setKeys(Array.isArray(json.data ?? json) ? (json.data ?? json) : []); }
       else setKeys([]);
     } catch { setKeys([]); }
@@ -145,11 +146,11 @@ export default function SettingsPage() {
       if (actions.length > 0) permissions[feat] = actions;
     }
     try {
-      const res = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newKeyName.trim(), permissions: JSON.stringify(permissions) }) });
+      const res = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getApiAuthHeaders() }, body: JSON.stringify({ name: newKeyName.trim(), permissions: JSON.stringify(permissions) }) });
       if (res.ok) { const json = await res.json(); setCreatedKey(json.data?.key ?? json.key); setNewKeyName(''); loadKeys(); }
     } catch {}
   };
-  const handleDeleteKey = async (id: string) => { try { await fetch(`/api/keys/${id}`, { method: 'DELETE' }); loadKeys(); } catch {} };
+  const handleDeleteKey = async (id: string) => { try { await fetch(`/api/keys/${id}`, { method: 'DELETE', headers: getApiAuthHeaders() }); loadKeys(); } catch {} };
   const togglePerm = (feat: FeatureKey, action: 'read' | 'write') => setNewKeyPerms(prev => ({ ...prev, [feat]: { ...prev[feat], [action]: !prev[feat][action] } }));
 
   // ── Encrypted user secrets ─────────────────────────────────────────

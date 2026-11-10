@@ -87,6 +87,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/custom-foods/community", s.requireAuth(s.communityCustomFoodsRouter))
 	mux.HandleFunc("/api/custom-foods/", s.requireAuth(s.customFoodRoutes))
 	mux.HandleFunc("/api/custom-foods", s.requireAuth(s.customFoodsRouter))
+	mux.HandleFunc("/api/food-storage-defaults", s.requireAuth(s.foodStorageDefaultsRouter))
+	mux.HandleFunc("/api/food-storage-defaults/", s.requireAuth(s.foodStorageDefaultItemRouter))
 
 	mux.HandleFunc("/api/grocery", s.requireAuth(s.groceryRouter))
 

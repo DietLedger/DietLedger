@@ -24,6 +24,7 @@ export function CookbookExport() {
   const [selectedBookId, setSelectedBookId] = useState('');
   const [selectedBrandKitId, setSelectedBrandKitId] = useState('');
   const [pageSize, setPageSize] = useState<'a4' | 'letter'>('letter');
+  const [measurementSystem, setMeasurementSystem] = useState<CookbookExportOptions['measurementSystem'] | ''>('');
   const [includeCover, setIncludeCover] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
   const [includeIndex, setIncludeIndex] = useState(false);
@@ -44,6 +45,10 @@ export function CookbookExport() {
       toast.error('Select a book to export');
       return;
     }
+    if (!measurementSystem) {
+      toast.error('Select measurement units to export');
+      return;
+    }
 
     setExporting(true);
     setProgress(0);
@@ -51,6 +56,7 @@ export function CookbookExport() {
     try {
       const options: CookbookExportOptions = {
         bookId: selectedBookId,
+        measurementSystem,
         brandKitId: selectedBrandKitId || undefined,
         pageSize,
         includeCover,
@@ -112,6 +118,21 @@ export function CookbookExport() {
       </div>
 
       <div>
+        <Label htmlFor="cookbook-measurements" className="text-sm">Measurement units</Label>
+        <Select value={measurementSystem} onValueChange={(value) => setMeasurementSystem(value as CookbookExportOptions['measurementSystem'])}>
+          <SelectTrigger id="cookbook-measurements" className="mt-1">
+            <SelectValue placeholder="Choose measurement units..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="imperial">Imperial</SelectItem>
+            <SelectItem value="metric">Metric</SelectItem>
+            <SelectItem value="grams">Grams</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="mt-1 text-xs text-muted-foreground">Grams uses food-specific weights when available; ingredients without a known weight keep their original units.</p>
+      </div>
+
+      <div>
         <Label className="text-sm">Page Size</Label>
         <Select value={pageSize} onValueChange={(v) => setPageSize(v as 'a4' | 'letter')}>
           <SelectTrigger className="mt-1">
@@ -158,7 +179,7 @@ export function CookbookExport() {
       <Button
         className="w-full"
         onClick={handleExport}
-        disabled={exporting || !selectedBookId}
+        disabled={exporting || !selectedBookId || !measurementSystem}
       >
         {exporting ? (
           <FileText className="h-4 w-4 mr-2 animate-pulse" />

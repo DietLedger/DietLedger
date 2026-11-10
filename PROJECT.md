@@ -221,7 +221,7 @@ DietLedger currently focuses on the following product areas.
 
 ## Recipe Management
 
-Create, organize, search, and manage recipes.
+Create, organize, search, and manage recipes. The expanded ingredient editor shows the name of the matched database food (when resolvable) and lets users choose another food; changing the match recalculates the ingredient's nutrient snapshot using the current amount and unit, without replacing its recipe-specific name or preparation details. Recipe totals and nutrition labels recalculate from all current ingredient snapshots after changes. Food search prioritizes literal exact matches over broader stemming matches so staples such as table salt are easy to find. Search and Change match allow zero-calorie foods when other canonical nutrients are present (such as sodium in salt), but exclude nutritionally empty records. Change match also offers a separate explicit Use no nutrition action for spices/trace ingredients; it creates a zero-nutrient manual snapshot. Long recipe import/export errors wrap in the recipe-list panel and remain scrollable without changing the fixed-height panel layout. The first saved storage location for a matched database food establishes a per-user default for that food; later recipe additions preselect it. In the ingredient editor, Update default saves the selected location on the current ingredient and sets the default for future additions, without changing other existing recipe ingredients. Added ingredients show their saved storage location on the collapsed ingredient tile.
 
 ---
 
@@ -270,7 +270,7 @@ Analyze recipes and foods against dietary restrictions and goals.
 
 ## Cookbook Publishing
 
-Organize recipes into books and export printable content.
+Organize recipes into books and export printable content. Book pages (including attribution and license prefaces) are readable and editable from the book detail view; the whole page or chapter-recipe tile opens its content while removal controls and drag handles remain separate. Chapters can be expanded independently and start collapsed for easier navigation. Edit Book changes book metadata, while the detail view manages pages and chapters. The Public Domain Recipes seed bundle places its Preface before Breakfast & brunch and keeps only the author in the book description. Cookbook PDF export requires an Imperial, Metric, or Grams selection. Grams uses exact weight units or matching food-specific USDA portion weights; if a weight is unavailable, that ingredient keeps its original amount/unit with a PDF notice. Importable recipe-bundle JSON remains unchanged.
 
 ---
 

@@ -248,7 +248,6 @@ export function EnergySpikeChart({ meals, glucoseReadings, showMealMarkers = tru
               fillOpacity={1}
               strokeWidth={2}
               baseValue={0}
-              curve="natural"
             />
             {hasGlucose && (
               <Line

@@ -1,4 +1,4 @@
-import type { RecipeRecord, IngredientGroup } from '@/lib/api-client';
+import type { IngredientRecord, RecipeRecord, IngredientGroup } from '@/lib/api-client';
 import { unitToGrams } from '@/lib/unit-conversion';
 
 export interface InstructionStep {
@@ -70,6 +70,7 @@ export interface FDAFood {
   dataType: string;
   servingSize: number;
   servingSizeUnit: string;
+  portions?: import('@/lib/types').FoodPortion[];
   nutrients: {
     calories: number;
     totalFat: number;
@@ -134,6 +135,18 @@ export function serializeInstructions(payload: InstructionsPayload): string | nu
   return JSON.stringify(payload);
 }
 
+export function toPublicIngredient(ingredient: IngredientRecord): Ingredient {
+  return {
+    ...ingredient,
+    groupId: ingredient.groupId || null,
+    linkedRecipeId: ingredient.linkedRecipeId || null,
+    sourceType: ingredient.sourceType ?? 'manual',
+    sourceKey: ingredient.sourceKey ?? null,
+    prepInstructions: ingredient.prepInstructions || [],
+    storageLocation: ingredient.storageLocation ?? '',
+  };
+}
+
 export function toPublicRecipe(r: RecipeRecord): Recipe {
   const instr = parseInstructions(r.instructions);
   let ingredientGroups = r.ingredientGroups || [];
@@ -145,11 +158,7 @@ export function toPublicRecipe(r: RecipeRecord): Recipe {
     instructionSteps: instr.steps,
     instructionGroups: instr.groups,
     ingredientGroups,
-    ingredients: (r.ingredients || []).map((i) => ({
-      ...i,
-      groupId: i.groupId || null,
-      linkedRecipeId: i.linkedRecipeId || null,
-    })),
+    ingredients: (r.ingredients || []).map(toPublicIngredient),
   };
 }
 

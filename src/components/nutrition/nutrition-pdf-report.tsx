@@ -46,7 +46,7 @@ export function NutritionPdfReport({ profile }: NutritionPdfReportProps) {
     setProgress(10);
 
     try {
-      const allEntries = await getApiClient().getFoodLogByProfileAndDateRange(profileId, startStr, endStr);
+      const allEntries = await getApiClient().getFoodLogByProfileAndDateRange(profile.id, startDate, endDate);
       const filtered = allEntries.filter(e => {
         if (e.profileId !== profile.id) return false;
         return e.date >= startDate && e.date <= endDate;
@@ -59,7 +59,7 @@ export function NutritionPdfReport({ profile }: NutritionPdfReportProps) {
       }
 
       const kit = brandKitId && brandKitId !== 'none'
-        ? (await import('@/lib/storage')).getBrandKit(brandKitId)
+        ? (await getApiClient().getBrandKit(brandKitId)) ?? undefined
         : undefined;
 
       setProgress(40);

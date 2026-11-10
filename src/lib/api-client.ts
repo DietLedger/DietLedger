@@ -24,6 +24,7 @@ import type {
   ShareVisibility,
   PantryStapleRecord,
   ExportCandidateRecord,
+  FoodPortion,
 } from './types';
 
 export type {
@@ -62,6 +63,7 @@ export interface FDAFood {
   gtinUpc?: string;
   servingSize: number;
   servingSizeUnit: string;
+  portions?: FoodPortion[];
   calories: number;
   totalFat: number;
   saturatedFat: number;
@@ -77,6 +79,12 @@ export interface FDAFood {
   calcium: number;
   iron: number;
   potassium: number;
+}
+
+export interface FoodStorageDefault {
+  sourceType: 'usda' | 'custom_food';
+  sourceKey: string;
+  location: string;
 }
 
 export interface PaginatedResult<T> {
@@ -212,6 +220,10 @@ export interface ApiClient {
   ): Promise<RecipeRecord>;
   deleteRecipe(id: string): Promise<void>;
 
+  // Per-user matched food storage preferences
+  getFoodStorageDefaults(): Promise<FoodStorageDefault[]>;
+  updateFoodStorageDefault(sourceType: FoodStorageDefault['sourceType'], sourceKey: string, location: string): Promise<FoodStorageDefault>;
+
   // Ingredients
   addIngredient(
     recipeId: string,
@@ -329,7 +341,7 @@ export interface ApiClient {
 
   // Grocery Checklists
   getGroceryChecklist(weekStart: string): Promise<GroceryChecklistRecord | null>;
-  upsertGroceryChecklist(record: GroceryChecklistRecord): Promise<GroceryChecklistRecord>;
+  upsertGroceryChecklist(record: Pick<GroceryChecklistRecord, 'weekStart' | 'checkedItems'>): Promise<GroceryChecklistRecord>;
 
   // Nutrition Profiles
   getNutritionProfiles(): Promise<NutritionProfileRecord[]>;

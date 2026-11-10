@@ -33,8 +33,10 @@ type Store interface {
 
 	// Ingredients
 	CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error)
-	UpdateIngredient(id string, ing *CreateIngredientReq) (*Ingredient, error)
-	DeleteIngredient(id string) error
+	UpdateIngredient(userID, recipeID, id string, ing *CreateIngredientReq) (*Ingredient, error)
+	DeleteIngredient(userID, recipeID, id string) error
+	ListFoodStorageDefaults(userID string) ([]FoodStorageDefault, error)
+	UpsertFoodStorageDefault(userID, sourceType, sourceKey, location string) (*FoodStorageDefault, error)
 	ReplaceIngredients(recipeID string, ingredients []CreateIngredientReq) error
 
 	// Food Items (USDA — shared, read-only for users)

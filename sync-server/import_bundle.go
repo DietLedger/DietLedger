@@ -22,27 +22,27 @@ const (
 var ErrExportForbidden = errors.New("export forbidden")
 
 type RecipeBundle struct {
-	Format           string                 `json:"format"`
-	Version          int                    `json:"version"`
-	ExportedAt       string                 `json:"exportedAt"`
-	Source           RecipeBundleSource     `json:"source"`
-	Recipes          []BundleRecipe         `json:"recipes"`
-	Books            []BundleBook           `json:"books"`
-	Chapters         []BundleChapter        `json:"chapters"`
-	ChapterRecipes   []BundleChapterRecipe  `json:"chapterRecipes"`
-	ChapterPages     []BundleChapterPage    `json:"chapterPages"`
-	BookPages        []BundleBookPage       `json:"bookPages"`
-	Categories       []BundleCategory       `json:"categories"`
-	RecipeCategories []BundleRecipeCategory `json:"recipeCategories"`
-	Templates        []BundleTemplate       `json:"templates"`
-	FoodItems        []BundleFoodItem       `json:"foodItems"`
-	CustomFoods      []BundleCustomFood     `json:"customFoods"`
-	NutritionProfiles []PersonProfile       `json:"nutritionProfiles,omitempty"`
-	FoodLogEntries    []FoodLogEntry        `json:"foodLogEntries,omitempty"`
-	WeightEntries     []WeightEntry         `json:"weightEntries,omitempty"`
-	MealPlans         []MealPlan            `json:"mealPlans,omitempty"`
-	DayPlanEntries    []DayPlanEntry        `json:"dayPlanEntries,omitempty"`
-	MealGroups        []MealGroup           `json:"mealGroups,omitempty"`
+	Format            string                 `json:"format"`
+	Version           int                    `json:"version"`
+	ExportedAt        string                 `json:"exportedAt"`
+	Source            RecipeBundleSource     `json:"source"`
+	Recipes           []BundleRecipe         `json:"recipes"`
+	Books             []BundleBook           `json:"books"`
+	Chapters          []BundleChapter        `json:"chapters"`
+	ChapterRecipes    []BundleChapterRecipe  `json:"chapterRecipes"`
+	ChapterPages      []BundleChapterPage    `json:"chapterPages"`
+	BookPages         []BundleBookPage       `json:"bookPages"`
+	Categories        []BundleCategory       `json:"categories"`
+	RecipeCategories  []BundleRecipeCategory `json:"recipeCategories"`
+	Templates         []BundleTemplate       `json:"templates"`
+	FoodItems         []BundleFoodItem       `json:"foodItems"`
+	CustomFoods       []BundleCustomFood     `json:"customFoods"`
+	NutritionProfiles []PersonProfile        `json:"nutritionProfiles,omitempty"`
+	FoodLogEntries    []FoodLogEntry         `json:"foodLogEntries,omitempty"`
+	WeightEntries     []WeightEntry          `json:"weightEntries,omitempty"`
+	MealPlans         []MealPlan             `json:"mealPlans,omitempty"`
+	DayPlanEntries    []DayPlanEntry         `json:"dayPlanEntries,omitempty"`
+	MealGroups        []MealGroup            `json:"mealGroups,omitempty"`
 }
 
 type RecipeBundleSource struct {
@@ -734,10 +734,22 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		if err != nil {
 			return nil, err
 		}
+		if found {
+			found, err = s.recipeTargetExistsTx(tx, userID, id)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if !found {
 			id, found, err = s.lookupImportMappingByHashTx(tx, userID, "recipe", hash)
 			if err != nil {
 				return nil, err
+			}
+			if found {
+				found, err = s.recipeTargetExistsTx(tx, userID, id)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 		if found {
@@ -790,10 +802,22 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		if err != nil {
 			return nil, err
 		}
+		if found {
+			found, err = s.bookTargetExistsTx(tx, userID, id)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if !found {
 			id, found, err = s.lookupImportMappingByHashTx(tx, userID, "book", hash)
 			if err != nil {
 				return nil, err
+			}
+			if found {
+				found, err = s.bookTargetExistsTx(tx, userID, id)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 		if found {
@@ -803,6 +827,9 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 			}
 			_, _ = tx.Exec(`DELETE FROM book_pages WHERE book_id=$1`, id)
 			_, _ = tx.Exec(`DELETE FROM chapters WHERE book_id=$1`, id)
+			if err := s.upsertImportMappingTx(tx, userID, "book", b.BundleBookID, hash, "recipe_books", id); err != nil {
+				return nil, err
+			}
 			incCount(summary.Updated, "books")
 		} else {
 			id = uuid.New().String()
@@ -934,6 +961,18 @@ func nullableString(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+func (s *PostgresStore) bookTargetExistsTx(tx *sql.Tx, userID, bookID string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM recipe_books WHERE id=$1 AND user_id=$2)`, bookID, userID).Scan(&exists)
+	return exists, err
+}
+
+func (s *PostgresStore) recipeTargetExistsTx(tx *sql.Tx, userID, recipeID string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes WHERE id=$1 AND user_id=$2)`, recipeID, userID).Scan(&exists)
+	return exists, err
 }
 
 func (s *PostgresStore) lookupImportMappingTx(tx *sql.Tx, userID, objectType, objectKey string) (string, bool, error) {

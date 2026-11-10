@@ -12,10 +12,10 @@ import (
 // usdaSearchResponse mirrors the USDA FoodData Central /fdc/v1/search response.
 // Only the fields we use are decoded.
 type usdaSearchResponse struct {
-	TotalHits  int        `json:"totalHits"`
-	CurrentPage int       `json:"currentPage"`
-	TotalPages int        `json:"totalPages"`
-	Foods      []USDAFood `json:"foods"`
+	TotalHits   int        `json:"totalHits"`
+	CurrentPage int        `json:"currentPage"`
+	TotalPages  int        `json:"totalPages"`
+	Foods       []USDAFood `json:"foods"`
 }
 
 // searchUSDALive calls the USDA FoodData Central search API and maps the
@@ -58,5 +58,5 @@ func searchUSDALive(query, apiKey string, pageSize int) ([]FoodItem, error) {
 	for _, uf := range result.Foods {
 		foods = append(foods, convertUSDAFood(uf, "usda"))
 	}
-	return foods, nil
+	return foodsWithMeaningfulNutrition(foods), nil
 }

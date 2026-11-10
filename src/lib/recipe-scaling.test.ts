@@ -48,15 +48,15 @@ describe('computeScaleFactor', () => {
   });
 
   it('computes multiplier mode', () => {
-    expect(computeScaleFactor({ mode: 'multiplier', multiplier: 1.5 })).toBe(1.5);
+    expect(computeScaleFactor({ mode: 'multiplier', originalServings: 4, multiplier: 1.5 })).toBe(1.5);
   });
 
   it('defaults multiplier to 1', () => {
-    expect(computeScaleFactor({ mode: 'multiplier' })).toBe(1);
+    expect(computeScaleFactor({ mode: 'multiplier', originalServings: 4 })).toBe(1);
   });
 
   it('computes calorie target mode', () => {
-    expect(computeScaleFactor({ mode: 'calorieTarget', originalCalories: 500, calorieTarget: 250 })).toBe(0.5);
+    expect(computeScaleFactor({ mode: 'calorieTarget', originalServings: 4, originalCalories: 500, calorieTarget: 250 })).toBe(0.5);
   });
 
   it('returns 1 for zero original servings', () => {
@@ -64,7 +64,7 @@ describe('computeScaleFactor', () => {
   });
 
   it('returns 1 for unknown mode', () => {
-    expect(computeScaleFactor({ mode: 'unknown' as any })).toBe(1);
+    expect(computeScaleFactor({ mode: 'unknown' as Parameters<typeof computeScaleFactor>[0]['mode'], originalServings: 4 })).toBe(1);
   });
 });
 

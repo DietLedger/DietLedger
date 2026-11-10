@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -39,9 +40,9 @@ func TestConvertUSDAFoodVitaminD(t *testing.T) {
 
 	t.Run("native micrograms preferred when IU also present", func(t *testing.T) {
 		uf := USDAFood{
-			FdcID:          2,
-			Description:    "Foundation food",
-			FoodNutrients:  []USDANutrient{mkNutrient("1166", 12.5), mkNutrient("1114", 500)},
+			FdcID:         2,
+			Description:   "Foundation food",
+			FoodNutrients: []USDANutrient{mkNutrient("1166", 12.5), mkNutrient("1114", 500)},
 		}
 		fi := convertUSDAFood(uf, "foundation")
 		if math.Abs(fi.VitaminD-12.5) > 1e-9 {
@@ -56,6 +57,94 @@ func TestConvertUSDAFoodVitaminD(t *testing.T) {
 			t.Fatalf("VitaminD = %v, want 0", fi.VitaminD)
 		}
 	})
+}
+
+func TestConvertUSDAFoodFoundationEnergy(t *testing.T) {
+	cases := []struct {
+		name      string
+		nutrients string
+		want      float64
+	}{
+		{"specific preferred over general and legacy", `[{"nutrient":{"id":2047,"number":"957","unitName":"kcal"},"amount":64.7},{"nutrient":{"id":2048,"number":"958","unitName":"kcal"},"amount":58.2},{"nutrient":{"id":1008,"number":"208","unitName":"kcal"},"amount":55}]`, 58.2},
+		{"general when specific missing", `[{"nutrient":{"id":2047,"number":"957","unitName":"kcal"},"amount":64.7}]`, 64.7},
+		{"legacy when Atwater missing", `[{"nutrient":{"id":1008,"number":"208","unitName":"kcal"},"amount":55}]`, 55},
+		{"ignore kJ", `[{"nutrient":{"id":2048,"number":"958","unitName":"kJ"},"amount":243}]`, 0},
+		{"missing energy stays zero", `[]`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var uf USDAFood
+			if err := json.Unmarshal([]byte(`{"fdcId":1750340,"foodNutrients":`+tc.nutrients+`}`), &uf); err != nil {
+				t.Fatal(err)
+			}
+			if got := convertUSDAFood(uf, "foundation").Calories; got != tc.want {
+				t.Fatalf("Calories = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFoodsWithMeaningfulNutrition(t *testing.T) {
+	foods := foodsWithMeaningfulNutrition([]FoodItem{
+		{FdcID: 1},
+		{FdcID: 2, Calories: 52},
+		{FdcID: 3, Sodium: 38758},
+		{FdcID: 4, Calories: -1, Sodium: -1},
+	})
+	if len(foods) != 2 || foods[0].FdcID != 2 || foods[1].FdcID != 3 {
+		t.Fatalf("got %+v; want positive-calorie apple and zero-calorie sodium-bearing salt", foods)
+	}
+}
+
+func TestParseFoodJSONKeepsMeaningfulZeroCalorieSalt(t *testing.T) {
+	payload := `{"SRLegacyFoods":[
+		{"fdcId":173468,"description":"Salt, table","foodNutrients":[{"nutrient":{"number":"307"},"amount":38758}]},
+
+		{"fdcId":1750349,"description":"Empty food","foodNutrients":[]},
+		{"fdcId":123,"description":"Apple, raw","foodNutrients":[{"nutrient":{"id":2048,"number":"958","unitName":"kcal"},"amount":52}]}
+	]}`
+	foods, err := parseFoodJSON([]byte(payload), "sr_legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foods) != 2 || foods[0].FdcID != 173468 || foods[0].Calories != 0 || foods[0].Sodium != 38758 || foods[1].FdcID != 123 {
+		t.Fatalf("got foods %+v; want meaningful salt and apple, excluding empty record", foods)
+	}
+}
+
+func TestConvertUSDAFoodLiveSearchNutrients(t *testing.T) {
+	// USDA /fdc/v1/foods/search uses flat nutrientNumber/value, not nested nutrient/amount.
+	var uf USDAFood
+	if err := json.Unmarshal([]byte(`{"fdcId":1750340,"foodNutrients":[{"nutrientId":1003,"nutrientNumber":"203","value":0.148,"unitName":"G"},{"nutrientId":2048,"nutrientNumber":"958","value":58.2,"unitName":"KCAL"},{"nutrientId":2047,"nutrientNumber":"957","value":64.7,"unitName":"KCAL"}]}`), &uf); err != nil {
+		t.Fatal(err)
+	}
+	food := convertUSDAFood(uf, "usda")
+	if food.Calories != 58.2 || food.Protein != 0.148 {
+		t.Fatalf("got Calories %v and Protein %v; want 58.2 and 0.148", food.Calories, food.Protein)
+	}
+}
+
+func TestConvertUSDAFoodNegativeAnalyticalNutrients(t *testing.T) {
+	// USDA Foundation FDC 2727569 reports -0.42825 g carbohydrate by difference.
+	// Canonical nutrient snapshots must remain non-negative without inventing carbs.
+	for _, tc := range []struct {
+		name string
+		food string
+	}{
+		{"nested Foundation dataset", `{"fdcId":2727569,"foodNutrients":[{"nutrient":{"number":"205"},"amount":-0.42825},{"nutrient":{"number":"203"},"amount":21.4},{"nutrient":{"id":2048,"number":"958","unitName":"kcal"},"amount":132.8359}]}`},
+		{"flat USDA search", `{"fdcId":2727569,"foodNutrients":[{"nutrientNumber":"205","value":-0.42825},{"nutrientNumber":"203","value":21.4},{"nutrientId":2048,"nutrientNumber":"958","unitName":"KCAL","value":132.8359}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var uf USDAFood
+			if err := json.Unmarshal([]byte(tc.food), &uf); err != nil {
+				t.Fatal(err)
+			}
+			food := convertUSDAFood(uf, "foundation")
+			if food.TotalCarbs != 0 || food.Protein != 21.4 || food.Calories != 132.8359 {
+				t.Fatalf("got carbs=%v protein=%v calories=%v; want 0, 21.4, 132.8359", food.TotalCarbs, food.Protein, food.Calories)
+			}
+		})
+	}
 }
 
 // Guard the other mapped nutrients still flow through unchanged.

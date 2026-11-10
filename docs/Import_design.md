@@ -158,9 +158,9 @@ Imports must not duplicate existing recipes or books.
 
 ### If origin mapping exists
 
-Update/replace the existing imported object from the bundle.
+Update/replace the existing imported object from the bundle **only when the mapped target still exists and belongs to the importing user**. Deleted recipes or books leave stale mappings: create a new local recipe shell or book, remap their dependent ingredients/pages/chapters, and replace the stale origin mapping. Check content-hash mappings the same way before reuse. On a valid book update, refresh the origin mapping and replace its pages and chapters within the same transaction.
 
-This makes re-import idempotent.
+This makes re-import idempotent without writing ingredients or book pages against deleted or foreign-owned parent IDs.
 
 ### If exact content hash already exists
 

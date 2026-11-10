@@ -266,7 +266,7 @@ export const MEDICAL_MEAL_TEMPLATES: MedicalMealTemplate[] = [
           { slot: 'midMorning', suggestions: ['Peach slices', 'Rice cakes'], targetCalories: 120 },
           { slot: 'noon', suggestions: ['Egg salad on white bread', 'Baby carrots (small portion)', 'Gelatin cup'], targetCalories: 500 },
           { slot: 'afternoon', suggestions: ['Unsalted pretzels', 'Lemonade'], targetCalories: 120 },
-          { slot: 'evening', meals: [], suggestions: ['Baked cod with herbed breadcrumbs', 'White rice', 'Green beans (canned, drained)', 'Sherbet'], targetCalories: 550 },
+          { slot: 'evening', suggestions: ['Baked cod with herbed breadcrumbs', 'White rice', 'Green beans (canned, drained)', 'Sherbet'], targetCalories: 550 },
         ],
       },
       {

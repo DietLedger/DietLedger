@@ -25,8 +25,9 @@ import { useRecipes, type Recipe } from '@/hooks/use-recipes';
 import { toPublicRecipe } from '@/lib/recipe-types';
 import { useAppSettings } from '@/hooks/use-settings';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
+import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
 import { getApiClient } from '@/lib/api-client';
-import type { CustomFoodRecord } from '@/lib/types';
+import type { CustomFoodRecord, RecipeRecord } from '@/lib/types';
 import type { DaySlot } from '@/lib/types';
 import { DEFAULT_MEAL_SLOT_TIMES, type MealSlotTimes } from '@/lib/types';
 import type { DayPlanEntryRecord, MealGroupRecord } from '@/lib/types';
@@ -98,6 +99,8 @@ export default function WeeklyPlanPage() {
   const updateSlotTimesMutation = useUpdateSlotTimes();
 
   const { data: recipes = [] } = useRecipes();
+  // toPublicRecipe spreads the full RecipeRecord, including instructions and ingredient recipeIds.
+  const synergyRecipes = recipes as (Recipe & RecipeRecord)[];
   const { data: appSettings } = useAppSettings();
   const defaultMealSlotTimes = appSettings?.defaultMealSlotTimes ?? DEFAULT_MEAL_SLOT_TIMES;
   const [editingDay, setEditingDay] = useState<string | null>(null);
@@ -375,9 +378,9 @@ export default function WeeklyPlanPage() {
   }, [recipes, searchQuery]);
 
   const filteredCustomFoods = useMemo(() => {
-    if (!searchQuery) return customFoods;
+    if (!searchQuery) return customFoods.filter((f) => hasMeaningfulNutrition(f));
     const q = searchQuery.toLowerCase();
-    return customFoods.filter((f) => f.name.toLowerCase().includes(q));
+    return customFoods.filter((f) => hasMeaningfulNutrition(f) && f.name.toLowerCase().includes(q));
   }, [customFoods, searchQuery]);
 
   const prevWeek = format(addDays(weekDate, -7), 'yyyy-MM-dd');
@@ -605,7 +608,7 @@ export default function WeeklyPlanPage() {
                 <FoodSynergiesPanel
                   editingDay={editingDay}
                   dayEntries={dayEntries}
-                  allRecipes={recipes}
+                  allRecipes={synergyRecipes}
                   pantryStaples={pantryStaples}
                   seasonalFoods={seasonalFoods}
                   currentMonth={currentMonth}
@@ -1193,7 +1196,7 @@ export default function WeeklyPlanPage() {
         foodName={selectedSeasonalFood}
         editingDay={editingDay}
         dayEntries={dayEntries}
-        allRecipes={recipes}
+        allRecipes={synergyRecipes}
         onClose={() => setSelectedSeasonalFood(null)}
         onAddToSlot={handleSynergyAddToSlot}
       />
