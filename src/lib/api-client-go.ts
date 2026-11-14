@@ -413,6 +413,10 @@ export class GoApiClient implements ApiClient {
         sourceKey: ingredient.sourceKey || null,
         prepInstructions: ingredient.prepInstructions || [],
         storageLocation: ingredient.storageLocation || '',
+        position: ingredient.position,
+        zeroNutritionOverride: ingredient.zeroNutritionOverride,
+        unresolvedSource: ingredient.unresolvedSource || null,
+        unconfirmedNutrition: ingredient.unconfirmedNutrition || null,
       }
     );
     return this.unwrap(resp);

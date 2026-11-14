@@ -124,7 +124,31 @@ func validateIngredient(req *CreateIngredientReq) string {
 	if field := validateNutritionNumbers(*req); field != "" {
 		return invalidNutrientMessage("ingredient " + field)
 	}
+	sourceType := emptyDefault(req.SourceType, "manual")
+	if sourceType != "manual" && sourceType != "usda" && sourceType != "custom_food" && sourceType != "recipe" {
+		return "ingredient sourceType is invalid"
+	}
+	if err := validateUnconfirmedNutrition(req.UnconfirmedNutrition); err != nil {
+		return "ingredient unconfirmedNutrition: " + err.Error()
+	}
+	if req.UnresolvedSource != nil {
+		if err := validateIngredientSource(*req.UnresolvedSource, nil, nil, nil); err != nil {
+			return "ingredient unresolvedSource: " + err.Error()
+		}
+		if req.SourceKey != nil || req.LinkedRecipeID != nil || req.FdcID > 0 {
+			return "ingredient unresolvedSource cannot have a live source link"
+		}
+	}
+	if req.ZeroNutritionOverride != nil && *req.ZeroNutritionOverride {
+		if req.FdcID != -3 || emptyDefault(req.SourceType, "manual") != "manual" || req.SourceKey != nil || req.LinkedRecipeID != nil || req.UnresolvedSource != nil || !bundleNutrientsAreZero(nutrientsFromIngredientRequest(*req)) {
+			return "ingredient zeroNutritionOverride requires manual fdcId -3, zero nutrients, and no source link"
+		}
+	}
 	return ""
+}
+
+func nutrientsFromIngredientRequest(i CreateIngredientReq) BundleNutrients {
+	return BundleNutrients{Calories: i.Calories, TotalFat: i.TotalFat, SaturatedFat: i.SaturatedFat, TransFat: i.TransFat, Cholesterol: i.Cholesterol, Sodium: i.Sodium, TotalCarbs: i.TotalCarbs, DietaryFiber: i.DietaryFiber, TotalSugars: i.TotalSugars, AddedSugars: i.AddedSugars, Protein: i.Protein, VitaminD: i.VitaminD, Calcium: i.Calcium, Iron: i.Iron, Potassium: i.Potassium}
 }
 
 // validateIngredients applies validateIngredient to a whole list and

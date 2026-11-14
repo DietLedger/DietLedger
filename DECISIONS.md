@@ -672,6 +672,38 @@ A narrow preference table and API add persistence and tests; first-write-wins pr
 
 ---
 
+# ADR: Immutable Portable Recipe and Custom-Food Identity
+
+## Status
+
+Accepted; storage implemented incrementally under `specs/recipe-nutrition-quarantine.md`.
+
+## Decision
+
+Persist `dietledger:recipe:<uuid>` and `dietledger:food:<uuid>` identities independently of local primary keys. PostgreSQL assigns them once, protects them from mutation, and enforces owner-scoped uniqueness. Native transfers retain these identities while remapping local keys. Identity—not equal names or nutrients—determines whether two objects are the same. USDA uses its FDC food identifier, not a DietLedger UUID or nutrient-definition identifier. Ambiguous legacy origins are not inferred from content; experimental data may be reset locally without altering the remote instance.
+
+## Consequences
+
+Read/update contracts expose immutable identities. Package support, conflict resolution, database preflight and quarantine are separate verified slices; see the implementation plan for current evidence. No synchronization engine or third-party adapter is introduced.
+
+---
+
+# ADR: Lossless Ingredient Source Fidelity
+
+## Status
+
+Accepted; persistence foundation implemented incrementally under `specs/recipe-nutrition-quarantine.md`.
+
+## Decision
+
+Persist ingredient order, explicit zero-nutrition intent, unresolved typed source identities, and unconfirmed package-supplied nutrition separately from live links and calculated snapshots. Missing package dependencies are structurally valid when their source identity is safe and typed; they do not create dangling foreign keys. Unknown source types and invalid numeric/basis data remain invalid. Native v1/v2 compatibility never infers deliberate zero intent from an all-zero snapshot.
+
+## Consequences
+
+Migration 000030 adds the storage contract and conservative legacy backfill. Native package reimports treat order and source intent as content, so order-only or intent-only changes under an existing portable identity conflict rather than silently overwriting local content. These fields enable later readiness and repair work but do not themselves enable quarantine filtering, standard-database certification, supplied-fact publication, or regular-export exclusions.
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:

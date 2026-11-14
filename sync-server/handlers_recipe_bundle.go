@@ -98,6 +98,11 @@ func (s *Server) recipeBundleImportHandler(w http.ResponseWriter, r *http.Reques
 	}
 	result, err := pg.ImportRecipeBundle(user.ID, bundle)
 	if err != nil {
+		var conflict *RecipeBundleIdentityConflictError
+		if errors.As(err, &conflict) {
+			writeError(w, http.StatusConflict, conflict.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

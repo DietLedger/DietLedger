@@ -275,6 +275,10 @@ export function buildIngredientData(food: FDAFood, amount: number, unit: string,
     sourceKey: identity?.sourceKey ?? null,
     prepInstructions: [],
     storageLocation,
+    position: 0,
+    zeroNutritionOverride: food.fdcId === -3 && (identity?.sourceType ?? 'manual') === 'manual',
+    unresolvedSource: null,
+    unconfirmedNutrition: null,
   };
 }
 
@@ -310,6 +314,10 @@ export function buildCustomIngredientData(name: string, nutrition: Record<Nutrie
     sourceKey: null,
     prepInstructions: [],
     storageLocation: '',
+    position: 0,
+    zeroNutritionOverride: false,
+    unresolvedSource: null,
+    unconfirmedNutrition: null,
   };
 }
 
@@ -344,6 +352,10 @@ export function buildRecipeAsIngredientData(sourceRecipe: Recipe, multiplier: nu
     sourceKey: sourceRecipe.id,
     prepInstructions: [],
     storageLocation: '',
+    position: 0,
+    zeroNutritionOverride: false,
+    unresolvedSource: null,
+    unconfirmedNutrition: null,
   };
 }
 
@@ -391,6 +403,10 @@ export function buildRescaledIngredientUpdate(ingredient: Ingredient, data: { na
     sourceKey: ingredient.sourceKey || null,
     prepInstructions: data.prepInstructions !== undefined ? data.prepInstructions : ingredient.prepInstructions,
     storageLocation: data.storageLocation !== undefined ? data.storageLocation : ingredient.storageLocation,
+    position: ingredient.position,
+    zeroNutritionOverride: ingredient.zeroNutritionOverride,
+    unresolvedSource: ingredient.unresolvedSource ?? null,
+    unconfirmedNutrition: ingredient.unconfirmedNutrition ?? null,
   };
 
   for (const key of NUTRIENT_KEYS) {

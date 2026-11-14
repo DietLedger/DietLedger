@@ -61,7 +61,9 @@ func TestFoodPortionPersistenceAndSparseUpsert(t *testing.T) {
 	s := testStore(t)
 	upc := "1234567890"
 	rich := []FoodPortion{{Amount: 1, MeasureUnit: "cup", Modifier: "chopped", PortionDescription: "1 cup", GramWeight: 85}}
-	item := FoodItem{FdcID: 900001, Description: "Portion food", DataType: "Foundation", GtinUpc: &upc, Source: "foundation", Portions: rich}
+	// Search excludes nutritionally empty records; use a selectable food so this
+	// persistence fixture actually exercises portion-bearing search results.
+	item := FoodItem{FdcID: 900001, Description: "Portion food", DataType: "Foundation", GtinUpc: &upc, Source: "foundation", Calories: 10, Portions: rich}
 	created, err := s.CreateFoodItem(&item)
 	if err != nil {
 		t.Fatal(err)

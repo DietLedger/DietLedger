@@ -55,7 +55,7 @@ export function IngredientMatchEditor({ ingredient, amount, unit, onRematch }: I
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const isCustom = ingredient.sourceType === 'custom_food';
-  const isNoNutrition = ingredient.fdcId === -3 && ingredient.sourceType === 'manual';
+  const isNoNutrition = ingredient.zeroNutritionOverride || (ingredient.fdcId === -3 && ingredient.sourceType === 'manual');
   const fdcId = !isCustom && ingredient.fdcId > 0 ? ingredient.fdcId : 0;
   const { data: food, isLoading: loadingFood } = useQuery({
     queryKey: ['foods', 'fdc', fdcId],

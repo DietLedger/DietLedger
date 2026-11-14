@@ -46,13 +46,16 @@ func TestPlanRecipeBundleImportHandlesLinkedRecipesRegardlessOfBundleOrder(t *te
 	assertStepBefore(t, plan, ImportStepCreateRecipeShells, ImportStepHydrateRecipes)
 }
 
-func TestPlanRecipeBundleImportRejectsMissingLinkedRecipeDependency(t *testing.T) {
+func TestPlanRecipeBundleImportRetainsMissingLinkedRecipeDependency(t *testing.T) {
 	bundle := minimalRecipeBundle()
 	bundle.Recipes[0].Ingredients[0].Source = BundleIngredientSourceRef{Type: "recipe", BundleRecipeID: "missing-recipe"}
 
-	_, err := PlanRecipeBundleImport(bundle)
-	if err == nil {
-		t.Fatal("PlanRecipeBundleImport() error = nil, want missing linked recipe error")
+	plan, err := PlanRecipeBundleImport(bundle)
+	if err != nil {
+		t.Fatalf("PlanRecipeBundleImport() rejected structurally valid unresolved dependency: %v", err)
+	}
+	if !plan.RequiresRecipeLinkRemap(bundle.Recipes[0].BundleRecipeID, "missing-recipe") {
+		t.Fatalf("plan lost unresolved dependency: %#v", plan.RecipeLinkRemaps)
 	}
 }
 

@@ -249,6 +249,10 @@ func (s *Server) createRecipe(w http.ResponseWriter, r *http.Request) {
 	}
 	recipe, err := s.store.CreateRecipe(user.ID, &req)
 	if err != nil {
+		if errors.Is(err, errRecipeCreateConflict) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		log.Printf("Error creating recipe: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create recipe")
 		return
@@ -267,6 +271,10 @@ func (s *Server) updateRecipe(w http.ResponseWriter, r *http.Request, id string)
 	var req UpdateRecipeRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.PortableID != nil {
+		writeError(w, http.StatusBadRequest, "portableId is immutable")
 		return
 	}
 	if req.Servings != nil && !validRecipeServings(*req.Servings) {
@@ -1502,6 +1510,10 @@ func (s *Server) customFoodItemRouter(w http.ResponseWriter, r *http.Request, id
 		var req CreateCustomFoodRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if req.PortableID != nil {
+			writeError(w, http.StatusBadRequest, "portableId is immutable")
 			return
 		}
 		if msg := validateCustomFood(&req); msg != "" {

@@ -2,7 +2,16 @@
 
 ## Status
 
-Proposed for approval.
+The original v1 design below documents the legacy baseline. The approved successor is `specs/recipe-nutrition-quarantine.md`, with verified increments recorded in `specs/recipe-nutrition-quarantine-plan.md`. Its portable-identity, conflict, database-preflight and quarantine rules supersede contradictory v1 policies below. Do not treat the whole successor workflow as implemented merely because its identity/transaction foundations have landed.
+
+### Successor contract and current implementation checkpoint
+
+- Recipes and custom foods now persist immutable namespaced UUID `portableId` values, independent from local row keys. PostgreSQL defaults/triggers protect identity; ordinary update APIs reject setting it.
+- Export v2/read v1-and-v2 is the incremental transfer contract. V2 food/recipe identity—not name or matching content—determines reuse. Conflicting existing portable identities must fail the transaction rather than overwrite local repairs. Missing legacy identities are not guessed from names.
+- The final approved design references standard foods by stable provider food IDs and adds active/required database manifests and install-or-explicit-continue preflight. Legacy embedded standard-food handling is a transitional implementation, not evidence that preflight has landed. USDA nutrient IDs are never food identities.
+- Native dependency closure must preserve linked recipes, referenced custom foods, zero intent, categories/templates and book/chapter pages; operational retrieval failures are errors, not permission to omit content.
+- Recipe creation now accepts metadata, serialized `ingredientGroups`, all ingredients and an optional owner-scoped `requestKey` atomically. Identical retries return the saved recipe; changed payloads return HTTP 409. The browser markdown orchestration is migrated in a later verified slice.
+- Ready-only regular exports must not be enabled until an explicit server-enumerated lossless owner recipe/book backup protects both account-deletion entry points.
 
 ## Objective
 

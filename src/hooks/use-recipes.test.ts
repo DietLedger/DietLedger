@@ -40,6 +40,8 @@ function makeIngredient(overrides: Partial<Ingredient> = {}): Ingredient {
     linkedRecipeId: null,
     prepInstructions: [],
     storageLocation: '',
+    position: 0,
+    zeroNutritionOverride: false,
     ...overrides,
   };
 }
@@ -166,6 +168,11 @@ describe('buildRescaledIngredientUpdate', () => {
     expect(update.linkedRecipeId).toBe('recipe-xyz');
   });
 
+  it('preserves explicit zero intent when editing non-nutrition parameters', () => {
+    const update = buildRescaledIngredientUpdate(makeIngredient({ fdcId: -3, sourceType: 'manual', zeroNutritionOverride: true }), { name: 'Trace spice' });
+    expect(update.zeroNutritionOverride).toBe(true);
+  });
+
   it('preserves nutrient values when editing non-nutrition parameters', () => {
     const ingredient = makeIngredient({
       calories: 120,
@@ -232,6 +239,14 @@ describe('buildRescaledIngredientUpdate', () => {
 });
 
 describe('buildIngredientData', () => {
+  it('records deliberate no-nutrition intent separately from numeric zeros', () => {
+    const ingredient = buildIngredientData({
+      fdcId: -3, description: 'Water', brandOwner: null, dataType: 'Manual', servingSize: 100, servingSizeUnit: 'g',
+      nutrients: { calories: 0, totalFat: 0, saturatedFat: 0, transFat: 0, cholesterol: 0, sodium: 0, totalCarbs: 0, dietaryFiber: 0, totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0, calcium: 0, iron: 0, potassium: 0 },
+    }, 1, 'cup');
+    expect(ingredient).toMatchObject({ fdcId: -3, sourceType: 'manual', zeroNutritionOverride: true });
+  });
+
   it('floors negative analytical USDA nutrients from existing food rows while preserving positive values', () => {
     const food = {
       fdcId: 2727569, description: 'Chicken, breast, meat and skin, raw',
@@ -286,6 +301,15 @@ describe('food storage defaults', () => {
 });
 
 describe('buildIngredientRematchUpdate', () => {
+  it('clears an explicit zero override when rematched to a database food', () => {
+    const ingredient = makeIngredient({ fdcId: -3, sourceType: 'manual', zeroNutritionOverride: true });
+    const food = {
+      fdcId: 456, description: 'Onions', brandOwner: null, dataType: 'Foundation', servingSize: 100, servingSizeUnit: 'g',
+      nutrients: { calories: 40, totalFat: 0, saturatedFat: 0, transFat: 0, cholesterol: 0, sodium: 0, totalCarbs: 9, dietaryFiber: 2, totalSugars: 4, addedSugars: 0, protein: 1, vitaminD: 0, calcium: 0, iron: 0, potassium: 0 },
+    };
+    expect(buildIngredientRematchUpdate(ingredient, food).zeroNutritionOverride).toBe(false);
+  });
+
   it('treats a legacy blank unit as grams when rematching at 100', () => {
     const ingredient = makeIngredient({ amount: 100, unit: '' });
     const chicken = {

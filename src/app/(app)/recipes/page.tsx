@@ -522,10 +522,13 @@ function RecipePage() {
       });
       for (const ingredient of draft.ingredients) {
         if (!ingredient.matchedFood) continue;
+        const isExplicitZero = ingredient.matchedFood.fdcId === -3 && ingredient.matchedFood.dataType === 'Manual';
         const isManualNutrition = ingredient.matchedFood.dataType === 'Manual' || ingredient.matchedFood.dataType === 'Custom' || ingredient.matchedFood.fdcId < 0;
-        const ingredientData = isManualNutrition
-          ? buildCustomIngredientData(ingredient.name.trim() || ingredient.matchedFood.description, ingredient.matchedFood.nutrients, ingredient.amount, ingredient.unit)
-          : buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit);
+        const ingredientData = isExplicitZero
+          ? buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit)
+          : isManualNutrition
+            ? buildCustomIngredientData(ingredient.name.trim() || ingredient.matchedFood.description, ingredient.matchedFood.nutrients, ingredient.amount, ingredient.unit)
+            : buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit);
         ingredientData.name = ingredient.name.trim() || ingredient.matchedFood.description;
         ingredientData.description = ingredient.originalText !== ingredientData.name ? `Imported: ${ingredient.originalText}` : '';
         ingredientData.groupId = ingredient.groupId;

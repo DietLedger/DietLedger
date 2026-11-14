@@ -17,6 +17,7 @@ type User struct {
 }
 
 type Recipe struct {
+	PortableID           string       `json:"portableId"`
 	ID                   string       `json:"id"`
 	UserID               string       `json:"userId"`
 	Name                 string       `json:"name"`
@@ -47,35 +48,47 @@ type FoodStorageDefault struct {
 	Location   string `json:"location"`
 }
 
+type UnconfirmedIngredientNutrition struct {
+	Basis             string          `json:"basis"`
+	Unit              string          `json:"unit,omitempty"`
+	ServingGramWeight *float64        `json:"servingGramWeight,omitempty"`
+	Provenance        string          `json:"provenance,omitempty"`
+	Nutrients         BundleNutrients `json:"nutrients"`
+}
+
 type Ingredient struct {
-	ID               string   `json:"id"`
-	RecipeID         string   `json:"recipeId"`
-	FdcID            int      `json:"fdcId"`
-	Name             string   `json:"name"`
-	Amount           float64  `json:"amount"`
-	Unit             string   `json:"unit"`
-	Description      string   `json:"description"`
-	Calories         float64  `json:"calories"`
-	TotalFat         float64  `json:"totalFat"`
-	SaturatedFat     float64  `json:"saturatedFat"`
-	TransFat         float64  `json:"transFat"`
-	Cholesterol      float64  `json:"cholesterol"`
-	Sodium           float64  `json:"sodium"`
-	TotalCarbs       float64  `json:"totalCarbs"`
-	DietaryFiber     float64  `json:"dietaryFiber"`
-	TotalSugars      float64  `json:"totalSugars"`
-	AddedSugars      float64  `json:"addedSugars"`
-	Protein          float64  `json:"protein"`
-	VitaminD         float64  `json:"vitaminD"`
-	Calcium          float64  `json:"calcium"`
-	Iron             float64  `json:"iron"`
-	Potassium        float64  `json:"potassium"`
-	GroupID          *string  `json:"groupId"`
-	LinkedRecipeID   *string  `json:"linkedRecipeId"`
-	SourceType       string   `json:"sourceType"`
-	SourceKey        *string  `json:"sourceKey,omitempty"`
-	PrepInstructions []string `json:"prepInstructions"`
-	StorageLocation  string   `json:"storageLocation"`
+	ID                    string                          `json:"id"`
+	RecipeID              string                          `json:"recipeId"`
+	FdcID                 int                             `json:"fdcId"`
+	Name                  string                          `json:"name"`
+	Amount                float64                         `json:"amount"`
+	Unit                  string                          `json:"unit"`
+	Description           string                          `json:"description"`
+	Calories              float64                         `json:"calories"`
+	TotalFat              float64                         `json:"totalFat"`
+	SaturatedFat          float64                         `json:"saturatedFat"`
+	TransFat              float64                         `json:"transFat"`
+	Cholesterol           float64                         `json:"cholesterol"`
+	Sodium                float64                         `json:"sodium"`
+	TotalCarbs            float64                         `json:"totalCarbs"`
+	DietaryFiber          float64                         `json:"dietaryFiber"`
+	TotalSugars           float64                         `json:"totalSugars"`
+	AddedSugars           float64                         `json:"addedSugars"`
+	Protein               float64                         `json:"protein"`
+	VitaminD              float64                         `json:"vitaminD"`
+	Calcium               float64                         `json:"calcium"`
+	Iron                  float64                         `json:"iron"`
+	Potassium             float64                         `json:"potassium"`
+	GroupID               *string                         `json:"groupId"`
+	LinkedRecipeID        *string                         `json:"linkedRecipeId"`
+	SourceType            string                          `json:"sourceType"`
+	SourceKey             *string                         `json:"sourceKey,omitempty"`
+	PrepInstructions      []string                        `json:"prepInstructions"`
+	StorageLocation       string                          `json:"storageLocation"`
+	Position              int                             `json:"position"`
+	ZeroNutritionOverride bool                            `json:"zeroNutritionOverride"`
+	UnresolvedSource      *BundleIngredientSourceRef      `json:"unresolvedSource,omitempty"`
+	UnconfirmedNutrition  *UnconfirmedIngredientNutrition `json:"unconfirmedNutrition,omitempty"`
 }
 
 func (i *Ingredient) ScanPrepInstructions(v string) {
@@ -312,6 +325,7 @@ type RecipeCategory struct {
 }
 
 type CustomFood struct {
+	PortableID          string    `json:"portableId"`
 	ID                  string    `json:"id"`
 	UserID              string    `json:"userId"`
 	Name                string    `json:"name"`
@@ -465,17 +479,20 @@ type AuthResponse struct {
 }
 
 type CreateRecipeRequest struct {
-	Name            string                `json:"name"`
-	Servings        int                   `json:"servings"`
-	ServingName     string                `json:"servingName"`
-	PrepTime        *string               `json:"prepTime,omitempty"`
-	CookTime        *string               `json:"cookTime,omitempty"`
-	Instructions    *string               `json:"instructions,omitempty"`
-	LeftoverStorage *string               `json:"leftoverStorage,omitempty"`
-	Ingredients     []CreateIngredientReq `json:"ingredients"`
+	RequestKey       string                `json:"requestKey,omitempty"`
+	IngredientGroups string                `json:"ingredientGroups,omitempty"`
+	Name             string                `json:"name"`
+	Servings         int                   `json:"servings"`
+	ServingName      string                `json:"servingName"`
+	PrepTime         *string               `json:"prepTime,omitempty"`
+	CookTime         *string               `json:"cookTime,omitempty"`
+	Instructions     *string               `json:"instructions,omitempty"`
+	LeftoverStorage  *string               `json:"leftoverStorage,omitempty"`
+	Ingredients      []CreateIngredientReq `json:"ingredients"`
 }
 
 type UpdateRecipeRequest struct {
+	PortableID       *string                `json:"portableId,omitempty"`
 	Name             *string                `json:"name,omitempty"`
 	Servings         *int                   `json:"servings,omitempty"`
 	ServingName      *string                `json:"servingName,omitempty"`
@@ -488,32 +505,36 @@ type UpdateRecipeRequest struct {
 }
 
 type CreateIngredientReq struct {
-	FdcID            int      `json:"fdcId"`
-	Name             string   `json:"name"`
-	Amount           float64  `json:"amount"`
-	Unit             string   `json:"unit"`
-	Description      string   `json:"description"`
-	Calories         float64  `json:"calories"`
-	TotalFat         float64  `json:"totalFat"`
-	SaturatedFat     float64  `json:"saturatedFat"`
-	TransFat         float64  `json:"transFat"`
-	Cholesterol      float64  `json:"cholesterol"`
-	Sodium           float64  `json:"sodium"`
-	TotalCarbs       float64  `json:"totalCarbs"`
-	DietaryFiber     float64  `json:"dietaryFiber"`
-	TotalSugars      float64  `json:"totalSugars"`
-	AddedSugars      float64  `json:"addedSugars"`
-	Protein          float64  `json:"protein"`
-	VitaminD         float64  `json:"vitaminD"`
-	Calcium          float64  `json:"calcium"`
-	Iron             float64  `json:"iron"`
-	Potassium        float64  `json:"potassium"`
-	GroupID          *string  `json:"groupId"`
-	LinkedRecipeID   *string  `json:"linkedRecipeId"`
-	SourceType       string   `json:"sourceType"`
-	SourceKey        *string  `json:"sourceKey,omitempty"`
-	PrepInstructions []string `json:"prepInstructions"`
-	StorageLocation  string   `json:"storageLocation"`
+	FdcID                 int                             `json:"fdcId"`
+	Name                  string                          `json:"name"`
+	Amount                float64                         `json:"amount"`
+	Unit                  string                          `json:"unit"`
+	Description           string                          `json:"description"`
+	Calories              float64                         `json:"calories"`
+	TotalFat              float64                         `json:"totalFat"`
+	SaturatedFat          float64                         `json:"saturatedFat"`
+	TransFat              float64                         `json:"transFat"`
+	Cholesterol           float64                         `json:"cholesterol"`
+	Sodium                float64                         `json:"sodium"`
+	TotalCarbs            float64                         `json:"totalCarbs"`
+	DietaryFiber          float64                         `json:"dietaryFiber"`
+	TotalSugars           float64                         `json:"totalSugars"`
+	AddedSugars           float64                         `json:"addedSugars"`
+	Protein               float64                         `json:"protein"`
+	VitaminD              float64                         `json:"vitaminD"`
+	Calcium               float64                         `json:"calcium"`
+	Iron                  float64                         `json:"iron"`
+	Potassium             float64                         `json:"potassium"`
+	GroupID               *string                         `json:"groupId"`
+	LinkedRecipeID        *string                         `json:"linkedRecipeId"`
+	SourceType            string                          `json:"sourceType"`
+	SourceKey             *string                         `json:"sourceKey,omitempty"`
+	PrepInstructions      []string                        `json:"prepInstructions"`
+	StorageLocation       string                          `json:"storageLocation"`
+	Position              *int                            `json:"position,omitempty"`
+	ZeroNutritionOverride *bool                           `json:"zeroNutritionOverride,omitempty"`
+	UnresolvedSource      *BundleIngredientSourceRef      `json:"unresolvedSource,omitempty"`
+	UnconfirmedNutrition  *UnconfirmedIngredientNutrition `json:"unconfirmedNutrition,omitempty"`
 }
 
 type ExportCandidate struct {
@@ -641,6 +662,7 @@ type CreateCategoryRequest struct {
 }
 
 type CreateCustomFoodRequest struct {
+	PortableID   *string `json:"portableId,omitempty"`
 	Name         string  `json:"name"`
 	Calories     float64 `json:"calories"`
 	TotalFat     float64 `json:"totalFat"`

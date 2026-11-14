@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -241,7 +242,7 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 	}
 	offset := (page - 1) * perPage
 	rows, err := s.db.Query(
-		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
 		userID, perPage, offset,
 	)
 	if err != nil {
@@ -252,11 +253,14 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 	for rows.Next() {
 		var r Recipe
 		var groupsJSON string
-		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID); err != nil {
 			return nil, 0, err
 		}
 		r.ScanIngredientGroups(groupsJSON)
-		ings, _ := s.listIngredientsByRecipe(r.ID)
+		ings, err := s.listIngredientsByRecipe(r.ID)
+		if err != nil {
+			return nil, 0, err
+		}
 		r.Ingredients = ings
 		recipes = append(recipes, r)
 	}
@@ -267,9 +271,9 @@ func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
 	r := &Recipe{}
 	var groupsJSON string
 	err := s.db.QueryRow(
-		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE user_id = $1 AND id = $2`,
+		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE user_id = $1 AND id = $2`,
 		userID, id,
-	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
+	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -286,28 +290,7 @@ func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
 }
 
 func (s *PostgresStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*Recipe, error) {
-	id := uuid.New().String()
-	now := time.Now().UTC()
-	servName := "serving"
-	if req.ServingName != "" {
-		servName = req.ServingName
-	}
-	_, err := s.db.Exec(
-		`INSERT INTO recipes (id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
-		id, userID, req.Name, req.Servings, servName, req.PrepTime, req.CookTime, req.Instructions, req.LeftoverStorage, now,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("insert recipe: %w", err)
-	}
-	var ings []Ingredient
-	for _, ing := range req.Ingredients {
-		created, err := s.CreateIngredient(id, &ing)
-		if err != nil {
-			return nil, fmt.Errorf("create ingredient: %w", err)
-		}
-		ings = append(ings, *created)
-	}
-	return &Recipe{ID: id, UserID: userID, Name: req.Name, Servings: req.Servings, ServingName: servName, PrepTime: req.PrepTime, CookTime: req.CookTime, Instructions: req.Instructions, LeftoverStorage: req.LeftoverStorage, CreatedAt: now, UpdatedAt: now, Ingredients: ings}, nil
+	return s.createRecipeAtomic(userID, req)
 }
 
 func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
@@ -388,9 +371,28 @@ func (s *PostgresStore) DeleteRecipe(userID, id string) error {
 
 // ── Ingredients ──────────────────────────────────────────────────────
 
+func ingredientSourceJSON(v interface{}) (interface{}, error) {
+	if v == nil || (reflect.ValueOf(v).Kind() == reflect.Ptr && reflect.ValueOf(v).IsNil()) {
+		return nil, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+func requestedZeroOverride(v *bool) bool { return v != nil && *v }
+
 func (s *PostgresStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, error) {
-	rows, err := s.db.Query(
-		`SELECT id, recipe_id, fdc_id, name, amount, unit, COALESCE(description,''), calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,''), group_id, linked_recipe_id, COALESCE(source_type,'manual'), source_key FROM ingredients WHERE recipe_id = $1 ORDER BY id`,
+	return listIngredientsByRecipeQuery(s.db, recipeID)
+}
+
+func listIngredientsByRecipeQuery(q interface {
+	Query(string, ...interface{}) (*sql.Rows, error)
+}, recipeID string) ([]Ingredient, error) {
+	rows, err := q.Query(
+		`SELECT id, recipe_id, fdc_id, name, amount, unit, COALESCE(description,''), calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,''), group_id, linked_recipe_id, COALESCE(source_type,'manual'), source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition FROM ingredients WHERE recipe_id = $1 ORDER BY position, id`,
 		recipeID,
 	)
 	if err != nil {
@@ -401,30 +403,68 @@ func (s *PostgresStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, 
 	for rows.Next() {
 		var i Ingredient
 		var prepJSON string
-		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID, &i.SourceType, &i.SourceKey); err != nil {
+		var unresolvedJSON, unconfirmedJSON []byte
+		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID, &i.SourceType, &i.SourceKey, &i.Position, &i.ZeroNutritionOverride, &unresolvedJSON, &unconfirmedJSON); err != nil {
 			return nil, err
 		}
 		i.ScanPrepInstructions(prepJSON)
+		if len(unresolvedJSON) > 0 && string(unresolvedJSON) != "null" {
+			i.UnresolvedSource = &BundleIngredientSourceRef{}
+			if err := json.Unmarshal(unresolvedJSON, i.UnresolvedSource); err != nil {
+				return nil, err
+			}
+		}
+		if len(unconfirmedJSON) > 0 && string(unconfirmedJSON) != "null" {
+			i.UnconfirmedNutrition = &UnconfirmedIngredientNutrition{}
+			if err := json.Unmarshal(unconfirmedJSON, i.UnconfirmedNutrition); err != nil {
+				return nil, err
+			}
+		}
 		ings = append(ings, i)
 	}
 	return ings, nil
 }
 
 func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var lockedRecipeID string
+	if err := tx.QueryRow(`SELECT id FROM recipes WHERE id=$1 FOR UPDATE`, recipeID).Scan(&lockedRecipeID); err != nil {
+		return nil, err
+	}
+	position := 0
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(position), -1) + 1 FROM ingredients WHERE recipe_id=$1`, recipeID).Scan(&position); err != nil {
+		return nil, err
+	}
 	id := uuid.New().String()
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 	sourceType := ing.SourceType
 	if sourceType == "" {
 		sourceType = "manual"
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
-		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey,
+	unresolvedJSON, err := ingredientSourceJSON(ing.UnresolvedSource)
+	if err != nil {
+		return nil, err
+	}
+	unconfirmedJSON, err := ingredientSourceJSON(ing.UnconfirmedNutrition)
+	if err != nil {
+		return nil, err
+	}
+	zero := requestedZeroOverride(ing.ZeroNutritionOverride)
+	_, err = tx.Exec(
+		`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+		id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, position, zero, unresolvedJSON, unconfirmedJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Position: position, ZeroNutritionOverride: zero, UnresolvedSource: ing.UnresolvedSource, UnconfirmedNutrition: ing.UnconfirmedNutrition}, nil
 }
 
 func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *CreateIngredientReq) (*Ingredient, error) {
@@ -438,12 +478,14 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 	// transition must refer to this same row, even under concurrent updates.
 	var oldLocation, oldType string
 	var oldKey sql.NullString
-	var oldFdcID int
+	var oldFdcID, position int
 	var oldLinkedRecipe sql.NullString
-	err = tx.QueryRow(`SELECT COALESCE(i.storage_location,''), COALESCE(i.source_type,'manual'), i.source_key, i.fdc_id, i.linked_recipe_id
+	var oldZero bool
+	var oldUnresolvedJSON, oldUnconfirmedJSON []byte
+	err = tx.QueryRow(`SELECT COALESCE(i.storage_location,''), COALESCE(i.source_type,'manual'), i.source_key, i.fdc_id, i.linked_recipe_id, i.position, i.zero_nutrition_override, i.unresolved_source_ref, i.unconfirmed_nutrition
 		FROM ingredients i JOIN recipes r ON r.id = i.recipe_id
 		WHERE i.id=$1 AND i.recipe_id=$2 AND r.user_id=$3 FOR UPDATE OF i`, id, recipeID, userID).
-		Scan(&oldLocation, &oldType, &oldKey, &oldFdcID, &oldLinkedRecipe)
+		Scan(&oldLocation, &oldType, &oldKey, &oldFdcID, &oldLinkedRecipe, &position, &oldZero, &oldUnresolvedJSON, &oldUnconfirmedJSON)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -456,9 +498,37 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 	if sourceType == "" {
 		sourceType = "manual"
 	}
+	unresolvedJSON := interface{}(nil)
+	if ing.UnresolvedSource != nil {
+		unresolvedJSON, err = ingredientSourceJSON(ing.UnresolvedSource)
+		if err != nil {
+			return nil, err
+		}
+	} else if ing.SourceKey == nil && ing.LinkedRecipeID == nil && ing.FdcID <= 0 && len(oldUnresolvedJSON) > 0 {
+		unresolvedJSON = string(oldUnresolvedJSON)
+	}
+	unconfirmedJSON := interface{}(nil)
+	if ing.UnconfirmedNutrition != nil {
+		unconfirmedJSON, err = ingredientSourceJSON(ing.UnconfirmedNutrition)
+		if err != nil {
+			return nil, err
+		}
+	} else if len(oldUnconfirmedJSON) > 0 {
+		unconfirmedJSON = string(oldUnconfirmedJSON)
+	}
+	zero := oldZero
+	if ing.ZeroNutritionOverride != nil {
+		zero = *ing.ZeroNutritionOverride
+	}
+	if ing.FdcID > 0 || ing.SourceKey != nil || ing.LinkedRecipeID != nil {
+		zero = false
+	}
+	if zero {
+		unresolvedJSON = nil
+	}
 	_, err = tx.Exec(
-		`UPDATE ingredients SET fdc_id=$1, name=$2, amount=$3, unit=$4, description=$5, calories=$6, total_fat=$7, saturated_fat=$8, trans_fat=$9, cholesterol=$10, sodium=$11, total_carbs=$12, dietary_fiber=$13, total_sugars=$14, added_sugars=$15, protein=$16, vitamin_d=$17, calcium=$18, iron=$19, potassium=$20, prep_instructions=$21, storage_location=$22, group_id=$23, linked_recipe_id=$24, source_type=$25, source_key=$26 WHERE id=$27 AND recipe_id=$28`,
-		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, id, recipeID,
+		`UPDATE ingredients SET fdc_id=$1, name=$2, amount=$3, unit=$4, description=$5, calories=$6, total_fat=$7, saturated_fat=$8, trans_fat=$9, cholesterol=$10, sodium=$11, total_carbs=$12, dietary_fiber=$13, total_sugars=$14, added_sugars=$15, protein=$16, vitamin_d=$17, calcium=$18, iron=$19, potassium=$20, prep_instructions=$21, storage_location=$22, group_id=$23, linked_recipe_id=$24, source_type=$25, source_key=$26, zero_nutrition_override=$27, unresolved_source_ref=$28, unconfirmed_nutrition=$29 WHERE id=$30 AND recipe_id=$31`,
+		ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, zero, unresolvedJSON, unconfirmedJSON, id, recipeID,
 	)
 	if err != nil {
 		return nil, err
@@ -493,7 +563,16 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation}, nil
+	updated, err := listIngredientsByRecipeQuery(s.db, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range updated {
+		if updated[i].ID == id {
+			return &updated[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (s *PostgresStore) DeleteIngredient(userID, recipeID, id string) error {
@@ -551,16 +630,26 @@ func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []Create
 		tx.Rollback()
 		return err
 	}
-	for _, ing := range ingredients {
+	for position, ing := range ingredients {
 		id := uuid.New().String()
 		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 		sourceType := ing.SourceType
 		if sourceType == "" {
 			sourceType = "manual"
 		}
+		unresolvedJSON, err := ingredientSourceJSON(ing.UnresolvedSource)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		unconfirmedJSON, err := ingredientSourceJSON(ing.UnconfirmedNutrition)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
 		if _, err := tx.Exec(
-			`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
-			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey,
+			`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+			id, recipeID, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, prepJSON, ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, position, requestedZeroOverride(ing.ZeroNutritionOverride), unresolvedJSON, unconfirmedJSON,
 		); err != nil {
 			tx.Rollback()
 			return err
@@ -1573,7 +1662,7 @@ func (s *PostgresStore) RecipeCategoriesByCategory(categoryID string) ([]RecipeC
 // ── Custom Foods ─────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListCustomFoods(userID string) ([]CustomFood, error) {
-	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE user_id = $1 ORDER BY name`, userID)
+	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at, portable_id FROM custom_foods WHERE user_id = $1 ORDER BY name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,7 +1670,7 @@ func (s *PostgresStore) ListCustomFoods(userID string) ([]CustomFood, error) {
 	var foods []CustomFood
 	for rows.Next() {
 		var f CustomFood
-		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt, &f.PortableID); err != nil {
 			return nil, err
 		}
 		foods = append(foods, f)
@@ -1591,7 +1680,7 @@ func (s *PostgresStore) ListCustomFoods(userID string) ([]CustomFood, error) {
 
 func (s *PostgresStore) GetCustomFood(userID, id string) (*CustomFood, error) {
 	f := &CustomFood{}
-	err := s.db.QueryRow(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE user_id = $1 AND id = $2`, userID, id).Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt)
+	err := s.db.QueryRow(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at, portable_id FROM custom_foods WHERE user_id = $1 AND id = $2`, userID, id).Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt, &f.PortableID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1611,7 +1700,7 @@ func (s *PostgresStore) CreateCustomFood(userID string, req *CreateCustomFoodReq
 	if err != nil {
 		return nil, err
 	}
-	return &CustomFood{ID: id, UserID: userID, Name: req.Name, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now}, nil
+	return s.GetCustomFood(userID, id)
 }
 
 func (s *PostgresStore) UpdateCustomFood(userID, id string, req *CreateCustomFoodRequest) (*CustomFood, error) {
@@ -1659,7 +1748,7 @@ func (s *PostgresStore) ListSharedCustomFoods(page, perPage int) ([]CustomFood, 
 		return nil, 0, err
 	}
 	offset := (page - 1) * perPage
-	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at FROM custom_foods WHERE shared_with_community = TRUE ORDER BY name LIMIT $1 OFFSET $2`, perPage, offset)
+	rows, err := s.db.Query(`SELECT id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, shared_with_community, created_at, portable_id FROM custom_foods WHERE shared_with_community = TRUE ORDER BY name LIMIT $1 OFFSET $2`, perPage, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1667,7 +1756,7 @@ func (s *PostgresStore) ListSharedCustomFoods(page, perPage int) ([]CustomFood, 
 	var foods []CustomFood
 	for rows.Next() {
 		var f CustomFood
-		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.SharedWithCommunity, &f.CreatedAt, &f.PortableID); err != nil {
 			return nil, 0, err
 		}
 		foods = append(foods, f)

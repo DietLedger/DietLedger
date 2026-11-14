@@ -28,8 +28,8 @@ export async function readRecipeBundleFile(file: File): Promise<RecipeBundle> {
     throw new Error('Invalid recipe bundle');
   }
   const bundle = parsed as Partial<RecipeBundle>;
-  if (bundle.format !== 'dietledger.recipe-bundle' || bundle.version !== 1) {
-    throw new Error('Unsupported bundle format (expected dietledger.recipe-bundle v1)');
+  if (bundle.format !== 'dietledger.recipe-bundle' || (bundle.version !== 1 && bundle.version !== 2)) {
+    throw new Error('Unsupported bundle format (expected dietledger.recipe-bundle v1 or v2)');
   }
   return bundle as RecipeBundle;
 }

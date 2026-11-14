@@ -1,0 +1,104 @@
+# Implementation plan: recipe nutrition quarantine
+
+Status: approved direction and phased plan; implementation tasks below express the accepted resolutions in `recipe-nutrition-quarantine.md`. Experimental local data may be reset. Do not reset the remote instance or deploy. No new dependencies or third-party adapters.
+
+## Rules and verification
+
+- Execute one behavior at a time: focused failing test, observe the intended failure, smallest implementation, focused passing test, broader regression checks.
+- Preserve PostgreSQL authority, historical snapshots, ownership, and explicit domain contracts. Do not enable ordinary discovery/export filtering until lossless owner backup and repair access exist.
+- Use only a disposable PostgreSQL database. `testStore` drops `public`; concurrent agents must use separate databases. Set `TEST_DATABASE_URL` explicitly for every integration command and use `-count=1` to avoid cached results. Skips do not count as passing evidence.
+- Each task's source files include its focused test. Split tasks further when a change crosses independent behaviors; use small targeted edits. Update this plan/spec and relevant governing documentation as each slice lands. Record actual commands/results, not predicted outcomes.
+- Stop for newly discovered product/architecture conflicts, not ordinary implementation details already approved.
+
+## Milestone implementation decisions (before source-fidelity edits)
+
+- Ingredient position is stored as a zero-based integer in PostgreSQL, assigned from ordered create/replace/import arrays; single-ingredient additions append and edits retain position. Read by `(position, id)`; a migration backfills the only provable legacy ordering (current UUID order) without claiming recovery of previously lost drag order. Native bundle ingredient arrays are ordered; older v1/v2 arrays are accepted in their supplied order, with no invented source UUID ordering. Identity reuse compares ordered content, so an order-only changed reimport conflicts rather than silently retaining a different order.
+- Add `zeroNutritionOverride` as an additive boolean in existing v2 ingredient records and API writes/reads. Missing v1/v2 fields mean false. Backfill only provable local `manual` / `fdc_id=-3` with zero canonical nutrients and no live source link; neither zero snapshots nor generic manual records imply intent. Enabled intent requires zero canonical nutrients and no conflicting live/source link. Explicit new UI choice must carry the flag; subsequent rematches clear it and non-nutrition edits retain it. Continue to reject changed same-identity content.
+- Source-fact persistence uses nullable `unresolvedSource` typed metadata and `unconfirmedNutrition` facts on ingredients rather than repurposing live source keys or canonical calculated snapshots. The package field is `suppliedNutrition`; allowed bases are `per100g`, `perServing` (requiring positive `servingGramWeight`), `ingredientAmount`, and `unknown`, with unit, provenance and canonical nutrients retained. Missing USDA/custom-food/recipe package targets preserve the original typed source reference while local live-link columns stay empty. Unknown source types, conflicting identity fields, mixed/duplicate explicit positions and invalid numeric/basis data remain validation failures. This storage slice does not certify a standard database or make unconfirmed facts resolved nutrition.
+
+## Phase 1 — lossless native transfer and identity
+
+1. **Portable identity storage.** Persist namespaced UUID identities for recipes and custom foods independently from row keys; generated once, immutable, and owner-scoped for recipe copies. Backfill local objects without guessing remote origins. Ordinary updates cannot mutate identity.
+   - Files: migrations, `models.go`, targeted `store_postgres.go` recipe/custom-food reads.
+   - Acceptance: create/read/update retains identity; changing identity at SQL/API boundaries cannot silently succeed; different owners cannot edit each other's copies.
+   - Verify: focused PostgreSQL identity tests, then existing CRUD/food tests.
+2. **Versioned package identity.** Export v2; read v1 conservatively. Retain portable identities during import/reexport, remap local keys, and never content-dedupe different portable identities. Check current local content before reimport writes; expose identity conflicts rather than overwrite repairs. Retain/fork decisions must be explicit and retry-safe.
+   - Files: `import_bundle.go`, bundle tests, API types, `recipe-bundles.ts` and reader tests.
+   - Acceptance: A -> B -> C preserves identities/links despite remapped keys; equal content/different IDs remain distinct; same-ID changed content leaves local data unchanged and reports conflict.
+   - Verify: focused pure hash/validation tests and PostgreSQL round-trip/conflict tests; reader Vitest/typecheck.
+3. **Dependency closure and source fidelity.** Export authorized referenced custom foods, linked recipes, category ancestors, templates and pages; retain explicit zero overrides. Import foods before recipe hydration in the existing transaction. Missing dependencies persist as unresolved references; cycles remain blocked and losslessly representable. Propagate operational lookup errors.
+   - Files: bundle code/tests, ingredient models/migration and targeted serialization boundaries.
+   - Acceptance: complete recursive transfer needs no rematching; no dangling joins or swallowed retrieval failures; ambiguous manual zeros stay unresolved.
+   - Verify: focused bundle/source round trips and existing stale-mapping tests. Before claiming full transfer fidelity, persist ingredient order explicitly rather than relying on installation-local UUID sorting.
+
+Checkpoint: package identity/source contract remains explicit; no global visibility filtering yet.
+
+## Phase 2 — safe persistence and owner backup
+
+4. **Atomic recipe creation.** Save metadata/groups/all ingredients in one transaction. An owner-scoped retry key plus request hash returns the same recipe for identical retry and conflicts on changed payload.
+   - Files: recipe request model, recipe store create, handler, migration, focused backend tests.
+   - Acceptance: failed ingredient insert leaves no partial recipe; retry never duplicates; groups and unresolved ingredients survive.
+   - Verify: dedicated disposable PostgreSQL atomic-create tests and existing recipe handler tests.
+5. **Atomic markdown integration.** Replace browser create/update/add loop with the atomic write; keep existing parser/editor, preserve source/zero intent and unresolved ingredients. New manual facts follow the shared publication path when available; never invent a link.
+   - Files: `api-client.ts`, `api-client-go.ts`, recipe page/import dialog/helpers and focused Vitest tests (split client contract and UI tasks).
+   - Acceptance: one save commits complete intended content; retry uses stable key; failure leaves draft recoverable.
+6. **Lossless owner recipe/book backup.** Add an explicit owner-only backup purpose that enumerates owned content server-side, including quarantine, source facts and placement. Both Settings and AppNav deletion flows use it and stop on export failure. Do not claim unrelated account coverage or browser-confirmed disk persistence.
+   - Files: bundle handler/store/repository, client contract, both deletion UIs, focused tests (split API and UI tasks).
+   - Acceptance: stale/empty client ID lists cannot omit owned recipes; broken dependencies remain explicit; operational retrieval errors fail the backup.
+
+Checkpoint: destruction flow protected before enabling exclusions.
+
+## Phase 3 — database manifest and preflight
+
+7. **Verified inventory and provenance.** Persist dataset installation identity/release/artifact and attempt status separately from seed job history and bulk/live/legacy row provenance. Align actual importer/catalog release metadata. Failed/partial imports and arbitrary uploads do not certify installation; clearing data invalidates inventory.
+   - Files: migrations, food models/repository/store, seed/import/catalog handlers; split inventory reads and lifecycle writes.
+   - Verify: focused seed/inventory PostgreSQL tests including partial failure, clear and cached rows.
+8. **Preflight and commit decision.** Return active inventory, required subset, actual missing records, affected recipes, and release warnings. Require installation or explicit continue for absent datasets; enforce again at commit. Retain skipped requirements on ingredient references without dangling foreign keys.
+   - Files: versioned bundle/API contracts, preflight handler/store, focused tests.
+   - Verify: available/missing/release-different/partial/live-cache/skip/cancel/admin-permission cases.
+9. **Import UI and recheck.** Reuse existing admin installation UI, expose ordinary-user continue/cancel, wait for verified completion, and offer explicit owner Recheck links after installation without overwriting repairs.
+   - Files: native import entry points/shared dialog, food database panel, hooks; split shared dialog and entry-point integration.
+   - Verify: interaction tests and local browser journey.
+
+## Phase 4 — authoritative readiness and durable repair
+
+10. **Readiness evaluator.** One Go evaluator validates meaningful standard/custom-food sources, explicit zero intent, empty recipes, missing/cyclic recipe dependencies, and skipped datasets. Batch lookups; operational failures are errors, not incomplete/ready guesses.
+    - Verify: focused domain tables plus PostgreSQL authorization/source tests.
+11. **Current-snapshot propagation.** Go validates and scales canonical matched-food data, superseding the client-search-snapshot rule. Refresh child -> parent -> ancestors using stored whole-recipe multipliers on repair and later source edits before readiness release. Historical logs stay unchanged.
+    - Verify: known quantity/portion fixtures, multi-ancestor/cycle/failure rollback tests and history regression.
+12. **Quarantine API.** Authenticated owner-only filtered/paginated recipes with unresolved rows/counts and independently owner-scoped placement. Separate management, ready selection and reference hydration query purposes and cache keys.
+    - Verify: filtering before pagination, empty recipes, cross-owner joins, last-page behavior and hydration failures.
+13. **Shared food resolution.** Publish reviewed per-100g facts (or serving facts with positive gram mass) and link atomically with request-key deduplication. Search/select owned OR shared meaningful foods. Creator/admin editing, reference-safe deletion and survival after creator deletion. Preserve unconfirmed supplied facts until reviewed.
+    - Verify: cross-user selection/private isolation, all-zero rejection, basis validation, retries and transaction failure.
+14. **Quarantine UI.** Independently expandable recipe cards, recipe/ingredient/book filters, only unresolved rows, accessible scrollable food popup, manual/supplied-fact review and intentional zero action. Remove rows/cards only after server confirmation. Broken/cyclic recipe sources include actionable owner-editor links.
+    - Verify: component interaction tests and browser refresh/resume/resolve journey; invalidate affected recipe/book/export queries.
+
+## Phase 5 — selection/export gates and completion
+
+15. **Selection and books.** Migrate ordinary search/pickers individually to ready-only purpose, retain explicit owner management and existing-reference hydration. Grey/book badge with repair action while preserving placement. Assess community saved snapshots separately; direct-link permissions unchanged. Unrelated community-copy defects remain outside scope.
+    - Verify: recipe/food-log/plan/picker searches, owner drafts, historical references, book ordering and authorization tests.
+16. **Regular exports.** Go enforces ready-only candidate and actual native payload selection, including direct IDs and recursive closure. PDF consumes authoritative eligibility and omits recipe pages and TOC entries together. Omission notices; owner-backup purpose remains lossless.
+    - Verify: direct-ID bypass, excluded dependency traversal, native joins, PDF ordering/TOC and backup regressions.
+17. **Final integration and docs.** Mixed package -> preflight/skip -> quarantine -> refresh/resume -> resolve -> ready search/book/export; A -> B -> C identity; deletion backup and cross-user tests. Review current code against all acceptance criteria.
+    - Commands: `npm test`; `npx tsc --noEmit`; `npm run lint`; `(cd sync-server && TEST_DATABASE_URL=<disposable> go test -count=1 ./...)`; `npm run build:web` (not deployment/build wrapper).
+    - Update PROJECT, ARCHITECTURE, DECISIONS, NUTRITION_DOMAIN, governing import/match specs and API contracts. TESTING_STRATEGY changes only if policy/tooling/required coverage changes.
+
+## Execution evidence
+
+Current checkpoint includes portable identity storage/transfer, dependency-export fidelity, atomic recipe creation, explicit-zero persistence, unresolved source/supplied-fact retention and explicit ingredient ordering. Database inventory/preflight, conflict retain/fork UI, durable repair/promotion, authoritative readiness, quarantine UI and regular-export gates are not complete. Do not deploy this checkpoint as the full feature.
+
+Implementation evidence is recorded here as slices are verified. Unchecked phases are not completion claims.
+
+- Portable identity storage/API slice: focused tests first failed for missing identities and accepted identity-mutation requests. Added migration 000028, immutable fields/readers and explicit update rejection. `TEST_DATABASE_URL=<disposable quarantine_identity> go test -count=1 -run '^TestPortableIdentity' ./...` passed (3 tests, including API subtests). No application/remote database was reset; a loopback-only disposable PostgreSQL 17 container supplies isolated databases.
+- V2 file reader: RED was 1 failed/16 passed because v2 was rejected. GREEN reader/client tests were 3 files/32 tests. No format adapter or inferred source intent.
+- Atomic recipe creation: RED left a partial recipe after injected ingredient failure and duplicated retries. Six GREEN focused tests cover concurrent identical/changed requests, owner isolation, unresolved/source metadata, insert/commit rollback and keyless creates. Migration 000029 stores transactional request keys/hashes. Browser markdown still uses its previous orchestration pending the repair slice.
+- Identity review regressions: missing `portableId` bypassed conflict protection; unchanged mixed-identity dependency imports falsely conflicted; concurrent first imports raced the unique index. Each reproduced RED; fixes compare reused legacy/current targets without hydration, normalize references through persisted mappings after shell allocation, and serialize imports per owner. `TEST_DATABASE_URL=<disposable> go test -race -count=2 -run '^TestRecipeBundle(MissingPortableID|MixedLegacy|ConcurrentIdentical)|^TestPortableIdentity|^TestAtomicCreateRecipe' ./...` passed.
+- Baseline test repair: `TestFoodPortionPersistenceAndSparseUpsert` also failed on an isolated archive of HEAD because its empty-nutrition fixture was intentionally excluded from search. Added a positive calorie value to that fixture (no product behavior change); focused PostgreSQL test passed.
+- Broader frontend checks at this checkpoint: `npm test` passed 30 files/230 tests; `npx tsc --noEmit --incremental false`, `npm run lint`, and `npm run build:web` passed. Build uses the direct web command, not a deployment/version wrapper. No browser journey is claimed for the unfinished quarantine UI.
+- Dependency export: focused RED tests exposed missing custom-food/category/template closure and ignored retrieval failures. GREEN tests cover recursive portable references, FDC food identity, cyclic reference preservation, book/chapter pages and portable joins. Public-recipe access cannot expose private canonical custom foods; unauthorized references fail explicitly. Authorized shared food identities are reused only when all accessible same-identity content agrees; a RED private-shadow regression is now GREEN. Shared selector/UI integration remains pending.
+- Transfer structure: independent RED round-trip cases exposed category flattening on child-first input and the legacy template INSERT using nonexistent `layout` instead of `layout_json`. Parent-first category persistence and the correct template column now pass round trips, without depending on package array order.
+- Previous backend foundation checkpoint: `TEST_DATABASE_URL=<disposable> go test -count=1 -json ./...` passed **283 tests/subtests, zero skips/failures**. Focused `go test -race -count=1 -run '^TestRecipeBundle|^TestBundleExport|^TestPortableIdentity|^TestAtomicCreateRecipe' ./...` passed.
+- Source-fidelity/order slice: focused RED first failed to compile for absent persisted fields; frontend RED had 3 failures for missing zero-intent behavior. Migration 000030 adds zero-based ingredient position, explicit zero intent, unresolved typed source JSON and unconfirmed supplied-nutrition JSON. Import accepts structurally valid packages with absent food/recipe targets without dangling live links, while malformed sources/facts still fail. A v1 all-zero manual snapshot remains ambiguous; explicit zero, supplied basis/provenance and unresolved identities survive import/reexport/reimport. Order is written on create/replace/import, appended transactionally, exported explicitly and included in same-identity conflict checks. Focused Go tests passed; the final disposable full Go suite passed **288 tests/subtests, zero skips/failures**. Focused race coverage for bundle/export/identity/atomic-create/source-fidelity passed. `npm test -- src/hooks/use-recipes.test.ts` passed **22 tests** after the 3-test RED; final `npm test` passed **30 files/233 tests**, and typecheck, lint, direct web build and `git diff --check` passed.
+- Review: independent read-only review identified three identity/legacy/concurrency defects; regression-first fixes were reviewed again with no additional foundation blocker reported. This is not approval of the unfinished full quarantine workflow.
+
+Next: server-enumerated lossless owner recipe/book backup and both account-deletion integrations, then database preflight/readiness and durable repair. Do not turn on regular-export/discovery exclusions before backup and durable repair access exist.

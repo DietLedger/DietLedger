@@ -129,6 +129,14 @@ The API is the authoritative implementation of domain behavior.
 
 ---
 
+## Portable Recipe/Food Identity
+
+Recipes and custom foods persist a namespaced UUID `portableId` independently of their local row key. PostgreSQL generates it once and rejects mutation; owner-scoped uniqueness allows authorized recipe copies to retain identity without sharing edit access. API reads expose it and ordinary update APIs reject attempts to set it. USDA food identity remains its FDC food ID, unrelated to nutrient IDs. Migration 000028 assigns identities to legacy local objects without guessing remote origins. Package transfer integration follows `specs/recipe-nutrition-quarantine-plan.md`; stored identity alone does not imply quarantine/preflight is implemented.
+
+## Ingredient Source Fidelity
+
+PostgreSQL stores ingredient order, deliberate zero-nutrition intent, unresolved typed source identities and unconfirmed package-supplied facts. Missing package dependencies do not become dangling live links: the original reference is retained separately until a later server-authoritative repair verifies a target. Unconfirmed facts retain basis/unit/provenance but do not count as a food match. The Go API validates these contracts and native package round trips; the browser does not infer intent from nutrient values.
+
 ## Database
 
 Responsibilities:

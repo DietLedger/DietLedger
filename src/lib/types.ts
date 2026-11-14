@@ -349,6 +349,21 @@ export interface IngredientGroup {
   title: string;
 }
 
+export interface IngredientSourceReference {
+  type: 'usda' | 'custom_food' | 'recipe' | 'manual';
+  fdcId?: number;
+  bundleCustomFoodId?: string;
+  bundleRecipeId?: string;
+}
+
+export interface UnconfirmedIngredientNutrition {
+  basis: 'per100g' | 'perServing' | 'ingredientAmount' | 'unknown';
+  unit?: string;
+  servingGramWeight?: number;
+  provenance?: string;
+  nutrients: Record<string, number>;
+}
+
 export interface IngredientRecord {
   id: string;
   recipeId: string;
@@ -378,6 +393,10 @@ export interface IngredientRecord {
   sourceKey?: string | null;
   prepInstructions: string[];
   storageLocation?: string;
+  position?: number;
+  zeroNutritionOverride?: boolean;
+  unresolvedSource?: IngredientSourceReference | null;
+  unconfirmedNutrition?: UnconfirmedIngredientNutrition | null;
 }
 
 export interface ExportCandidateRecord {
@@ -392,6 +411,7 @@ export interface ExportCandidateRecord {
 
 export interface RecipeRecord {
   id: string;
+  readonly portableId?: string;
   name: string;
   servings: number;
   servingName: string;
@@ -468,6 +488,7 @@ export interface BookPageRecord {
 
 export interface CustomFoodRecord {
   id: string;
+  readonly portableId?: string;
   name: string;
   calories: number;
   totalFat: number;

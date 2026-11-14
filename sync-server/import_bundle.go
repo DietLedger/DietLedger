@@ -16,7 +16,7 @@ import (
 
 const (
 	RecipeBundleFormat  = "dietledger.recipe-bundle"
-	RecipeBundleVersion = 1
+	RecipeBundleVersion = 2
 )
 
 var ErrExportForbidden = errors.New("export forbidden")
@@ -81,20 +81,24 @@ type BundleIngredientGroup struct {
 }
 
 type BundleIngredient struct {
-	BundleIngredientID string                    `json:"bundleIngredientId"`
-	SourceIngredientID string                    `json:"sourceIngredientId,omitempty"`
-	Name               string                    `json:"name"`
-	Amount             float64                   `json:"amount"`
-	Unit               string                    `json:"unit"`
-	Description        string                    `json:"description,omitempty"`
-	BundleGroupID      *string                   `json:"bundleGroupId,omitempty"`
-	PrepInstructions   []string                  `json:"prepInstructions,omitempty"`
-	StorageLocation    string                    `json:"storageLocation,omitempty"`
-	Source             BundleIngredientSourceRef `json:"source"`
-	Nutrients          BundleNutrients           `json:"nutrients"`
+	BundleIngredientID    string                          `json:"bundleIngredientId"`
+	Position              *int                            `json:"position,omitempty"`
+	SourceIngredientID    string                          `json:"sourceIngredientId,omitempty"`
+	Name                  string                          `json:"name"`
+	Amount                float64                         `json:"amount"`
+	Unit                  string                          `json:"unit"`
+	Description           string                          `json:"description,omitempty"`
+	BundleGroupID         *string                         `json:"bundleGroupId,omitempty"`
+	PrepInstructions      []string                        `json:"prepInstructions,omitempty"`
+	StorageLocation       string                          `json:"storageLocation,omitempty"`
+	Source                BundleIngredientSourceRef       `json:"source"`
+	Nutrients             BundleNutrients                 `json:"nutrients"`
+	ZeroNutritionOverride bool                            `json:"zeroNutritionOverride,omitempty"`
+	SuppliedNutrition     *UnconfirmedIngredientNutrition `json:"suppliedNutrition,omitempty"`
 }
 
 type BundleRecipe struct {
+	PortableID       string                  `json:"portableId,omitempty"`
 	BundleRecipeID   string                  `json:"bundleRecipeId"`
 	SourceRecipeID   string                  `json:"sourceRecipeId,omitempty"`
 	Name             string                  `json:"name"`
@@ -122,6 +126,7 @@ type BundleFoodItem struct {
 }
 
 type BundleCustomFood struct {
+	PortableID         string          `json:"portableId,omitempty"`
 	BundleCustomFoodID string          `json:"bundleCustomFoodId"`
 	SourceCustomFoodID string          `json:"sourceCustomFoodId,omitempty"`
 	Name               string          `json:"name"`
@@ -194,12 +199,25 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 	if bundle.Format != RecipeBundleFormat {
 		return fmt.Errorf("unsupported recipe bundle format %q", bundle.Format)
 	}
-	if bundle.Version != RecipeBundleVersion {
+	if bundle.Version != 1 && bundle.Version != RecipeBundleVersion {
 		return fmt.Errorf("unsupported recipe bundle version %d", bundle.Version)
 	}
 
 	recipes := map[string]bool{}
+	portableRecipes := map[string]bool{}
 	for _, r := range bundle.Recipes {
+		if recipes[r.BundleRecipeID] {
+			return fmt.Errorf("duplicate recipe bundleRecipeId %q", r.BundleRecipeID)
+		}
+		if r.PortableID != "" {
+			if err := validatePortableID(r.PortableID, "recipe"); err != nil {
+				return err
+			}
+			if portableRecipes[r.PortableID] {
+				return fmt.Errorf("duplicate recipe portableId %q", r.PortableID)
+			}
+			portableRecipes[r.PortableID] = true
+		}
 		if r.BundleRecipeID == "" {
 			return errors.New("recipe bundleRecipeId is required")
 		}
@@ -220,7 +238,20 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 		foodItems[f.FdcID] = true
 	}
 	customFoods := map[string]bool{}
+	portableFoods := map[string]bool{}
 	for _, f := range bundle.CustomFoods {
+		if customFoods[f.BundleCustomFoodID] {
+			return fmt.Errorf("duplicate custom food bundleCustomFoodId %q", f.BundleCustomFoodID)
+		}
+		if f.PortableID != "" {
+			if err := validatePortableID(f.PortableID, "food"); err != nil {
+				return err
+			}
+			if portableFoods[f.PortableID] {
+				return fmt.Errorf("duplicate custom food portableId %q", f.PortableID)
+			}
+			portableFoods[f.PortableID] = true
+		}
 		if f.BundleCustomFoodID == "" {
 			return errors.New("custom food bundleCustomFoodId is required")
 		}
@@ -238,12 +269,32 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 			}
 			groups[g.BundleGroupID] = true
 		}
+		hasExplicitPositions := false
+		hasImplicitPositions := false
+		positions := map[int]bool{}
+		ingredientIDs := map[string]bool{}
 		for _, ing := range r.Ingredients {
 			if ing.BundleIngredientID == "" {
 				return fmt.Errorf("recipe %q ingredient id is required", r.BundleRecipeID)
 			}
+			if ingredientIDs[ing.BundleIngredientID] {
+				return fmt.Errorf("recipe %q duplicate ingredient id %q", r.BundleRecipeID, ing.BundleIngredientID)
+			}
+			ingredientIDs[ing.BundleIngredientID] = true
+			if ing.Position == nil {
+				hasImplicitPositions = true
+			} else {
+				hasExplicitPositions = true
+				if *ing.Position < 0 || positions[*ing.Position] {
+					return fmt.Errorf("recipe %q ingredient %q has invalid position", r.BundleRecipeID, ing.BundleIngredientID)
+				}
+				positions[*ing.Position] = true
+			}
 			if strings.TrimSpace(ing.Name) == "" {
 				return fmt.Errorf("recipe %q ingredient name is required", r.BundleRecipeID)
+			}
+			if !validNonNegative(ing.Amount) {
+				return fmt.Errorf("recipe %q ingredient %q amount is invalid", r.BundleRecipeID, ing.BundleIngredientID)
 			}
 			if ing.BundleGroupID != nil && !groups[*ing.BundleGroupID] {
 				return fmt.Errorf("recipe %q ingredient %q references missing group %q", r.BundleRecipeID, ing.BundleIngredientID, *ing.BundleGroupID)
@@ -251,6 +302,18 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 			if err := validateIngredientSource(ing.Source, recipes, foodItems, customFoods); err != nil {
 				return fmt.Errorf("recipe %q ingredient %q source: %w", r.BundleRecipeID, ing.BundleIngredientID, err)
 			}
+			if field := validateNutritionNumbers(ing.Nutrients); field != "" {
+				return fmt.Errorf("recipe %q ingredient %q nutrients are invalid", r.BundleRecipeID, ing.BundleIngredientID)
+			}
+			if err := validateUnconfirmedNutrition(ing.SuppliedNutrition); err != nil {
+				return fmt.Errorf("recipe %q ingredient %q supplied nutrition: %w", r.BundleRecipeID, ing.BundleIngredientID, err)
+			}
+			if ing.ZeroNutritionOverride && (ing.Source.Type != "manual" || !bundleNutrientsAreZero(ing.Nutrients)) {
+				return fmt.Errorf("recipe %q ingredient %q has invalid zeroNutritionOverride", r.BundleRecipeID, ing.BundleIngredientID)
+			}
+		}
+		if hasExplicitPositions && hasImplicitPositions {
+			return fmt.Errorf("recipe %q ingredients must either all specify positions or all use array order", r.BundleRecipeID)
 		}
 	}
 
@@ -326,34 +389,65 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 }
 
 func validateIngredientSource(src BundleIngredientSourceRef, recipes map[string]bool, foodItems map[int]bool, customFoods map[string]bool) error {
+	// Dependency availability is not structural validity. Missing standard,
+	// custom-food, or recipe targets are retained as unresolved source facts.
+	_ = recipes
+	_ = foodItems
+	_ = customFoods
 	switch src.Type {
 	case "usda":
 		if src.FdcID <= 0 {
 			return errors.New("usda fdcId is required")
 		}
-		// A bundle is expected to include the supporting food row. Keep this as a
-		// validation error so exports remain self-contained.
-		if !foodItems[src.FdcID] {
-			return fmt.Errorf("usda food item %d is missing from foodItems", src.FdcID)
+		if src.BundleCustomFoodID != "" || src.BundleRecipeID != "" {
+			return errors.New("usda source has conflicting identity fields")
 		}
 	case "custom_food":
 		if src.BundleCustomFoodID == "" {
 			return errors.New("custom food bundleCustomFoodId is required")
 		}
-		if !customFoods[src.BundleCustomFoodID] {
-			return fmt.Errorf("custom food %q is missing from customFoods", src.BundleCustomFoodID)
+		if src.FdcID != 0 || src.BundleRecipeID != "" {
+			return errors.New("custom food source has conflicting identity fields")
 		}
 	case "recipe":
 		if src.BundleRecipeID == "" {
 			return errors.New("linked recipe bundleRecipeId is required")
 		}
-		if !recipes[src.BundleRecipeID] {
-			return fmt.Errorf("linked recipe %q is missing from recipes", src.BundleRecipeID)
+		if src.FdcID != 0 || src.BundleCustomFoodID != "" {
+			return errors.New("recipe source has conflicting identity fields")
 		}
 	case "manual":
-		return nil
+		if src.FdcID != 0 || src.BundleCustomFoodID != "" || src.BundleRecipeID != "" {
+			return errors.New("manual source has conflicting identity fields")
+		}
 	default:
 		return fmt.Errorf("unsupported source type %q", src.Type)
+	}
+	return nil
+}
+
+func bundleNutrientsAreZero(n BundleNutrients) bool {
+	return n == (BundleNutrients{})
+}
+
+func validateUnconfirmedNutrition(facts *UnconfirmedIngredientNutrition) error {
+	if facts == nil {
+		return nil
+	}
+	if field := validateNutritionNumbers(facts.Nutrients); field != "" {
+		return errors.New("nutrients must be finite non-negative values")
+	}
+	switch facts.Basis {
+	case "per100g", "ingredientAmount", "unknown":
+		if facts.ServingGramWeight != nil && !validNonNegative(*facts.ServingGramWeight) {
+			return errors.New("servingGramWeight is invalid")
+		}
+	case "perServing":
+		if facts.ServingGramWeight == nil || *facts.ServingGramWeight <= 0 || !validNonNegative(*facts.ServingGramWeight) {
+			return errors.New("perServing facts require a positive servingGramWeight")
+		}
+	default:
+		return fmt.Errorf("unsupported basis %q", facts.Basis)
 	}
 	return nil
 }
@@ -632,7 +726,16 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	}
 	defer tx.Rollback()
 
+	// An absent portable identity cannot be row-locked. Serialize bundle
+	// imports per owner so identical concurrent imports reuse, never race to
+	// insert or overwrite. This lock also orders imports against deletion.
+	var lockedOwner string
+	if err := tx.QueryRow(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedOwner); err != nil {
+		return nil, err
+	}
+
 	recipeMap := map[string]string{}
+	reusedRecipes := map[string]bool{}
 	customFoodMap := map[string]string{}
 	categoryMap := map[string]string{}
 	bookMap := map[string]string{}
@@ -657,25 +760,44 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	}
 
 	for _, f := range bundle.CustomFoods {
+		if f.PortableID != "" {
+			id, reused, err := s.importPortableCustomFoodTx(tx, userID, f)
+			if err != nil {
+				return nil, err
+			}
+			customFoodMap[f.BundleCustomFoodID] = id
+			hash, err := RecipeBundleContentHash("custom_food", f)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.upsertImportMappingTx(tx, userID, "custom_food", f.BundleCustomFoodID, hash, "custom_foods", id); err != nil {
+				return nil, err
+			}
+			if reused {
+				incCount(summary.Reused, "customFoods")
+			} else {
+				incCount(summary.Created, "customFoods")
+			}
+			continue
+		}
 		hash, _ := RecipeBundleContentHash("custom_food", f)
 		id, found, err := s.lookupImportMappingTx(tx, userID, "custom_food", f.BundleCustomFoodID)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			customFoodMap[f.BundleCustomFoodID] = id
-			incCount(summary.Reused, "customFoods")
-			continue
-		}
-		id, found, err = s.lookupImportMappingByHashTx(tx, userID, "custom_food", hash)
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			customFoodMap[f.BundleCustomFoodID] = id
-			_ = s.upsertImportMappingTx(tx, userID, "custom_food", f.BundleCustomFoodID, hash, "custom_foods", id)
-			incCount(summary.Reused, "customFoods")
-			continue
+			var exists bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM custom_foods WHERE id=$1 AND (user_id=$2 OR shared_with_community))`, id, userID).Scan(&exists); err != nil {
+				return nil, err
+			}
+			if exists {
+				if err := validateLegacyCustomFoodReuseTx(tx, userID, id, f); err != nil {
+					return nil, err
+				}
+				customFoodMap[f.BundleCustomFoodID] = id
+				incCount(summary.Reused, "customFoods")
+				continue
+			}
 		}
 		id = uuid.New().String()
 		_, err = tx.Exec(`INSERT INTO custom_foods (id, user_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())`, id, userID, f.Name, f.Nutrients.Calories, f.Nutrients.TotalFat, f.Nutrients.SaturatedFat, f.Nutrients.TransFat, f.Nutrients.Cholesterol, f.Nutrients.Sodium, f.Nutrients.TotalCarbs, f.Nutrients.DietaryFiber, f.Nutrients.TotalSugars, f.Nutrients.AddedSugars, f.Nutrients.Protein, f.Nutrients.VitaminD, f.Nutrients.Calcium, f.Nutrients.Iron, f.Nutrients.Potassium)
@@ -687,18 +809,8 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		incCount(summary.Created, "customFoods")
 	}
 
-	for _, c := range bundle.Categories {
-		parentID := (*string)(nil)
-		if c.ParentBundleCategoryID != nil {
-			if p := categoryMap[*c.ParentBundleCategoryID]; p != "" {
-				parentID = &p
-			}
-		}
-		id, err := s.findOrCreateCategoryTx(tx, c.Name, parentID)
-		if err != nil {
-			return nil, err
-		}
-		categoryMap[c.BundleCategoryID] = id
+	if err := s.importBundleCategoriesTx(tx, bundle.Categories, categoryMap); err != nil {
+		return nil, err
 	}
 
 	for _, t := range bundle.Templates {
@@ -719,7 +831,7 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 			continue
 		}
 		id = uuid.New().String()
-		_, err = tx.Exec(`INSERT INTO templates (id, user_id, name, type, layout, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())`, id, userID, t.Name, t.Type, string(t.Layout))
+		_, err = tx.Exec(`INSERT INTO templates (id, user_id, name, type, layout_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())`, id, userID, t.Name, t.Type, string(t.Layout))
 		if err != nil {
 			return nil, err
 		}
@@ -729,6 +841,27 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	}
 
 	for _, r := range bundle.Recipes {
+		if r.PortableID != "" {
+			id, reused, err := s.importPortableRecipeTx(tx, userID, r)
+			if err != nil {
+				return nil, err
+			}
+			recipeMap[r.BundleRecipeID] = id
+			reusedRecipes[r.BundleRecipeID] = reused
+			hash, err := RecipeBundleContentHash("recipe", r)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.upsertImportMappingTx(tx, userID, "recipe", r.BundleRecipeID, hash, "recipes", id); err != nil {
+				return nil, err
+			}
+			if reused {
+				incCount(summary.Reused, "recipes")
+			} else {
+				incCount(summary.Created, "recipes")
+			}
+			continue
+		}
 		hash, _ := RecipeBundleContentHash("recipe", r)
 		id, found, err := s.lookupImportMappingTx(tx, userID, "recipe", r.BundleRecipeID)
 		if err != nil {
@@ -740,30 +873,10 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 				return nil, err
 			}
 		}
-		if !found {
-			id, found, err = s.lookupImportMappingByHashTx(tx, userID, "recipe", hash)
-			if err != nil {
-				return nil, err
-			}
-			if found {
-				found, err = s.recipeTargetExistsTx(tx, userID, id)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
 		if found {
 			recipeMap[r.BundleRecipeID] = id
-			incCount(summary.Updated, "recipes")
-			continue
-		}
-		conflict, err := s.recipeNameConflictTx(tx, userID, r.Name, hash)
-		if err != nil {
-			return nil, err
-		}
-		if conflict {
-			summary.Conflicts = append(summary.Conflicts, RecipeBundleConflict{ObjectType: "recipe", ObjectKey: r.BundleRecipeID, Name: r.Name, Reason: "same name exists with different content"})
-			incCount(summary.Skipped, "recipes")
+			reusedRecipes[r.BundleRecipeID] = true
+			incCount(summary.Reused, "recipes")
 			continue
 		}
 		id = uuid.New().String()
@@ -778,9 +891,19 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		incCount(summary.Created, "recipes")
 	}
 
+	// All shells now exist, including dependencies with no supplied portable
+	// identity. Compare through their persisted mappings before hydration.
+	for _, r := range bundle.Recipes {
+		if reusedRecipes[r.BundleRecipeID] {
+			if err := validateRecipeReuseTx(tx, userID, recipeMap[r.BundleRecipeID], r, recipeMap, customFoodMap); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	for _, r := range bundle.Recipes {
 		id := recipeMap[r.BundleRecipeID]
-		if id == "" {
+		if id == "" || reusedRecipes[r.BundleRecipeID] {
 			continue
 		}
 		if err := s.hydrateRecipeTx(tx, id, r, recipeMap, customFoodMap); err != nil {
@@ -917,6 +1040,14 @@ func bundleGroupsToIngredientGroups(groups []BundleIngredientGroup) []Ingredient
 	return out
 }
 
+func orderedBundleIngredients(ingredients []BundleIngredient) []BundleIngredient {
+	ordered := append([]BundleIngredient(nil), ingredients...)
+	if len(ordered) > 0 && ordered[0].Position != nil {
+		sort.SliceStable(ordered, func(i, j int) bool { return *ordered[i].Position < *ordered[j].Position })
+	}
+	return ordered
+}
+
 func (s *PostgresStore) hydrateRecipeTx(tx *sql.Tx, recipeID string, r BundleRecipe, recipeMap, customFoodMap map[string]string) error {
 	groupsJSON, _ := json.Marshal(bundleGroupsToIngredientGroups(r.IngredientGroups))
 	_, err := tx.Exec(`UPDATE recipes SET name=$1, servings=$2, serving_name=$3, prep_time=$4, cook_time=$5, instructions=$6, leftover_storage=$7, ingredient_groups=$8, updated_at=NOW() WHERE id=$9`, r.Name, r.Servings, emptyDefault(r.ServingName, "serving"), r.PrepTime, r.CookTime, r.Instructions, r.LeftoverStorage, string(groupsJSON), recipeID)
@@ -927,28 +1058,58 @@ func (s *PostgresStore) hydrateRecipeTx(tx *sql.Tx, recipeID string, r BundleRec
 	if err != nil {
 		return err
 	}
-	for _, ing := range r.Ingredients {
+	for position, ing := range orderedBundleIngredients(r.Ingredients) {
 		id := uuid.New().String()
 		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 		fdcID := 0
 		sourceType := ing.Source.Type
 		sourceKey := ""
 		var linkedRecipeID *string
+		var unresolved *BundleIngredientSourceRef
 		switch ing.Source.Type {
 		case "usda":
-			fdcID = ing.Source.FdcID
-			sourceKey = fmt.Sprint(ing.Source.FdcID)
+			var exists bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM food_items WHERE fdc_id=$1)`, ing.Source.FdcID).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				fdcID = ing.Source.FdcID
+				sourceKey = fmt.Sprint(ing.Source.FdcID)
+			} else {
+				copy := ing.Source
+				unresolved = &copy
+			}
 		case "custom_food":
-			sourceKey = customFoodMap[ing.Source.BundleCustomFoodID]
+			if mapped := customFoodMap[ing.Source.BundleCustomFoodID]; mapped != "" {
+				sourceKey = mapped
+			} else {
+				copy := ing.Source
+				unresolved = &copy
+			}
 		case "recipe":
 			if mapped := recipeMap[ing.Source.BundleRecipeID]; mapped != "" {
 				linkedRecipeID = &mapped
 				sourceKey = mapped
+			} else {
+				copy := ing.Source
+				unresolved = &copy
 			}
 		case "manual":
 			sourceKey = ""
 		}
-		_, err = tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`, id, recipeID, fdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Nutrients.Calories, ing.Nutrients.TotalFat, ing.Nutrients.SaturatedFat, ing.Nutrients.TransFat, ing.Nutrients.Cholesterol, ing.Nutrients.Sodium, ing.Nutrients.TotalCarbs, ing.Nutrients.DietaryFiber, ing.Nutrients.TotalSugars, ing.Nutrients.AddedSugars, ing.Nutrients.Protein, ing.Nutrients.VitaminD, ing.Nutrients.Calcium, ing.Nutrients.Iron, ing.Nutrients.Potassium, prepJSON, ing.StorageLocation, ing.BundleGroupID, linkedRecipeID, sourceType, nullableString(sourceKey))
+		unresolvedJSON, err := ingredientSourceJSON(unresolved)
+		if err != nil {
+			return err
+		}
+		unconfirmedJSON, err := ingredientSourceJSON(ing.SuppliedNutrition)
+		if err != nil {
+			return err
+		}
+		zeroOverride := ing.ZeroNutritionOverride
+		if zeroOverride {
+			fdcID = -3
+		}
+		_, err = tx.Exec(`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`, id, recipeID, fdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Nutrients.Calories, ing.Nutrients.TotalFat, ing.Nutrients.SaturatedFat, ing.Nutrients.TransFat, ing.Nutrients.Cholesterol, ing.Nutrients.Sodium, ing.Nutrients.TotalCarbs, ing.Nutrients.DietaryFiber, ing.Nutrients.TotalSugars, ing.Nutrients.AddedSugars, ing.Nutrients.Protein, ing.Nutrients.VitaminD, ing.Nutrients.Calcium, ing.Nutrients.Iron, ing.Nutrients.Potassium, prepJSON, ing.StorageLocation, ing.BundleGroupID, linkedRecipeID, sourceType, nullableString(sourceKey), position, zeroOverride, unresolvedJSON, unconfirmedJSON)
 		if err != nil {
 			return err
 		}
@@ -1006,26 +1167,6 @@ func (s *PostgresStore) upsertImportMappingTx(tx *sql.Tx, userID, objectType, ob
 	}
 	_, err := tx.Exec(`INSERT INTO import_object_mappings (id, user_id, source_format, source_object_type, source_object_key, content_hash, target_table, target_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW()) ON CONFLICT (user_id, source_format, source_object_type, source_object_key) DO UPDATE SET content_hash=EXCLUDED.content_hash, target_table=EXCLUDED.target_table, target_id=EXCLUDED.target_id, updated_at=NOW()`, uuid.New().String(), userID, RecipeBundleFormat, objectType, objectKey, contentHash, targetTable, targetID)
 	return err
-}
-
-func (s *PostgresStore) recipeNameConflictTx(tx *sql.Tx, userID, name, hash string) (bool, error) {
-	var id string
-	err := tx.QueryRow(`SELECT id FROM recipes WHERE user_id=$1 AND name=$2 LIMIT 1`, userID, name).Scan(&id)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	var mapped string
-	err = tx.QueryRow(`SELECT target_id FROM import_object_mappings WHERE user_id=$1 AND source_format=$2 AND source_object_type='recipe' AND target_id=$3 AND content_hash=$4`, userID, RecipeBundleFormat, id, hash).Scan(&mapped)
-	if err == nil {
-		return false, nil
-	}
-	if err != sql.ErrNoRows {
-		return false, err
-	}
-	return true, nil
 }
 
 func (s *PostgresStore) findOrCreateCategoryTx(tx *sql.Tx, name string, parentID *string) (string, error) {
@@ -1237,7 +1378,7 @@ func (s *PostgresStore) getMealPlanByID(mealPlanID string) (*MealPlan, error) {
 func (s *PostgresStore) getRecipeByID(recipeID string) (*Recipe, error) {
 	r := &Recipe{}
 	var groupsJSON string
-	err := s.db.QueryRow(`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at FROM recipes WHERE id = $1`, recipeID).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt)
+	err := s.db.QueryRow(`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE id = $1`, recipeID).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1388,20 +1529,44 @@ func (s *PostgresStore) addRecipeRecordToBundle(user *User, r *Recipe, bundle *R
 	seen[r.ID] = true
 	var groups []IngredientGroupJSON
 	_ = json.Unmarshal([]byte(r.IngredientGroupsJSON), &groups)
-	br := BundleRecipe{BundleRecipeID: r.ID, SourceRecipeID: r.ID, Name: r.Name, Servings: r.Servings, ServingName: r.ServingName, PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage}
+	br := BundleRecipe{PortableID: r.PortableID, BundleRecipeID: r.PortableID, SourceRecipeID: r.ID, Name: r.Name, Servings: r.Servings, ServingName: r.ServingName, PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage}
 	for _, g := range groups {
 		br.IngredientGroups = append(br.IngredientGroups, BundleIngredientGroup{BundleGroupID: g.ID, Title: g.Title})
 	}
 	for _, ing := range r.Ingredients {
 		src := BundleIngredientSourceRef{Type: "manual"}
-		if ing.LinkedRecipeID != nil && *ing.LinkedRecipeID != "" {
-			src = BundleIngredientSourceRef{Type: "recipe", BundleRecipeID: *ing.LinkedRecipeID}
-			_ = s.addRecipeToBundleForUser(user, *ing.LinkedRecipeID, bundle, seen)
+		if ing.UnresolvedSource != nil {
+			src = *ing.UnresolvedSource
+		}
+		linkedRecipeID := ing.LinkedRecipeID
+		if (linkedRecipeID == nil || *linkedRecipeID == "") && ing.SourceType == "recipe" {
+			linkedRecipeID = ing.SourceKey
+		}
+		if ing.UnresolvedSource != nil {
+			// Preserve the original source identity without fabricating a live link.
+		} else if linkedRecipeID != nil && *linkedRecipeID != "" {
+			key, err := s.addLinkedRecipeToBundle(user, *linkedRecipeID, bundle, seen)
+			if err != nil {
+				return err
+			}
+			src = BundleIngredientSourceRef{Type: "recipe", BundleRecipeID: key}
+		} else if ing.SourceType == "custom_food" && ing.SourceKey != nil && *ing.SourceKey != "" {
+			key, err := s.addReferencedCustomFoodToBundle(user, r.UserID, *ing.SourceKey, bundle)
+			if err != nil {
+				return err
+			}
+			src = BundleIngredientSourceRef{Type: "custom_food", BundleCustomFoodID: key}
 		} else if ing.FdcID > 0 {
 			src = BundleIngredientSourceRef{Type: "usda", FdcID: ing.FdcID}
-			_ = s.addFoodItemToBundle(ing.FdcID, bundle)
+			if err := s.addFoodItemToBundle(ing.FdcID, bundle); err != nil {
+				return err
+			}
 		}
-		br.Ingredients = append(br.Ingredients, BundleIngredient{BundleIngredientID: ing.ID, SourceIngredientID: ing.ID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing)})
+		position := ing.Position
+		br.Ingredients = append(br.Ingredients, BundleIngredient{BundleIngredientID: ing.ID, SourceIngredientID: ing.ID, Position: &position, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride, SuppliedNutrition: ing.UnconfirmedNutrition})
+	}
+	if err := s.addRecipeCategoriesToBundle(r, bundle); err != nil {
+		return err
 	}
 	bundle.Recipes = append(bundle.Recipes, br)
 	return nil
@@ -1459,23 +1624,43 @@ func (s *PostgresStore) addBookToBundle(userID, bookID string, bundle *RecipeBun
 func (s *PostgresStore) addBookRecordToBundle(user *User, b *RecipeBook, bundle *RecipeBundle, seen map[string]bool) error {
 	bookID := b.ID
 	bundle.Books = append(bundle.Books, BundleBook{BundleBookID: b.ID, SourceBookID: b.ID, Title: b.Title, Description: b.Description, CoverColor: b.CoverColor})
-	pages, _ := s.ListBookPages(bookID)
+	pages, err := s.ListBookPages(bookID)
+	if err != nil {
+		return err
+	}
 	for _, p := range pages {
 		bundle.BookPages = append(bundle.BookPages, BundleBookPage{BundleBookPageID: p.ID, SourceBookPageID: p.ID, BundleBookID: bookID, Title: p.Title, Content: p.Content, Position: p.Position})
 	}
-	chapters, _ := s.ListChapters(bookID)
+	chapters, err := s.ListChapters(bookID)
+	if err != nil {
+		return err
+	}
 	for _, ch := range chapters {
+		for _, templateID := range []*string{ch.PageTemplateID, ch.RecipeTemplateID} {
+			if templateID != nil && *templateID != "" {
+				if err := s.addReferencedTemplateToBundle(b.UserID, *templateID, bundle); err != nil {
+					return err
+				}
+			}
+		}
 		bundle.Chapters = append(bundle.Chapters, BundleChapter{BundleChapterID: ch.ID, SourceChapterID: ch.ID, BundleBookID: bookID, Title: ch.Title, Position: ch.Position, BundlePageTemplateID: ch.PageTemplateID, BundleRecipeTemplateID: ch.RecipeTemplateID})
-		cps, _ := s.ListChapterPages(ch.ID)
+		cps, err := s.ListChapterPages(ch.ID)
+		if err != nil {
+			return err
+		}
 		for _, p := range cps {
 			bundle.ChapterPages = append(bundle.ChapterPages, BundleChapterPage{BundleChapterPageID: p.ID, SourceChapterPageID: p.ID, BundleChapterID: ch.ID, Title: p.Title, Content: p.Content, Position: p.Position})
 		}
-		crs, _ := s.ListChapterRecipes(ch.ID)
+		crs, err := s.ListChapterRecipes(ch.ID)
+		if err != nil {
+			return err
+		}
 		for _, cr := range crs {
-			bundle.ChapterRecipes = append(bundle.ChapterRecipes, BundleChapterRecipe{BundleChapterID: ch.ID, BundleRecipeID: cr.RecipeID, Position: cr.Position})
-			if err := s.addRecipeToBundleForUser(user, cr.RecipeID, bundle, seen); err != nil {
+			key, err := s.addLinkedRecipeToBundle(user, cr.RecipeID, bundle, seen)
+			if err != nil {
 				return err
 			}
+			bundle.ChapterRecipes = append(bundle.ChapterRecipes, BundleChapterRecipe{BundleChapterID: ch.ID, BundleRecipeID: key, Position: cr.Position})
 		}
 	}
 	return nil

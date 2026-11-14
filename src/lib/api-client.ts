@@ -148,7 +148,7 @@ export interface UserSecretInfo {
 
 export interface RecipeBundle {
   format: 'dietledger.recipe-bundle';
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   source?: { app: string; version: string };
   recipes?: unknown[];

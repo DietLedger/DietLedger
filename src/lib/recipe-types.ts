@@ -45,10 +45,15 @@ export interface Ingredient {
   sourceKey?: string | null;
   prepInstructions: string[];
   storageLocation: string;
+  position?: number;
+  zeroNutritionOverride?: boolean;
+  unresolvedSource?: import('@/lib/types').IngredientSourceReference | null;
+  unconfirmedNutrition?: import('@/lib/types').UnconfirmedIngredientNutrition | null;
 }
 
 export interface Recipe {
   id: string;
+  readonly portableId?: string;
   name: string;
   servings: number;
   servingName: string;
@@ -144,6 +149,10 @@ export function toPublicIngredient(ingredient: IngredientRecord): Ingredient {
     sourceKey: ingredient.sourceKey ?? null,
     prepInstructions: ingredient.prepInstructions || [],
     storageLocation: ingredient.storageLocation ?? '',
+    position: ingredient.position ?? 0,
+    zeroNutritionOverride: ingredient.zeroNutritionOverride ?? false,
+    unresolvedSource: ingredient.unresolvedSource ?? null,
+    unconfirmedNutrition: ingredient.unconfirmedNutrition ?? null,
   };
 }
 

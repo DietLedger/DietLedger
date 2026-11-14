@@ -1,5 +1,7 @@
 # Review and change an ingredient's database match
 
+> Successor approved: `recipe-nutrition-quarantine.md` will move confirmed-match validation/scaling to canonical Go-owned food data, superseding the selected-client-search-snapshot-wins rule below when that slice is implemented. Preserve meaningful-nutrition eligibility, food-specific quantities, private/shared authorization and historical snapshots. See the implementation plan for evidence; this conversion change is not implied by the identity foundation.
+
 ## Objective and user value
 In the expanded ingredient editor on the Recipes page, show the name of the food database record backing an ingredient, separately from the ingredient's editable recipe name. Allow selecting another local database food to correct imported/manual or wrong matches and update nutrition accordingly.
 

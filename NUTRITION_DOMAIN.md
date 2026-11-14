@@ -524,6 +524,13 @@ These are known design concerns, not necessarily defects.
 
 ---
 
+# Ingredient Nutrition Intent and Imported Facts
+
+- Canonical nutrient zeros do not prove user intent. Only the durable `zeroNutritionOverride` choice counts as deliberate no-nutrition; compatible legacy migration is limited to provable manual `fdcId=-3` unlinked all-zero rows.
+- A package nutrient snapshot is not a trusted food link. Ingredient-level supplied facts retain their basis (`per100g`, `perServing`, `ingredientAmount`, or `unknown`), units and provenance as unconfirmed data until reviewed and linked through a server-owned resolution workflow.
+- Missing USDA/custom-food/recipe identities remain unresolved source facts without dangling live references. Historical food-log snapshots are unchanged.
+- Ingredient ordering is recipe content and is persisted independently of regenerated local row UUIDs.
+
 # Validation Expectations
 
 Nutrition calculations should:

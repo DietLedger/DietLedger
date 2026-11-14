@@ -1,5 +1,7 @@
 # Spec: Markdown Recipe Import Workflow
 
+> Successor approved: `recipe-nutrition-quarantine.md` supersedes this spec's mandatory pre-save matching gate. Enable unmatched saves with persistent quarantine/repair in the ordered plan, not before that path exists. Atomic recipe creation now supports metadata, groups, all ingredients and duplicate-safe request keys; replacing the browser save loop remains a separate slice. No new format adapter is included.
+
 ## Objective
 Add a recipe import workflow on the Recipes page for markdown files matching the repository's `seed-recipes/*.md` format, excluding `seed-recipes/dist`. Users can select one or more recipe markdown files, review them in a queued modal workflow, match every imported ingredient to a database/USDA/custom-food entry, and save each recipe only when all ingredients are matched.
 
