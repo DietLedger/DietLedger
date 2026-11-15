@@ -17,8 +17,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type postgresReader interface {
+	Query(string, ...interface{}) (*sql.Rows, error)
+	QueryRow(string, ...interface{}) *sql.Row
+}
+
 type PostgresStore struct {
 	db *sql.DB
+	// Set only on the local store used to serialize an owner backup. The shared
+	// store and its connection-pool lifecycle remain unchanged.
+	readTx *sql.Tx
+}
+
+func (s *PostgresStore) reader() postgresReader {
+	if s.readTx != nil {
+		return s.readTx
+	}
+	return s.db
 }
 
 func NewPostgresStore(connString string) (*PostgresStore, error) {
@@ -270,7 +285,7 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
 	r := &Recipe{}
 	var groupsJSON string
-	err := s.db.QueryRow(
+	err := s.reader().QueryRow(
 		`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE user_id = $1 AND id = $2`,
 		userID, id,
 	).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID)
@@ -385,7 +400,7 @@ func ingredientSourceJSON(v interface{}) (interface{}, error) {
 func requestedZeroOverride(v *bool) bool { return v != nil && *v }
 
 func (s *PostgresStore) listIngredientsByRecipe(recipeID string) ([]Ingredient, error) {
-	return listIngredientsByRecipeQuery(s.db, recipeID)
+	return listIngredientsByRecipeQuery(s.reader(), recipeID)
 }
 
 func listIngredientsByRecipeQuery(q interface {
@@ -768,7 +783,7 @@ func (s *PostgresStore) SearchFoods(query string, page, perPage int) ([]FoodItem
 func (s *PostgresStore) GetFoodByFdcID(fdcID int) (*FoodItem, error) {
 	f := &FoodItem{}
 	var portions []byte
-	err := s.db.QueryRow(
+	err := s.reader().QueryRow(
 		`SELECT id, fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions FROM food_items WHERE fdc_id = $1`,
 		fdcID,
 	).Scan(&f.ID, &f.FdcID, &f.Description, &f.DataType, &f.BrandOwner, &f.GtinUpc, &f.ServingSize, &f.ServingSizeUnit, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.Source, &f.CreatedAt, &f.UpdatedAt, &portions)
@@ -1393,7 +1408,7 @@ func (s *PostgresStore) ListBooks(userID string) ([]RecipeBook, error) {
 
 func (s *PostgresStore) GetBook(userID, id string) (*RecipeBook, error) {
 	b := &RecipeBook{}
-	err := s.db.QueryRow(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id).Scan(&b.ID, &b.UserID, &b.Title, &b.Description, &b.CoverColor, &b.CreatedAt, &b.UpdatedAt)
+	err := s.reader().QueryRow(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id).Scan(&b.ID, &b.UserID, &b.Title, &b.Description, &b.CoverColor, &b.CreatedAt, &b.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1439,7 +1454,7 @@ func (s *PostgresStore) DeleteBook(userID, id string) error {
 // ── Chapters ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListChapters(bookID string) ([]Chapter, error) {
-	rows, err := s.db.Query(`SELECT id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at FROM chapters WHERE book_id = $1 ORDER BY position`, bookID)
+	rows, err := s.reader().Query(`SELECT id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at FROM chapters WHERE book_id = $1 ORDER BY position`, bookID)
 	if err != nil {
 		return nil, err
 	}
@@ -1495,7 +1510,7 @@ func (s *PostgresStore) ReorderChapters(bookID string, chapterIDs []string) erro
 // ── Chapter Recipes ──────────────────────────────────────────────────
 
 func (s *PostgresStore) ListChapterRecipes(chapterID string) ([]ChapterRecipe, error) {
-	rows, err := s.db.Query(`SELECT id, chapter_id, recipe_id, position FROM chapter_recipes WHERE chapter_id = $1 ORDER BY position`, chapterID)
+	rows, err := s.reader().Query(`SELECT id, chapter_id, recipe_id, position FROM chapter_recipes WHERE chapter_id = $1 ORDER BY position`, chapterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1528,7 +1543,7 @@ func (s *PostgresStore) RemoveChapterRecipe(chapterID, recipeID string) error {
 // ── Chapter Pages ────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListChapterPages(chapterID string) ([]ChapterPage, error) {
-	rows, err := s.db.Query(`SELECT id, chapter_id, title, content, position, created_at, updated_at FROM chapter_pages WHERE chapter_id = $1 ORDER BY position`, chapterID)
+	rows, err := s.reader().Query(`SELECT id, chapter_id, title, content, position, created_at, updated_at FROM chapter_pages WHERE chapter_id = $1 ORDER BY position`, chapterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1612,7 +1627,7 @@ func (s *PostgresStore) DeleteCategory(id string) error {
 // ── Recipe Categories ────────────────────────────────────────────────
 
 func (s *PostgresStore) ListRecipeCategories(recipeID string) ([]RecipeCategory, error) {
-	rows, err := s.db.Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE recipe_id = $1`, recipeID)
+	rows, err := s.reader().Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE recipe_id = $1`, recipeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1794,7 +1809,7 @@ func (s *PostgresStore) UpsertGroceryChecklist(userID string, g *GroceryChecklis
 // ── Book Pages ───────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListBookPages(bookID string) ([]BookPage, error) {
-	rows, err := s.db.Query(`SELECT id, book_id, title, content, position, created_at, updated_at FROM book_pages WHERE book_id = $1 ORDER BY position`, bookID)
+	rows, err := s.reader().Query(`SELECT id, book_id, title, content, position, created_at, updated_at FROM book_pages WHERE book_id = $1 ORDER BY position`, bookID)
 	if err != nil {
 		return nil, err
 	}
@@ -2325,7 +2340,7 @@ func (s *PostgresStore) ListTemplatesByType(userID, tmplType string) ([]Template
 
 func (s *PostgresStore) GetTemplate(userID, id string) (*Template, error) {
 	var t Template
-	err := s.db.QueryRow(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE id = $1 AND (user_id = $2 OR is_default = TRUE)`, id, userID).Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &t.IsDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt)
+	err := s.reader().QueryRow(`SELECT id, user_id, name, type, is_default, layout_json, created_at, updated_at FROM templates WHERE id = $1 AND (user_id = $2 OR is_default = TRUE)`, id, userID).Scan(&t.ID, &t.UserID, &t.Name, &t.Type, &t.IsDefault, &t.LayoutJSON, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

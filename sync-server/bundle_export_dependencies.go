@@ -31,7 +31,7 @@ func (s *PostgresStore) addLinkedRecipeToBundle(user *User, recipeID string, bun
 // the requester. Do not enumerate any unreferenced foods.
 func (s *PostgresStore) addReferencedCustomFoodToBundle(user *User, recipeOwnerID, foodID string, bundle *RecipeBundle) (string, error) {
 	var f CustomFood
-	err := s.db.QueryRow(`SELECT id, portable_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, user_id, shared_with_community FROM custom_foods WHERE id=$1`, foodID).Scan(
+	err := s.reader().QueryRow(`SELECT id, portable_id, name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, user_id, shared_with_community FROM custom_foods WHERE id=$1`, foodID).Scan(
 		&f.ID, &f.PortableID, &f.Name, &f.Calories, &f.TotalFat, &f.SaturatedFat, &f.TransFat, &f.Cholesterol, &f.Sodium, &f.TotalCarbs, &f.DietaryFiber, &f.TotalSugars, &f.AddedSugars, &f.Protein, &f.VitaminD, &f.Calcium, &f.Iron, &f.Potassium, &f.UserID, &f.SharedWithCommunity)
 	if err == sql.ErrNoRows {
 		return foodID, nil
@@ -72,7 +72,7 @@ func (s *PostgresStore) addCategoryToBundle(categoryID string, bundle *RecipeBun
 		}
 	}
 	var c Category
-	err := s.db.QueryRow(`SELECT id, name, parent_id FROM categories WHERE id=$1`, categoryID).Scan(&c.ID, &c.Name, &c.ParentID)
+	err := s.reader().QueryRow(`SELECT id, name, parent_id FROM categories WHERE id=$1`, categoryID).Scan(&c.ID, &c.Name, &c.ParentID)
 	if err == sql.ErrNoRows {
 		return nil
 	}

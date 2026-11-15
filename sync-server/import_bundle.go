@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -1307,15 +1308,23 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 }
 
 func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundle, error) {
-	recipeIDs, err := s.listOwnedBundleIDs(`SELECT id FROM recipes WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	// The first enumeration query establishes the snapshot used by every
+	// serialization and dependency read. This does not coordinate later deletion.
+	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
-	bookIDs, err := s.listOwnedBundleIDs(`SELECT id FROM recipe_books WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	defer tx.Rollback()
+	snapshot := &PostgresStore{db: s.db, readTx: tx}
+	recipeIDs, err := snapshot.listOwnedBundleIDs(`SELECT id FROM recipes WHERE user_id=$1 ORDER BY created_at, id`, userID)
 	if err != nil {
 		return nil, err
 	}
-	bundle, err := s.ExportRecipeBundle(userID, recipeIDs, bookIDs)
+	bookIDs, err := snapshot.listOwnedBundleIDs(`SELECT id FROM recipe_books WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := snapshot.ExportRecipeBundle(userID, recipeIDs, bookIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1325,11 +1334,14 @@ func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundl
 	if err := ValidateRecipeBundle(*bundle); err != nil {
 		return nil, fmt.Errorf("validate owner recipe/book backup: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return bundle, nil
 }
 
 func (s *PostgresStore) listOwnedBundleIDs(query, userID string) ([]string, error) {
-	rows, err := s.db.Query(query, userID)
+	rows, err := s.reader().Query(query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1442,7 +1454,7 @@ func (s *PostgresStore) getMealPlanByID(mealPlanID string) (*MealPlan, error) {
 func (s *PostgresStore) getRecipeByID(recipeID string) (*Recipe, error) {
 	r := &Recipe{}
 	var groupsJSON string
-	err := s.db.QueryRow(`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE id = $1`, recipeID).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID)
+	err := s.reader().QueryRow(`SELECT id, user_id, name, servings, serving_name, prep_time, cook_time, instructions, leftover_storage, COALESCE(ingredient_groups,'[]'), created_at, updated_at, portable_id FROM recipes WHERE id = $1`, recipeID).Scan(&r.ID, &r.UserID, &r.Name, &r.Servings, &r.ServingName, &r.PrepTime, &r.CookTime, &r.Instructions, &r.LeftoverStorage, &groupsJSON, &r.CreatedAt, &r.UpdatedAt, &r.PortableID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1466,7 +1478,7 @@ func (s *PostgresStore) canExportRecipe(user *User, recipeID string) (bool, erro
 		return true, nil
 	}
 	var ok bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND (r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.visibility='public')))`, recipeID, user.ID).Scan(&ok)
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND (r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.visibility='public')))`, recipeID, user.ID).Scan(&ok)
 	return ok, err
 }
 

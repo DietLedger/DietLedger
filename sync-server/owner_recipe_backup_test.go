@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,40 @@ func TestOwnerRecipeBookBackupFailsClosed(t *testing.T) {
 	})
 }
 
+func TestOwnerRecipeBookBackupOperationalFailuresReturnNoPartialBundle(t *testing.T) {
+	for _, table := range []string{"recipes", "recipe_books", "ingredients", "custom_foods", "food_items", "recipe_categories", "categories", "book_pages", "chapters", "chapter_pages", "chapter_recipes", "templates"} {
+		t.Run(table, func(t *testing.T) {
+			f := newExportBookFixture(t)
+			food, err := f.s.CreateCustomFood(f.user.ID, &CreateCustomFoodRequest{Name: "Secret backup food", Calories: 25})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.CreateIngredient(f.recipe.ID, &CreateIngredientReq{Name: "Secret backup ingredient", Amount: 1, Unit: "g", SourceType: "custom_food", SourceKey: &food.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.CreateIngredient(f.recipe.ID, &CreateIngredientReq{Name: "USDA", Amount: 1, Unit: "g", SourceType: "usda", FdcID: 987654}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.db.Exec(`ALTER TABLE ` + table + ` RENAME TO unavailable_owner_dependency`); err != nil {
+				t.Fatal(err)
+			}
+			bundle, err := f.s.ExportOwnerRecipeBookBackup(f.user.ID)
+			if err == nil || bundle != nil {
+				t.Fatalf("%s failure returned partial success: bundle=%+v err=%v", table, bundle, err)
+			}
+		})
+	}
+
+	env := newTestEnv(t)
+	if _, err := env.store.(*PostgresStore).db.Exec(`ALTER TABLE recipes RENAME TO unavailable_owner_recipes`); err != nil {
+		t.Fatal(err)
+	}
+	w := env.doRequest("POST", "/api/recipe-bundles/owner-backup", nil)
+	if w.Code != 500 || strings.Contains(w.Body.String(), `"data"`) || strings.Contains(w.Body.String(), "unavailable_owner_recipes") {
+		t.Fatalf("operational failure must return only a generic error, status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestOwnerRecipeBookBackupEndpointUsesAuthenticatedOwner(t *testing.T) {
 	env := newTestEnv(t)
 	adminRecipeID := responseID(t, env.doRequest("POST", "/api/recipes", map[string]interface{}{"name": "Admin recipe", "servings": 1, "servingName": "serving"}))
@@ -173,8 +208,29 @@ func TestOwnerRecipeBookBackupEndpointUsesAuthenticatedOwner(t *testing.T) {
 		t.Fatalf("endpoint did not scope backup to authenticated owner: %+v", resp.Data.Recipes)
 	}
 
-	w = doRequestWithToken(env, "GET", "/api/recipe-bundles/owner-backup", other.AccessToken, nil)
-	if w.Code != 405 {
-		t.Fatalf("GET owner backup status=%d want 405", w.Code)
+	for _, method := range []string{"GET", "PUT", "PATCH", "DELETE"} {
+		w = doRequestWithToken(env, method, "/api/recipe-bundles/owner-backup", other.AccessToken, nil)
+		if w.Code != 405 {
+			t.Fatalf("%s owner backup status=%d want 405", method, w.Code)
+		}
+	}
+	w = env.doRequestNoAuth("POST", "/api/recipe-bundles/owner-backup", nil)
+	if w.Code != 401 {
+		t.Fatalf("unauthenticated backup status=%d want 401", w.Code)
+	}
+
+	// Even an administrator's request body cannot select foreign top-level
+	// content or omit the administrator's own library.
+	w = env.doRequest("POST", "/api/recipe-bundles/owner-backup", map[string]interface{}{
+		"recipeIds": []string{otherRecipeID}, "bookIds": []string{},
+	})
+	if w.Code != 200 {
+		t.Fatalf("admin backup status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Data.Recipes) != 1 || resp.Data.Recipes[0].SourceRecipeID != adminRecipeID {
+		t.Fatalf("selection fields changed owner enumeration: %+v", resp.Data.Recipes)
 	}
 }

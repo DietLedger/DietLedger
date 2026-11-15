@@ -716,7 +716,7 @@ Use a distinct authenticated owner-backup endpoint, not browser-selected export 
 
 ## Rationale and Consequences
 
-Discovery caches can be stale, loading, or later ready-only; they cannot enumerate content safely before account deletion. Server enumeration prevents those omissions while keeping this backup separate from regular export eligibility. The browser cannot prove that a download reached disk. This endpoint does not promise a complete account-data backup or a single transactional snapshot across concurrent edits.
+Discovery caches can be stale, loading, or later ready-only; they cannot enumerate content safely before account deletion. Server enumeration prevents those omissions while keeping this backup separate from regular export eligibility. The browser cannot prove that a download reached disk. This endpoint does not promise a complete account-data backup. Owner enumeration and every serialization/authorization read use a read-only PostgreSQL REPEATABLE READ transaction: a consistent snapshot at the first query, not an inconsistent mixture of concurrent edits. A transaction-local reader reuses existing store/export methods without changing ordinary selected exports. This follows PostgreSQL's snapshot isolation contract (https://www.postgresql.org/docs/17/transaction-iso.html#XACT-REPEATABLE-READ). Backup and deletion remain separate requests: no lock, revision token or write freeze protects edits committed after the snapshot but before deletion. Closing that interval requires a separately approved coordinated deletion protocol; this safeguard must not claim it does so.
 
 ---
 

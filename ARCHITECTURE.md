@@ -135,7 +135,7 @@ Recipes and custom foods persist a namespaced UUID `portableId` independently of
 
 ## Owner Recipe/Book Backup
 
-The authenticated `POST /api/recipe-bundles/owner-backup` endpoint enumerates all caller-owned recipes and books server-side, independent of discovery caches or selected-ID exports. It uses native v2 dependency serialization, preserves incomplete ingredient source facts and placement, validates the resulting bundle, and fails rather than returning a partial backup on operational errors or non-restorable structure. Administrator status does not widen owner enumeration. This is not a full account-data backup; account-deletion UI integration remains pending in the quarantine implementation plan.
+The authenticated `POST /api/recipe-bundles/owner-backup` endpoint enumerates all caller-owned recipes and books server-side, independent of discovery caches or selected-ID exports. It uses native v2 dependency serialization, preserves incomplete ingredient source facts and placement, validates the resulting bundle, and fails rather than returning a partial backup on operational errors or non-restorable structure. Administrator status does not widen owner enumeration. Enumeration, authorization and all dependency serialization reads run within one read-only PostgreSQL REPEATABLE READ transaction, using a transaction-local store reader without mutating the shared connection pool. The snapshot starts at the first query and excludes later commits. It does not coordinate subsequent account deletion or protect intervening edits. This is not a full account-data backup; account-deletion UI integration remains pending in the quarantine implementation plan.
 
 ## Ingredient Source Fidelity
 

@@ -60,6 +60,7 @@ The request has no selection body. The authenticated server enumerates every rec
 - Inaccessible private dependencies, malformed stored groups, missing referenced templates, enumeration failures, and operational dependency lookup failures fail the request; no partial bundle is returned.
 - This is a lossless recipe/book backup purpose, not a full account-data export. It does not include profiles, food logs, weights, or meal plans.
 - A valid empty bundle is returned when the owner has no recipes or books.
+- Enumeration and every dependency/authorization read share one read-only PostgreSQL REPEATABLE READ snapshot, established by the first query. Later committed changes are excluded. Transaction begin/read/validation/commit failure returns no successful bundle. This is not atomic with a later account-deletion request; edits after the snapshot are not protected.
 
 The Settings and AppNav account-deletion flows must use this endpoint before deleting an account; their client integration is tracked separately in the implementation plan.
 
