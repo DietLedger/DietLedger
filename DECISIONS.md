@@ -724,7 +724,7 @@ Discovery caches can be stale, loading, or later ready-only; they cannot enumera
 
 ## Status
 
-Direction accepted by explicit user request; implementation pending. Supersedes the earlier main-table-derived quarantine architecture. The user confirmed whole-batch cancellation, import-only scope and persistent accumulation across imports; no existing recipe migration or data reset is authorized.
+Implemented under the revised import-only scope; see the active plan for verification evidence. Supersedes the earlier main-table-derived quarantine architecture. The user confirmed whole-batch cancellation, import-only scope and persistent accumulation across imports; no existing recipe migration or data reset is authorized.
 
 ## Decision and Rationale
 

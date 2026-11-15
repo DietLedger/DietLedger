@@ -123,8 +123,12 @@ func (s *Server) recipeBundleImportHandler(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	result, err := pg.ImportRecipeBundle(user.ID, bundle)
+	result, err := pg.StageRecipeBundle(user.ID, bundle)
 	if err != nil {
+		if errors.Is(err, ErrExportForbidden) {
+			writeError(w, http.StatusForbidden, "import contains an inaccessible dependency")
+			return
+		}
 		var conflict *RecipeBundleIdentityConflictError
 		if errors.As(err, &conflict) {
 			writeError(w, http.StatusConflict, conflict.Error())

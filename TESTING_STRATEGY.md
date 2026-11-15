@@ -438,6 +438,13 @@ Focus on user-visible outcomes.
   Guards that an authenticated non-admin whose per-user `onboardingComplete`
   is false is redirected to `/welcome` without rendering app content.
 
+## Covered import-only quarantine workflow
+
+- `sync-server/import_quarantine*_test.go` covers staging-first writes, whole-batch keep/cancel, cumulative imports, ownership, retry/rollback/commit failure, dependency cycles, independent promotion and book placement. Shared staged identities must survive cancellation by another batch.
+- HTTP and separate-database owner-backup journeys cover both main and staged content, resumable pending decisions, source facts/unchanged snapshots, canonical rematch scaling, USDA portion weights and pending placement aliases. Use explicit disposable `TEST_DATABASE_URL`; these helpers drop schemas and create disposable restore databases. Skips are not passing evidence.
+- `recipe-import-entrypoints.test.tsx`, `recipe-import-workflow.test.tsx`, `recipe-import-dialog.test.tsx`, `recipe-quarantine.test.tsx` and `recipe-import-bundle.test.ts` protect actual file/Markdown/share controls, missing-record choices, resumed decisions, existing popup reuse, errors, metadata and confirmed-promotion cache refresh. Published queries must not merge quarantine into the main recipe cache.
+- Browser verification remains a separate check when tooling is available; jsdom tests are not a claim of a real browser journey. No new test framework or dependency is introduced.
+
 ## Nutrition correctness suites (Phase B hardening)
 
 - Vitamin D ingestion: `sync-server/seed_test.go`.

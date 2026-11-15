@@ -44,6 +44,7 @@ type RecipeBundle struct {
 	MealPlans         []MealPlan             `json:"mealPlans,omitempty"`
 	DayPlanEntries    []DayPlanEntry         `json:"dayPlanEntries,omitempty"`
 	MealGroups        []MealGroup            `json:"mealGroups,omitempty"`
+	PendingImports    *PendingRecipeImports  `json:"pendingImports,omitempty"`
 }
 
 type RecipeBundleSource struct {
@@ -114,6 +115,7 @@ type BundleRecipe struct {
 }
 
 type BundleFoodItem struct {
+	Portions         []FoodPortion   `json:"portions,omitempty"`
 	SourceFoodItemID string          `json:"sourceFoodItemId,omitempty"`
 	FdcID            int             `json:"fdcId"`
 	Description      string          `json:"description"`
@@ -200,10 +202,13 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 	if bundle.Format != RecipeBundleFormat {
 		return fmt.Errorf("unsupported recipe bundle format %q", bundle.Format)
 	}
-	if bundle.Version != 1 && bundle.Version != RecipeBundleVersion {
+	if bundle.Version != 1 && bundle.Version != RecipeBundleVersion && bundle.Version != 3 {
 		return fmt.Errorf("unsupported recipe bundle version %d", bundle.Version)
 	}
 
+	if err := validatePendingRecipeImports(bundle); err != nil {
+		return err
+	}
 	recipes := map[string]bool{}
 	portableRecipes := map[string]bool{}
 	for _, r := range bundle.Recipes {
@@ -236,6 +241,14 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 		if f.FdcID <= 0 {
 			return errors.New("food item fdcId is required")
 		}
+		if field := validateNutritionNumbers(f.Nutrients); field != "" {
+			return fmt.Errorf("food item %d nutrients are invalid", f.FdcID)
+		}
+		for _, portion := range f.Portions {
+			if !validNonNegative(portion.Amount) || portion.Amount <= 0 || !validNonNegative(portion.GramWeight) || portion.GramWeight <= 0 || strings.TrimSpace(portion.MeasureUnit) == "" {
+				return fmt.Errorf("food item %d portion is invalid", f.FdcID)
+			}
+		}
 		foodItems[f.FdcID] = true
 	}
 	customFoods := map[string]bool{}
@@ -258,6 +271,9 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 		}
 		if strings.TrimSpace(f.Name) == "" {
 			return fmt.Errorf("custom food %q name is required", f.BundleCustomFoodID)
+		}
+		if field := validateNutritionNumbers(f.Nutrients); field != "" {
+			return fmt.Errorf("custom food %q nutrients are invalid", f.BundleCustomFoodID)
 		}
 		customFoods[f.BundleCustomFoodID] = true
 	}
@@ -694,11 +710,15 @@ func containsString(values []string, want string) bool {
 }
 
 type RecipeBundleImportSummary struct {
-	Created   map[string]int         `json:"created"`
-	Updated   map[string]int         `json:"updated"`
-	Reused    map[string]int         `json:"reused"`
-	Skipped   map[string]int         `json:"skipped"`
-	Conflicts []RecipeBundleConflict `json:"conflicts"`
+	Created           map[string]int         `json:"created"`
+	Updated           map[string]int         `json:"updated"`
+	Reused            map[string]int         `json:"reused"`
+	Skipped           map[string]int         `json:"skipped"`
+	Conflicts         []RecipeBundleConflict `json:"conflicts"`
+	PendingImportID   string                 `json:"pendingImportId,omitempty"`
+	RequiresDecision  bool                   `json:"requiresDecision"`
+	Quarantined       int                    `json:"quarantined"`
+	PromotedRecipeIDs []string               `json:"promotedRecipeIds"`
 }
 
 type RecipeBundleConflict struct {
@@ -709,7 +729,7 @@ type RecipeBundleConflict struct {
 }
 
 func newRecipeBundleImportSummary() RecipeBundleImportSummary {
-	return RecipeBundleImportSummary{Created: map[string]int{}, Updated: map[string]int{}, Reused: map[string]int{}, Skipped: map[string]int{}, Conflicts: []RecipeBundleConflict{}}
+	return RecipeBundleImportSummary{Created: map[string]int{}, Updated: map[string]int{}, Reused: map[string]int{}, Skipped: map[string]int{}, Conflicts: []RecipeBundleConflict{}, PromotedRecipeIDs: []string{}}
 }
 
 func incCount(m map[string]int, key string) { m[key] = m[key] + 1 }
@@ -720,7 +740,6 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	if _, err := PlanRecipeBundleImport(bundle); err != nil {
 		return nil, err
 	}
-	summary := newRecipeBundleImportSummary()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -735,9 +754,28 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		return nil, err
 	}
 
-	recipeMap := map[string]string{}
+	recipeMap, customFoodMap := map[string]string{}, map[string]string{}
+	result, err := s.importRecipeBundleTx(tx, userID, bundle, recipeMap, customFoodMap, false)
+	if err != nil {
+		return nil, err
+	}
+	if bundle.PendingImports != nil {
+		if err := s.restorePendingImportsTx(tx, userID, bundle, recipeMap, customFoodMap); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// importRecipeBundleTx is the persistence primitive. The caller owns validation,
+// owner locking and commit. Staging uses append-only placement persistence;
+// the legacy low-level reader retains its existing book replacement semantics.
+func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle RecipeBundle, recipeMap, customFoodMap map[string]string, appendPlacement bool) (*RecipeBundleImportSummary, error) {
+	summary := newRecipeBundleImportSummary()
 	reusedRecipes := map[string]bool{}
-	customFoodMap := map[string]string{}
 	categoryMap := map[string]string{}
 	bookMap := map[string]string{}
 	chapterMap := map[string]string{}
@@ -755,6 +793,13 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		}
 		_, err = tx.Exec(`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW())`, f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit, f.Nutrients.Calories, f.Nutrients.TotalFat, f.Nutrients.SaturatedFat, f.Nutrients.TransFat, f.Nutrients.Cholesterol, f.Nutrients.Sodium, f.Nutrients.TotalCarbs, f.Nutrients.DietaryFiber, f.Nutrients.TotalSugars, f.Nutrients.AddedSugars, f.Nutrients.Protein, f.Nutrients.VitaminD, f.Nutrients.Calcium, f.Nutrients.Iron, f.Nutrients.Potassium, emptyDefault(f.Source, "usda"))
 		if err != nil {
+			return nil, err
+		}
+		portions, err := foodPortionsJSON(f.Portions)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(`UPDATE food_items SET portions=$1 WHERE fdc_id=$2`, portions, f.FdcID); err != nil {
 			return nil, err
 		}
 		incCount(summary.Created, "foods")
@@ -944,6 +989,11 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 				}
 			}
 		}
+		if found && appendPlacement {
+			bookMap[b.BundleBookID] = id
+			incCount(summary.Reused, "books")
+			continue
+		}
 		if found {
 			_, err = tx.Exec(`UPDATE recipe_books SET title=$1, description=$2, cover_color=$3, updated_at=NOW() WHERE user_id=$4 AND id=$5`, b.Title, b.Description, emptyDefault(b.CoverColor, "#059669"), userID, id)
 			if err != nil {
@@ -968,6 +1018,16 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	}
 	for _, bp := range bundle.BookPages {
 		if bid := bookMap[bp.BundleBookID]; bid != "" {
+			if appendPlacement {
+				var existing string
+				err := tx.QueryRow(`SELECT m.target_id FROM import_object_mappings m JOIN book_pages p ON p.id=m.target_id WHERE m.user_id=$1 AND m.source_object_type='book_page' AND m.source_object_key=$2 AND p.book_id=$3`, userID, bp.BundleBookPageID, bid).Scan(&existing)
+				if err == nil {
+					continue
+				}
+				if err != sql.ErrNoRows {
+					return nil, err
+				}
+			}
 			id := uuid.New().String()
 			_, err := tx.Exec(`INSERT INTO book_pages (id, book_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())`, id, bid, bp.Title, bp.Content, bp.Position)
 			if err != nil {
@@ -980,6 +1040,17 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		bid := bookMap[ch.BundleBookID]
 		if bid == "" {
 			continue
+		}
+		if appendPlacement {
+			var existing string
+			err := tx.QueryRow(`SELECT m.target_id FROM import_object_mappings m JOIN chapters c ON c.id=m.target_id WHERE m.user_id=$1 AND m.source_object_type='chapter' AND m.source_object_key=$2 AND c.book_id=$3`, userID, ch.BundleChapterID, bid).Scan(&existing)
+			if err == nil {
+				chapterMap[ch.BundleChapterID] = existing
+				continue
+			}
+			if err != sql.ErrNoRows {
+				return nil, err
+			}
 		}
 		id := uuid.New().String()
 		var pageTmpl, recipeTmpl *string
@@ -1002,6 +1073,16 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 	}
 	for _, cp := range bundle.ChapterPages {
 		if cid := chapterMap[cp.BundleChapterID]; cid != "" {
+			if appendPlacement {
+				var existing string
+				err := tx.QueryRow(`SELECT m.target_id FROM import_object_mappings m JOIN chapter_pages p ON p.id=m.target_id WHERE m.user_id=$1 AND m.source_object_type='chapter_page' AND m.source_object_key=$2 AND p.chapter_id=$3`, userID, cp.BundleChapterPageID, cid).Scan(&existing)
+				if err == nil {
+					continue
+				}
+				if err != sql.ErrNoRows {
+					return nil, err
+				}
+			}
 			id := uuid.New().String()
 			_, err := tx.Exec(`INSERT INTO chapter_pages (id, chapter_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())`, id, cid, cp.Title, cp.Content, cp.Position)
 			if err != nil {
@@ -1020,9 +1101,6 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
 	return &summary, nil
 }
 
@@ -1328,6 +1406,9 @@ func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundl
 	if err != nil {
 		return nil, err
 	}
+	if err := snapshot.backupPendingImports(userID, bundle); err != nil {
+		return nil, err
+	}
 	if err := verifyOwnerBackupContents(bundle, recipeIDs, bookIDs); err != nil {
 		return nil, err
 	}
@@ -1477,11 +1558,8 @@ func (s *PostgresStore) canExportRecipe(user *User, recipeID string) (bool, erro
 	if user == nil {
 		return false, nil
 	}
-	if user.IsAdmin {
-		return true, nil
-	}
 	var ok bool
-	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND (r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.visibility='public')))`, recipeID, user.ID).Scan(&ok)
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND ($3 OR r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.visibility='public')))`, recipeID, user.ID, user.IsAdmin).Scan(&ok)
 	return ok, err
 }
 
@@ -1663,7 +1741,7 @@ func (s *PostgresStore) addFoodItemToBundle(fdcID int, bundle *RecipeBundle) err
 	if err != nil || f == nil {
 		return err
 	}
-	bundle.FoodItems = append(bundle.FoodItems, BundleFoodItem{SourceFoodItemID: fmt.Sprint(f.ID), FdcID: f.FdcID, Description: f.Description, DataType: f.DataType, BrandOwner: f.BrandOwner, GtinUpc: f.GtinUpc, ServingSize: f.ServingSize, ServingSizeUnit: f.ServingSizeUnit, Source: f.Source, Nutrients: nutrientsFromFoodItem(*f)})
+	bundle.FoodItems = append(bundle.FoodItems, BundleFoodItem{Portions: f.Portions, SourceFoodItemID: fmt.Sprint(f.ID), FdcID: f.FdcID, Description: f.Description, DataType: f.DataType, BrandOwner: f.BrandOwner, GtinUpc: f.GtinUpc, ServingSize: f.ServingSize, ServingSizeUnit: f.ServingSizeUnit, Source: f.Source, Nutrients: nutrientsFromFoodItem(*f)})
 	return nil
 }
 

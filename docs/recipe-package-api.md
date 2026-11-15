@@ -1,6 +1,6 @@
-# Recipe package API: incremental v2 foundation
+# Recipe package API: native transfer and import-only quarantine
 
-Authoritative target spec: `specs/recipe-nutrition-quarantine.md`. Execution evidence and unfinished work: `specs/recipe-nutrition-quarantine-plan.md`. All routes below require authentication. This checkpoint is **not** the completed database-preflight/quarantine workflow.
+Authoritative scope: the current user revision in `specs/recipe-nutrition-quarantine.md`; execution evidence and deferred work: `specs/recipe-nutrition-quarantine-plan.md`. All routes below require authentication. The implemented workflow stages imports separately and promotes complete recipes; dataset preflight/inventory and legacy recipe migration are not part of it.
 
 ## Portable identity
 
@@ -48,11 +48,11 @@ Migration 000030 marks only provable legacy `manual` / `fdcId=-3` all-zero unlin
 
 Existing request shape remains `{ "recipeIds": [], "bookIds": [], "profileIds": [], "mealPlanIds": [] }`. It returns a bundle envelope with `format: "dietledger.recipe-bundle"`, `version: 2` and source/export metadata. V2 recipe/custom-food records carry portable identities; bundle-local references are remapped on import, not installed as local primary keys. Dependency closure must preserve authorized linked/custom-food references and native book organization.
 
-Ready-only filtering is not enabled by this foundation.
+Ordinary export remains main-table-only. Unpromoted imports are stored separately, have no main recipe row/live book join, and cannot be selected by staging ID. No legacy recipe filtering or published/quarantine combined query is introduced.
 
 ## POST /api/recipe-bundles/owner-backup
 
-The request has no selection body. The authenticated server enumerates every recipe and book owned by the caller, including unresolved/incomplete recipes, then returns the same native v2 bundle envelope.
+The request has no selection body. The authenticated server enumerates every recipe and book owned by the caller, including unresolved/incomplete recipes, then returns a native v2 envelope, or v3 when pending imports must also be retained.
 
 - Administrator status does not expand top-level enumeration to other users' content.
 - The backup includes ingredient order/groups, zero intent, unresolved identities, supplied facts, categories, books, chapters, pages, referenced templates, joins, and authorized dependency closure.
@@ -66,26 +66,27 @@ The request has no selection body. The authenticated server enumerates every rec
 
 The explicit frontend method `exportOwnerRecipeBookBackup(): Promise<RecipeBundle>` posts to this endpoint without a selection body. Both Settings and AppNav account-deletion entry points await this method and JSON download construction/initiation before calling account deletion. Any backup/download exception blocks deletion, logout and navigation; deletion failure also blocks logout/navigation. Settings forwards its required administrator successor unchanged. Ordinary selected-ID exports remain separate. Download initiation is not evidence the browser saved the file to disk; these flows say so and do not promise a ZIP or complete account backup.
 
-## Revised import/quarantine API contract (implementation in progress)
+## Import/quarantine API
 
 This import-only workflow supersedes direct publication of incomplete imported recipes. No dataset inventory/preflight UI is added. Main recipes and normal book joins contain only promoted imports; normal selected JSON/PDF export never reads staged rows. Owner backup explicitly preserves staged imports as described below.
 
 - `POST /api/recipe-bundles/import`: stage the whole bundle first and verify actual links. A complete batch may promote immediately. Missing links return the ordinary import summary plus optional `pendingImportId`, `requiresDecision: true`, `quarantined`, and `promotedRecipeIds`. No main writes occur until the user accepts a batch requiring a decision.
 - `POST /api/recipe-imports/{batchId}/decision`, JSON `{ "action": "keep" | "cancel" }`: keep promotes complete recipes and retains unresolved rows; cancel discards only this unaccepted incoming batch. Earlier quarantine is untouched. Returns an import summary. No whole-library reset or deletion of reused main objects implements undo.
-- `GET /api/recipe-imports`: return an array of owner-only `QuarantinedRecipe` objects: `{ id, batchId, recipe: RecipeRecord, unresolvedIngredients: [{ ingredientId, reason }], bookTitles: string[] }`. This reads staged recipes exclusively, cumulatively across batches. IDs are durable staging IDs, not main recipe IDs.
+- `GET /api/recipe-imports`: return an array of owner-only `QuarantinedRecipe` objects: `{ id, batchId, requiresDecision, recipe: RecipeRecord, unresolvedIngredients: [{ ingredientId, reason }], bookTitles: string[] }`. This reads staged recipes/import context exclusively, cumulatively across batches. Unaccepted batches remain resumable after refresh, including batches reusing another import's staged identity. Decision-only records cannot be edited as recipe rows; choose Keep/Cancel first. Editable IDs are durable staging IDs, not main recipe IDs.
 - `PUT /api/recipe-imports/{recipeId}/ingredients/{ingredientId}`: accept the existing ingredient write shape from the existing rematch builder, verify the selected canonical source, update staged content and promote newly complete recipes/dependency parents transactionally. Returns an import summary with `promotedRecipeIds` and `quarantined`. The reserved ingredient key `new` supports adding the first ingredient to an empty staged recipe through the same search popup. Invalid/unavailable/foreign matches fail without removing staged content.
 - API client methods: `getQuarantinedRecipes()`, `decideRecipeImport(batchId, action)`, and `resolveQuarantinedIngredient(recipeId, ingredientId, data)`; existing native import callers share the missing-record decision dialog. Existing native validation/identity-conflict errors remain safe blockers.
-- Owner backup stays v2 when no staged data exists; with staged data it uses **v3**, with an explicit `pendingImports` section containing versioned batch context and staged payloads. The current reader/import restore must understand that section before v3 is accepted. Older readers must reject v3 rather than silently discard staged content. Portable references into already-promoted dependencies must be remapped on restore. Staged writes/promotion and backup use the same transaction/snapshot boundary so a recipe is backed up either staged or promoted, never neither.
+- Owner backup stays v2 when no staged recipes or pending import decisions exist; otherwise it uses **v3**, with an explicit `pendingImports` section containing versioned batch context and staged payloads. The current reader/import restore validates and restores that section; older readers reject v3 rather than silently discard staged content. V3 main content must also have valid links: changing the envelope version cannot bypass staging verification. A non-restorable mix of incomplete legacy/manual main content plus staging fails backup generation rather than returning a v3 envelope the public importer cannot restore. Portable references into already-promoted dependencies must be remapped on restore. Staged writes/promotion and backup use the same transaction/snapshot boundary so a recipe is backed up either staged or promoted, never neither.
 
-## POST /api/recipe-bundles/import — foundation behavior
+## Native persistence and compatibility
 
-The body is the bundle itself, not a wrapper. Versions 1 and 2 are accepted; unsupported versions fail with HTTP 400. The browser file reader accepts v1/v2 JSON and still rejects legacy ZIP input; it does not add format adapters or replace server validation.
+The body is the bundle itself, not a wrapper. Versions 1, 2 and supported v3 pending-import envelopes are accepted; unsupported versions fail with HTTP 400. The browser reader retains the supported pending-import section and rejects legacy ZIP input. The public import handler uses staging; the transaction-taking native persistence primitive is reused only for verified promotion/restore, not as a public unresolved-recipe bypass.
 
 - Supplied portable food/recipe identities are validated and retained. Different identities never merge merely because names/nutrients match.
 - Legacy objects without portable identities receive persisted local portable identities; an existing authorized origin mapping may identify a prior import, but content hashes/names do not establish identity.
 - Reuse compares incoming content against current local content with transport/local IDs normalized. Unchanged reuse does not recreate ingredients or overwrite repairs.
 - Conflicting recipe/custom-food identity returns HTTP 409 and rolls back the entire import. The retain-local/fork-incoming interaction is a later slice; conflicts are currently safe blockers, not automatic replacements.
-- Imports serialize per owner, making identical concurrent imports duplicate-safe. Recipe shells and dependency mappings remain internal to the transaction.
+- Imports serialize per owner, making identical concurrent imports duplicate-safe. Recipe shells and dependency mappings remain internal to verified promotion transactions. Batch cancellation never removes a staged recipe retained by another accepted/pending import; completed context is not replayed over later user edits.
 - Structurally valid `usda`, `custom_food`, and `recipe` ingredient references may name a target absent from the package. Import preserves that source in `unresolvedSource`, preserves optional package `suppliedNutrition`, and does not create a dangling live link. Unknown source types, conflicting identity fields, unsafe structure and invalid numeric/basis data still fail validation.
 - V2 bundle ingredients may include `position`, `zeroNutritionOverride`, and `suppliedNutrition`. Explicit positions must be present on every ingredient in that recipe and unique/non-negative; otherwise array order is used. Order-only changed content under the same portable recipe identity is a conflict.
-- Full database manifests/preflight, reviewed supplied-fact promotion, readiness/quarantine APIs, retain/fork conflict UI and regular export gates are still tracked in the plan. Do not infer those behaviors from the storage contract alone.
+- USDA `foodItems[].portions` retains food-specific gram weights through native/owner-backup transfer. Available canonical sources are verified without rewriting unchanged ingredient snapshots. Deliberately repairing a match recalculates that ingredient and affected staged linked parents; unrelated snapshots remain unchanged.
+- Dataset manifests/preflight, reviewed supplied-fact publication and retain/fork conflict UI are deferred. The implemented import-only quarantine API does not introduce those workflows, migrate existing main data, or change published queries.
