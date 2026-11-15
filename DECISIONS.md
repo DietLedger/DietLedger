@@ -704,6 +704,22 @@ Migration 000030 adds the storage contract and conservative legacy backfill. Nat
 
 ---
 
+# ADR: Server-Enumerated Owner Recipe/Book Backup
+
+## Status
+
+Accepted; backend implemented incrementally under the recipe nutrition quarantine plan. Account-deletion UI integration is pending.
+
+## Decision
+
+Use a distinct authenticated owner-backup endpoint, not browser-selected export IDs, to enumerate all owned recipes/books. Reuse native v2 serialization and authorized dependency closure. Validate the bundle and verify all enumerated top-level objects are present. Missing ingredient source identities remain representable; operational retrieval failures, inaccessible private dependencies, malformed groups, and missing referenced templates fail backup generation instead of silently losing data.
+
+## Rationale and Consequences
+
+Discovery caches can be stale, loading, or later ready-only; they cannot enumerate content safely before account deletion. Server enumeration prevents those omissions while keeping this backup separate from regular export eligibility. The browser cannot prove that a download reached disk. This endpoint does not promise a complete account-data backup or a single transactional snapshot across concurrent edits.
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:

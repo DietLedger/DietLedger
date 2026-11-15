@@ -23,6 +23,10 @@ func (s *Server) recipeBundlesRouter(w http.ResponseWriter, r *http.Request) {
 		s.recipeBundleExportHandler(w, r)
 		return
 	}
+	if path == "/api/recipe-bundles/owner-backup" {
+		s.recipeBundleOwnerBackupHandler(w, r)
+		return
+	}
 	if path == "/api/recipe-bundles/import" {
 		s.recipeBundleImportHandler(w, r)
 		return
@@ -75,6 +79,29 @@ func (s *Server) recipeBundleExportHandler(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to export recipe bundle")
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: bundle})
+}
+
+func (s *Server) recipeBundleOwnerBackupHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user := getUserFromContext(r)
+	pg, ok := s.store.(*PostgresStore)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "recipe bundles require PostgreSQL store")
+		return
+	}
+	bundle, err := pg.ExportOwnerRecipeBookBackup(user.ID)
+	if err != nil {
+		if errors.Is(err, ErrExportForbidden) {
+			writeError(w, http.StatusForbidden, "owner recipe/book backup contains an inaccessible dependency")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create owner recipe/book backup")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: bundle})

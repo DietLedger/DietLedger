@@ -60,6 +60,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/recipes/completions/", s.requireAuth(s.recipeCompletionsRouter))
 	mux.HandleFunc("/api/recipe-bundles/candidates", s.requireAuth(s.recipeBundlesRouter))
 	mux.HandleFunc("/api/recipe-bundles/export", s.requireAuth(s.recipeBundlesRouter))
+	mux.HandleFunc("/api/recipe-bundles/owner-backup", s.requireAuth(s.recipeBundlesRouter))
 	mux.HandleFunc("/api/recipe-bundles/import", s.requireAuth(s.recipeBundlesRouter))
 
 	mux.HandleFunc("/api/profiles/", s.requireAuth(s.profileRoutes))

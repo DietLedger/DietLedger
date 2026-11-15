@@ -1306,6 +1306,70 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 	return candidates, bookRows.Err()
 }
 
+func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundle, error) {
+	recipeIDs, err := s.listOwnedBundleIDs(`SELECT id FROM recipes WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	bookIDs, err := s.listOwnedBundleIDs(`SELECT id FROM recipe_books WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := s.ExportRecipeBundle(userID, recipeIDs, bookIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyOwnerBackupContents(bundle, recipeIDs, bookIDs); err != nil {
+		return nil, err
+	}
+	if err := ValidateRecipeBundle(*bundle); err != nil {
+		return nil, fmt.Errorf("validate owner recipe/book backup: %w", err)
+	}
+	return bundle, nil
+}
+
+func (s *PostgresStore) listOwnedBundleIDs(query, userID string) ([]string, error) {
+	rows, err := s.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func verifyOwnerBackupContents(bundle *RecipeBundle, recipeIDs, bookIDs []string) error {
+	if bundle == nil {
+		return errors.New("owner recipe/book backup is nil")
+	}
+	recipes := make(map[string]bool, len(bundle.Recipes))
+	for _, recipe := range bundle.Recipes {
+		recipes[recipe.SourceRecipeID] = true
+	}
+	for _, id := range recipeIDs {
+		if !recipes[id] {
+			return fmt.Errorf("owner recipe %q missing from backup", id)
+		}
+	}
+	books := make(map[string]bool, len(bundle.Books))
+	for _, book := range bundle.Books {
+		books[book.SourceBookID] = true
+	}
+	for _, id := range bookIDs {
+		if !books[id] {
+			return fmt.Errorf("owner book %q missing from backup", id)
+		}
+	}
+	return nil
+}
+
 func (s *PostgresStore) ExportRecipeBundleForUser(user *User, recipeIDs, bookIDs, profileIDs, mealPlanIDs []string) (*RecipeBundle, error) {
 	bundle := &RecipeBundle{Format: RecipeBundleFormat, Version: RecipeBundleVersion, ExportedAt: time.Now().UTC().Format(time.RFC3339), Source: RecipeBundleSource{App: "DietLedger", Version: version}}
 	seenRecipes := map[string]bool{}
@@ -1528,7 +1592,9 @@ func (s *PostgresStore) addRecipeRecordToBundle(user *User, r *Recipe, bundle *R
 	}
 	seen[r.ID] = true
 	var groups []IngredientGroupJSON
-	_ = json.Unmarshal([]byte(r.IngredientGroupsJSON), &groups)
+	if err := json.Unmarshal([]byte(r.IngredientGroupsJSON), &groups); err != nil {
+		return fmt.Errorf("decode ingredient groups for recipe %q: %w", r.ID, err)
+	}
 	br := BundleRecipe{PortableID: r.PortableID, BundleRecipeID: r.PortableID, SourceRecipeID: r.ID, Name: r.Name, Servings: r.Servings, ServingName: r.ServingName, PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage}
 	for _, g := range groups {
 		br.IngredientGroups = append(br.IngredientGroups, BundleIngredientGroup{BundleGroupID: g.ID, Title: g.Title})

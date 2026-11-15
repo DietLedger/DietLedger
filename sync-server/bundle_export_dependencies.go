@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 )
 
 // Keep missing references intact for unresolved-source import handling. Existing
@@ -93,8 +94,11 @@ func (s *PostgresStore) addReferencedTemplateToBundle(bookOwnerID, templateID st
 		}
 	}
 	t, err := s.GetTemplate(bookOwnerID, templateID)
-	if err != nil || t == nil {
+	if err != nil {
 		return err
+	}
+	if t == nil {
+		return fmt.Errorf("referenced template %q not found", templateID)
 	}
 	bundle.Templates = append(bundle.Templates, BundleTemplate{BundleTemplateID: t.ID, SourceTemplateID: t.ID, Name: t.Name, Type: t.Type, Layout: json.RawMessage(t.LayoutJSON)})
 	return nil

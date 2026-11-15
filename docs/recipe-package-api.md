@@ -48,7 +48,20 @@ Migration 000030 marks only provable legacy `manual` / `fdcId=-3` all-zero unlin
 
 Existing request shape remains `{ "recipeIds": [], "bookIds": [], "profileIds": [], "mealPlanIds": [] }`. It returns a bundle envelope with `format: "dietledger.recipe-bundle"`, `version: 2` and source/export metadata. V2 recipe/custom-food records carry portable identities; bundle-local references are remapped on import, not installed as local primary keys. Dependency closure must preserve authorized linked/custom-food references and native book organization.
 
-Do not confuse this selected-ID endpoint with the planned owner-enumerated lossless recipe/book backup purpose. Ready-only filtering and the backup purpose are not enabled by this foundation.
+Ready-only filtering is not enabled by this foundation.
+
+## POST /api/recipe-bundles/owner-backup
+
+The request has no selection body. The authenticated server enumerates every recipe and book owned by the caller, including unresolved/incomplete recipes, then returns the same native v2 bundle envelope.
+
+- Administrator status does not expand top-level enumeration to other users' content.
+- The backup includes ingredient order/groups, zero intent, unresolved identities, supplied facts, categories, books, chapters, pages, referenced templates, joins, and authorized dependency closure.
+- Missing ingredient source targets remain explicit unresolved references with their snapshots/facts.
+- Inaccessible private dependencies, malformed stored groups, missing referenced templates, enumeration failures, and operational dependency lookup failures fail the request; no partial bundle is returned.
+- This is a lossless recipe/book backup purpose, not a full account-data export. It does not include profiles, food logs, weights, or meal plans.
+- A valid empty bundle is returned when the owner has no recipes or books.
+
+The Settings and AppNav account-deletion flows must use this endpoint before deleting an account; their client integration is tracked separately in the implementation plan.
 
 ## POST /api/recipe-bundles/import
 
