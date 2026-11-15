@@ -354,6 +354,14 @@ export class GoApiClient implements ApiClient {
     return this.unwrap(resp);
   }
 
+  async exportOwnerRecipeBookBackup(): Promise<import('./api-client').RecipeBundle> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundle }>(
+      'POST',
+      '/api/recipe-bundles/owner-backup',
+    );
+    return this.unwrap(resp);
+  }
+
   async importRecipeBundle(bundle: import('./api-client').RecipeBundle): Promise<import('./api-client').RecipeBundleImportSummary> {
     const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundleImportSummary }>(
       'POST',

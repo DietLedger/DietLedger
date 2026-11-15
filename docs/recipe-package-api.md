@@ -62,7 +62,7 @@ The request has no selection body. The authenticated server enumerates every rec
 - A valid empty bundle is returned when the owner has no recipes or books.
 - Enumeration and every dependency/authorization read share one read-only PostgreSQL REPEATABLE READ snapshot, established by the first query. Later committed changes are excluded. Transaction begin/read/validation/commit failure returns no successful bundle. This is not atomic with a later account-deletion request; edits after the snapshot are not protected.
 
-The Settings and AppNav account-deletion flows must use this endpoint before deleting an account; their client integration is tracked separately in the implementation plan.
+The explicit frontend method `exportOwnerRecipeBookBackup(): Promise<RecipeBundle>` posts to this endpoint without a selection body. Both Settings and AppNav account-deletion entry points await this method and JSON download construction/initiation before calling account deletion. Any backup/download exception blocks deletion, logout and navigation; deletion failure also blocks logout/navigation. Settings forwards its required administrator successor unchanged. Ordinary selected-ID exports remain separate. Download initiation is not evidence the browser saved the file to disk; these flows say so and do not promise a ZIP or complete account backup.
 
 ## POST /api/recipe-bundles/import
 

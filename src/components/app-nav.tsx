@@ -387,16 +387,16 @@ export default function AppNav() {
                           />
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs text-stone-600">Delete my account<br /><span className="text-stone-400">Downloads a recipe bundle, then deletes everything.</span></p>
+                          <p className="text-xs text-stone-600">Delete my account<br /><span className="text-stone-400">Initiates a recipe/book JSON backup download, then deletes your account and all its data.</span></p>
                           <ConfirmWithPasswordDialog
                             title="Delete your account?"
-                            description="A recipe/cookbook bundle will be downloaded first, then your account and all its data will be permanently deleted. You will be signed out. Cannot be undone."
+                            description="A recipe/book JSON backup download will be initiated first, then your account and all its data will be permanently deleted. This is not a full-account backup: profiles, food logs, weights and meal plans are not included. The browser cannot confirm the file was saved to disk. You will be signed out. Cannot be undone."
                             confirmLabel="Delete account" destructive
                             trigger={<Button size="sm" variant="outline" className="gap-1 border-red-200 text-red-700 hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" />Delete account</Button>}
                             action={async (password) => {
                               try {
-                                const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
-                                downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
+                                const bundle = await getApiClient().exportOwnerRecipeBookBackup();
+                                await downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
                                 await getApiClient().deleteMyAccount(password);
                                 logout();
                                 router.replace('/');

@@ -1,6 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GoApiClient } from './api-client-go';
 
+describe('owner recipe/book backup', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('requests a server-enumerated native backup without selection IDs or a body', async () => {
+    const bundle = { format: 'dietledger.recipe-bundle', version: 2, recipes: [], books: [] };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, data: bundle }),
+    }));
+    const result = await new GoApiClient('').exportOwnerRecipeBookBackup();
+    expect(result).toEqual(bundle);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/recipe-bundles/owner-backup', expect.objectContaining({
+      method: 'POST', body: undefined,
+    }));
+  });
+
+  it('rejects backup retrieval failure instead of returning a partial bundle', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Backup unavailable' }), { status: 500 })));
+    await expect(new GoApiClient('').exportOwnerRecipeBookBackup()).rejects.toThrow('Backup unavailable');
+  });
+});
+
 describe('food database search', () => {
   afterEach(() => vi.unstubAllGlobals());
 

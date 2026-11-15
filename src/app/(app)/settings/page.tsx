@@ -248,9 +248,9 @@ export default function SettingsPage() {
     if (needSuccessor && !delAccSucc) { setDelAccErr('You are the only administrator — choose a successor.'); return; }
     setDelAccBusy(true);
     try {
-      // 1. download a recipe/cookbook bundle, 2. delete the account, 3. sign out.
-      const bundle = await getApiClient().exportRecipeBundle({ recipeIds: recipes.map((r) => r.id), bookIds: books.map((b) => b.id) });
-      downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
+      // Initiate the owner backup download before deleting; disk persistence cannot be confirmed.
+      const bundle = await getApiClient().exportOwnerRecipeBookBackup();
+      await downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
       await getApiClient().deleteMyAccount(delAccPw, needSuccessor ? delAccSucc : undefined);
       logout();
       router.replace('/');
@@ -415,7 +415,7 @@ export default function SettingsPage() {
                   <div className="border-t border-stone-100 pt-4 flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-stone-700">Delete my account</p>
-                      <p className="text-xs text-stone-400 mt-0.5">Downloads a backup zip, then deletes your account and all its data.</p>
+                      <p className="text-xs text-stone-400 mt-0.5">Initiates a recipe/book JSON backup download, then deletes your account and all its data.</p>
                     </div>
                     <Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDelAccOpen(true); setDelAccPw(''); setDelAccSucc(''); setDelAccErr(''); }}>
                       <Trash2 className="w-3.5 h-3.5" />Delete account
@@ -619,7 +619,7 @@ export default function SettingsPage() {
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-red-700"><AlertTriangle className="w-4 h-4" />Delete my account</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <p className="text-xs text-stone-500">A backup zip will be downloaded first, then your account and all its data will be permanently deleted. You will be signed out.</p>
+            <p className="text-xs text-stone-500">A recipe/book JSON backup download will be initiated first, then your account and all its data will be permanently deleted. This is not a full-account backup: profiles, food logs, weights and meal plans are not included. The browser cannot confirm the file was saved to disk. You will be signed out. Cannot be undone.</p>
             {needSuccessor && (
               <div className="space-y-1.5">
                 <Label className="text-xs">Successor administrator (required — you are the only admin)</Label>

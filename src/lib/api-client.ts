@@ -239,6 +239,7 @@ export interface ApiClient {
   // Recipe bundles
   getRecipeBundleExportCandidates(): Promise<ExportCandidateRecord[]>;
   exportRecipeBundle(request: { recipeIds?: string[]; bookIds?: string[]; profileIds?: string[]; mealPlanIds?: string[] }): Promise<RecipeBundle>;
+  exportOwnerRecipeBookBackup(): Promise<RecipeBundle>;
   importRecipeBundle(bundle: RecipeBundle): Promise<RecipeBundleImportSummary>;
 
   // Books
