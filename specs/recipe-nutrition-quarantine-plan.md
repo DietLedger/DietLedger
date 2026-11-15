@@ -1,6 +1,22 @@
 # Implementation plan: recipe nutrition quarantine
 
-Status: approved direction and phased plan; implementation tasks below express the accepted resolutions in `recipe-nutrition-quarantine.md`. Experimental local data may be reset. Do not reset the remote instance or deploy. No new dependencies or third-party adapters.
+Status: the user's revised separate import/quarantine-table direction supersedes the old phases below where they conflict. See **Current user revision** in `recipe-nutrition-quarantine.md`. Earlier implementation evidence remains valid for landed foundations, not proof that staging/quarantine UI exists. Experimental local data may be reset. Do not reset the remote instance or deploy. No new dependencies or third-party adapters.
+
+## Active revised implementation — simple staging and repair
+
+Goal: implement the requested user workflow, not dataset inventory/preflight or a second nutrition workflow. Every imported recipe is staged first; only verified recipes are promoted into normal recipe data. The quarantine page reads staging exclusively and reuses existing ingredient-search/rematch calculations.
+
+Two product choices must be resolved before cancellation/migration code: whether Stop and undo cancels the whole incoming file/batch or just the affected recipe; and whether the staging requirement also covers already-saved recipes with missing links. Do not guess destructive cancellation or bulk movement of existing data.
+
+1. **Stage and verify imports.** Add separate owner-scoped PostgreSQL import storage retaining recipe payloads and native package placement/dependencies. Reuse the existing native importer within transactions for promotion rather than publishing main-table shells. Verify exact food IDs, authorized custom-food links, explicit zero and linked-recipe dependencies. Missing/cyclic dependencies remain staged. Preserve identities and source facts. RED/GREEN: complete/unresolved/mixed input, foreign sources, recursive dependencies/cycles, independent recipe promotion, interrupted promotion/rollback, safe retries, ownership and retained placement.
+2. **Import decision and integrations.** Add the missing-record message with Stop and undo / Relink later. Defer visible promotion until that choice if input is incomplete, so cancellation does not require deleting pre-existing/reused main objects. All four native file import controls converge through `importRecipeBundleFromFile`; integrate once at that shared seam. Route existing markdown drafts through staging without discarding unmatched rows; reuse the parser/editor rather than add a new importer. Keep safe identity-conflict rejection; defer retain/fork UI and unrelated import redesign.
+3. **Quarantine page and repair.** Add the owner-only staged-recipe API and `/recipes/quarantine`. Reuse `IngredientMatchEditor`/the existing search popup and `buildIngredientRematchUpdate`, with a staged-link save instead of adding another ingredient. Show unresolved rows only, filters and independently expandable cards. Confirm saved links before removing rows; promote and remove a completed staged recipe atomically without waiting for unrelated staged recipes. React Query retains server-state ownership. RED/GREEN real UI interaction coverage plus PostgreSQL restart/promotion tests.
+4. **Regular exports and owner backup.** Gate regular candidates, direct-ID native export and PDF recipe/TOC construction using actual link validity; do not add ordinary search/picker/book-styling changes. Extend the completed server-enumerated owner backup to include staged recipe content and placement in the same snapshot. Cross-database restore must preserve staged and promoted content; changing storage must not reintroduce deletion-backup loss.
+5. **Verify and document.** Run focused RED/GREEN then full frontend tests, typecheck, lint, direct web build, full Go JSON suite and focused races on isolated disposable PostgreSQL with zero skips. Exercise stage -> stop/continue -> refresh -> link -> promote -> ordinary export, plus owner backup/restore and cross-user cases. Use local browser tooling if available and report any actual gap. Independent review and clean verified commits; no deployment or remote DB actions.
+
+Deferred: dataset catalog/inventory/preflight, greyed book/search/picker behavior, retain-local/fork UI, new publication/promotion workflows for supplied nutrition and broad linked-snapshot architecture. Reuse existing calculations; verify results rather than add a separate recalculation project.
+
+## Earlier plan and execution record (historical where superseded)
 
 ## Rules and verification
 

@@ -720,6 +720,22 @@ Discovery caches can be stale, loading, or later ready-only; they cannot enumera
 
 ---
 
+# ADR: Separate Import/Quarantine Storage (Revised User Direction)
+
+## Status
+
+Direction accepted by explicit user request; implementation pending. Supersedes the earlier main-table-derived quarantine architecture. Precise cancellation and existing-recipe movement scope remain open, not silently assumed.
+
+## Decision and Rationale
+
+Stage imported recipes separately, verify actual ingredient links, promote complete recipes into the existing main data, and leave unresolved recipes in quarantine. The quarantine UI reads staging exclusively and reuses existing ingredient search/rematch and recalculation. Offer Stop and undo or Relink later for missing sources rather than build dataset inventory/preflight. Defer ordinary search/book styling, retain/fork conflict UI and new nutrition workflows. The user explicitly prioritizes delivering this narrow repair workflow over expanding the surrounding architecture.
+
+## Consequences
+
+Preserve native identities, source facts, dependency links and placement across staging/promotion. Extend the completed owner-backup safeguard to include staged records before routing imports into the new storage. Stop-and-undo must not delete unrelated/reused data. Existing main-table recipes and references must not be moved/deleted incidentally. The active spec and implementation plan define acceptance and the two pending product choices.
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:
