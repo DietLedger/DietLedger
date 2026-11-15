@@ -66,7 +66,18 @@ The request has no selection body. The authenticated server enumerates every rec
 
 The explicit frontend method `exportOwnerRecipeBookBackup(): Promise<RecipeBundle>` posts to this endpoint without a selection body. Both Settings and AppNav account-deletion entry points await this method and JSON download construction/initiation before calling account deletion. Any backup/download exception blocks deletion, logout and navigation; deletion failure also blocks logout/navigation. Settings forwards its required administrator successor unchanged. Ordinary selected-ID exports remain separate. Download initiation is not evidence the browser saved the file to disk; these flows say so and do not promise a ZIP or complete account backup.
 
-## POST /api/recipe-bundles/import
+## Revised import/quarantine API contract (implementation in progress)
+
+This import-only workflow supersedes direct publication of incomplete imported recipes. No dataset inventory/preflight UI is added. Main recipes and normal book joins contain only promoted imports; normal selected JSON/PDF export never reads staged rows. Owner backup explicitly preserves staged imports as described below.
+
+- `POST /api/recipe-bundles/import`: stage the whole bundle first and verify actual links. A complete batch may promote immediately. Missing links return the ordinary import summary plus optional `pendingImportId`, `requiresDecision: true`, `quarantined`, and `promotedRecipeIds`. No main writes occur until the user accepts a batch requiring a decision.
+- `POST /api/recipe-imports/{batchId}/decision`, JSON `{ "action": "keep" | "cancel" }`: keep promotes complete recipes and retains unresolved rows; cancel discards only this unaccepted incoming batch. Earlier quarantine is untouched. Returns an import summary. No whole-library reset or deletion of reused main objects implements undo.
+- `GET /api/recipe-imports`: return an array of owner-only `QuarantinedRecipe` objects: `{ id, batchId, recipe: RecipeRecord, unresolvedIngredients: [{ ingredientId, reason }], bookTitles: string[] }`. This reads staged recipes exclusively, cumulatively across batches. IDs are durable staging IDs, not main recipe IDs.
+- `PUT /api/recipe-imports/{recipeId}/ingredients/{ingredientId}`: accept the existing ingredient write shape from the existing rematch builder, verify the selected canonical source, update staged content and promote newly complete recipes/dependency parents transactionally. Returns an import summary with `promotedRecipeIds` and `quarantined`. The reserved ingredient key `new` supports adding the first ingredient to an empty staged recipe through the same search popup. Invalid/unavailable/foreign matches fail without removing staged content.
+- API client methods: `getQuarantinedRecipes()`, `decideRecipeImport(batchId, action)`, and `resolveQuarantinedIngredient(recipeId, ingredientId, data)`; existing native import callers share the missing-record decision dialog. Existing native validation/identity-conflict errors remain safe blockers.
+- Owner backup stays v2 when no staged data exists; with staged data it uses **v3**, with an explicit `pendingImports` section containing versioned batch context and staged payloads. The current reader/import restore must understand that section before v3 is accepted. Older readers must reject v3 rather than silently discard staged content. Portable references into already-promoted dependencies must be remapped on restore. Staged writes/promotion and backup use the same transaction/snapshot boundary so a recipe is backed up either staged or promoted, never neither.
+
+## POST /api/recipe-bundles/import — foundation behavior
 
 The body is the bundle itself, not a wrapper. Versions 1 and 2 are accepted; unsupported versions fail with HTTP 400. The browser file reader accepts v1/v2 JSON and still rejects legacy ZIP input; it does not add format adapters or replace server validation.
 

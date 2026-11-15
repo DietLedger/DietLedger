@@ -724,7 +724,7 @@ Discovery caches can be stale, loading, or later ready-only; they cannot enumera
 
 ## Status
 
-Direction accepted by explicit user request; implementation pending. Supersedes the earlier main-table-derived quarantine architecture. Precise cancellation and existing-recipe movement scope remain open, not silently assumed.
+Direction accepted by explicit user request; implementation pending. Supersedes the earlier main-table-derived quarantine architecture. The user confirmed whole-batch cancellation, import-only scope and persistent accumulation across imports; no existing recipe migration or data reset is authorized.
 
 ## Decision and Rationale
 
@@ -732,7 +732,7 @@ Stage imported recipes separately, verify actual ingredient links, promote compl
 
 ## Consequences
 
-Preserve native identities, source facts, dependency links and placement across staging/promotion. Extend the completed owner-backup safeguard to include staged records before routing imports into the new storage. Stop-and-undo must not delete unrelated/reused data. Existing main-table recipes and references must not be moved/deleted incidentally. The active spec and implementation plan define acceptance and the two pending product choices.
+Preserve native identities, source facts, dependency links and placement across staging/promotion. Extend the completed owner-backup safeguard to include staged records before routing imports into the new storage. Stop-and-undo must not delete unrelated/reused data. Existing main-table recipes and references must not be moved/deleted incidentally. The active spec and implementation plan define acceptance. Stop-and-undo cancels only the incoming batch before promotion; it never clears quarantine belonging to earlier imports.
 
 ---
 
