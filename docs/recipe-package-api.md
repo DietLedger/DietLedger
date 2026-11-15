@@ -57,7 +57,9 @@ The request has no selection body. The authenticated server enumerates every rec
 - Administrator status does not expand top-level enumeration to other users' content.
 - The backup includes ingredient order/groups, zero intent, unresolved identities, supplied facts, categories, books, chapters, pages, referenced templates, joins, and authorized dependency closure.
 - Missing ingredient source targets remain explicit unresolved references with their snapshots/facts.
-- Inaccessible private dependencies, malformed stored groups, missing referenced templates, enumeration failures, and operational dependency lookup failures fail the request; no partial bundle is returned.
+- Inaccessible private dependencies, malformed stored groups/preparation JSON, missing referenced templates, enumeration failures, and operational dependency lookup failures fail the request; no partial bundle is returned.
+- Cyclic category ancestry and duplicate same-name siblings in the exported category closure are non-restorable under the current native importer and fail closed. They are not silently flattened/merged or repaired. Same names under distinct parents are supported. Distinct same-title books/chapters and same-name templates remain distinct through local-key remapping.
+- If referenced, authorized custom-food copies share a portable identity but disagree on canonical name/nutrients, export fails rather than silently selecting one copy. Equal copies may share one packaged identity; private inaccessible copies remain forbidden.
 - This is a lossless recipe/book backup purpose, not a full account-data export. It does not include profiles, food logs, weights, or meal plans.
 - A valid empty bundle is returned when the owner has no recipes or books.
 - Enumeration and every dependency/authorization read share one read-only PostgreSQL REPEATABLE READ snapshot, established by the first query. Later committed changes are excluded. Transaction begin/read/validation/commit failure returns no successful bundle. This is not atomic with a later account-deletion request; edits after the snapshot are not protected.

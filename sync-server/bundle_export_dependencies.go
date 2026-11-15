@@ -44,6 +44,9 @@ func (s *PostgresStore) addReferencedCustomFoodToBundle(user *User, recipeOwnerI
 	}
 	for _, existing := range bundle.CustomFoods {
 		if existing.BundleCustomFoodID == f.PortableID {
+			if existing.Name != f.Name || existing.Nutrients != nutrientsFromCustomFood(f) {
+				return "", fmt.Errorf("conflicting custom-food portable identity in export")
+			}
 			return f.PortableID, nil
 		}
 	}

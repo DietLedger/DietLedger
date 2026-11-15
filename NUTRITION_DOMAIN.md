@@ -530,6 +530,7 @@ These are known design concerns, not necessarily defects.
 - A package nutrient snapshot is not a trusted food link. Ingredient-level supplied facts retain their basis (`per100g`, `perServing`, `ingredientAmount`, or `unknown`), units and provenance as unconfirmed data until reviewed and linked through a server-owned resolution workflow.
 - Missing USDA/custom-food/recipe identities remain unresolved source facts without dangling live references. Historical food-log snapshots are unchanged.
 - Ingredient ordering is recipe content and is persisted independently of regenerated local row UUIDs.
+- Owner recipe/book backup preserves canonical ingredient snapshots, deliberate zero intent and unconfirmed source facts without recalculating them. Referenced authorized custom-food copies with the same portable identity must have equal canonical name/nutrients; conflicting copies make export fail instead of choosing whichever was read first. Backup does not publish supplied nutrition or rewrite historical food logs.
 
 # Validation Expectations
 

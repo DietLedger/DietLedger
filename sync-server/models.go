@@ -91,13 +91,16 @@ type Ingredient struct {
 	UnconfirmedNutrition  *UnconfirmedIngredientNutrition `json:"unconfirmedNutrition,omitempty"`
 }
 
-func (i *Ingredient) ScanPrepInstructions(v string) {
+func (i *Ingredient) ScanPrepInstructions(v string) error {
 	if v != "" {
-		json.Unmarshal([]byte(v), &i.PrepInstructions)
+		if err := json.Unmarshal([]byte(v), &i.PrepInstructions); err != nil {
+			return err
+		}
 	}
 	if i.PrepInstructions == nil {
 		i.PrepInstructions = []string{}
 	}
+	return nil
 }
 
 func PrepInstructionsJSON(v []string) string {

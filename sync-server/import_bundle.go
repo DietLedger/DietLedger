@@ -1334,6 +1334,9 @@ func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundl
 	if err := ValidateRecipeBundle(*bundle); err != nil {
 		return nil, fmt.Errorf("validate owner recipe/book backup: %w", err)
 	}
+	if err := verifyOwnerBackupCategoryClosure(bundle.Categories); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}

@@ -422,7 +422,9 @@ func listIngredientsByRecipeQuery(q interface {
 		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID, &i.SourceType, &i.SourceKey, &i.Position, &i.ZeroNutritionOverride, &unresolvedJSON, &unconfirmedJSON); err != nil {
 			return nil, err
 		}
-		i.ScanPrepInstructions(prepJSON)
+		if err := i.ScanPrepInstructions(prepJSON); err != nil {
+			return nil, fmt.Errorf("decode preparation instructions for ingredient %q: %w", i.ID, err)
+		}
 		if len(unresolvedJSON) > 0 && string(unresolvedJSON) != "null" {
 			i.UnresolvedSource = &BundleIngredientSourceRef{}
 			if err := json.Unmarshal(unresolvedJSON, i.UnresolvedSource); err != nil {
