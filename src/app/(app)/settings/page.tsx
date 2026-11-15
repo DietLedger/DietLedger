@@ -41,7 +41,9 @@ import {
   User, Palette,
 } from 'lucide-react';
 import { DEFAULT_MEAL_SLOT_TIMES, type DaySlot } from '@/lib/types';
-import { downloadRecipeBundle, importRecipeBundleFromFile, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { downloadRecipeBundle, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
+import Link from 'next/link';
 
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: 'Morning', midMorning: 'Mid-Morning', noon: 'Noon', afternoon: 'Afternoon', evening: 'Evening', night: 'Night',
@@ -78,6 +80,7 @@ const TABS: { id: TabKey; label: string; icon: typeof Settings }[] = [
 ];
 
 export default function SettingsPage() {
+  const { importFile, decisionDialog } = useRecipeImport();
   const { user, logout } = useAuth();
   const router = useRouter();
   const { data: instance } = useInstanceState();
@@ -222,7 +225,7 @@ export default function SettingsPage() {
     if (!file) return;
     setImporting(true); setImportStatus(null);
     try {
-      const result = await importRecipeBundleFromFile(file);
+      const result = await importFile(file);
       setImportStatus(`Imported: ${summarizeRecipeBundleImport(result)}`);
       qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
       qc.invalidateQueries({ queryKey: queryKeys.books.all });
@@ -276,6 +279,7 @@ export default function SettingsPage() {
 
   return (
     <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-6">
+      {decisionDialog}
       <h1 className="text-2xl font-semibold mb-6">Settings</h1>
       <div className="flex flex-col md:flex-row gap-6">
         <nav className="md:w-52 shrink-0">
@@ -389,7 +393,7 @@ export default function SettingsPage() {
                       <input type="file" accept=".json,application/json" className="hidden" onChange={handleImport} disabled={importing} />
                     </label>
                   </div>
-                  {importStatus && <p className={`text-xs mt-2 ${importStatus.startsWith('Imported') ? 'text-green-600' : 'text-red-600'}`}>{importStatus}</p>}
+                  {importStatus && <p className={`text-xs mt-2 ${importStatus.startsWith('Imported') ? 'text-green-600' : 'text-red-600'}`}>{importStatus} {importStatus.includes('quarantined') && <Link href="/recipes/quarantine" className="underline">Open quarantine</Link>}</p>}
                 </CardContent>
               </Card>
 

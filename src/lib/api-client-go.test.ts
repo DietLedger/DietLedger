@@ -17,9 +17,43 @@ describe('owner recipe/book backup', () => {
     }));
   });
 
+  it('preserves versioned staged content in owner backups and rejects unsupported staging formats', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const api = new GoApiClient('');
+    const bundle = { format: 'dietledger.recipe-bundle', version: 3, pendingImports: { version: 1, batches: [{ retained: ['payload'] }] } };
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: bundle }) });
+    await expect(api.exportOwnerRecipeBookBackup()).resolves.toEqual(bundle);
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: { ...bundle, pendingImports: { version: 9 } } }) });
+    await expect(api.exportOwnerRecipeBookBackup()).rejects.toThrow('Unsupported pending imports');
+  });
+
   it('rejects backup retrieval failure instead of returning a partial bundle', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Backup unavailable' }), { status: 500 })));
     await expect(new GoApiClient('').exportOwnerRecipeBookBackup()).rejects.toThrow('Backup unavailable');
+  });
+});
+
+describe('staged recipe import API', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads staging and submits keep/cancel and ingredient writes only to staging endpoints', async () => {
+    const result = { quarantined: 2, promotedRecipeIds: ['promoted'] };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: result }) }));
+    const api = new GoApiClient('');
+    await expect(api.getQuarantinedRecipes()).resolves.toEqual(result);
+    await expect(api.decideRecipeImport('batch/id', 'keep')).resolves.toEqual(result);
+    await api.decideRecipeImport('batch/id', 'cancel');
+    const data = { name: 'Salt', amount: 2, unit: 'g', sourceType: 'usda' as const, fdcId: 123 };
+    await expect(api.resolveQuarantinedIngredient('staged/id', 'ingredient/id', data)).resolves.toEqual(result);
+    await api.resolveQuarantinedIngredient('empty', 'new', data);
+    expect(vi.mocked(fetch).mock.calls.map(([url, options]) => [url, options?.method, options?.body && JSON.parse(String(options.body))])).toEqual([
+      ['/api/recipe-imports', 'GET', undefined],
+      ['/api/recipe-imports/batch%2Fid/decision', 'POST', { action: 'keep' }],
+      ['/api/recipe-imports/batch%2Fid/decision', 'POST', { action: 'cancel' }],
+      ['/api/recipe-imports/staged%2Fid/ingredients/ingredient%2Fid', 'PUT', data],
+      ['/api/recipe-imports/empty/ingredients/new', 'PUT', data],
+    ]);
   });
 });
 

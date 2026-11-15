@@ -147,7 +147,7 @@ describe('createManualImportFood', () => {
 });
 
 describe('isImportDraftReady', () => {
-  it('requires every imported ingredient to have a matched food before saving', () => {
+  it('allows unresolved imported ingredients to be staged without requiring food matches', () => {
     const draft = parseSeedRecipeMarkdown(aglioMarkdown, 'aglio-e-olio.md');
     const matched = {
       fdcId: 123,
@@ -175,7 +175,8 @@ describe('isImportDraftReady', () => {
       },
     };
 
-    expect(isImportDraftReady(draft)).toBe(false);
+    expect(isImportDraftReady(draft)).toBe(true);
+    expect(isImportDraftReady({ ...draft, title: '  ' })).toBe(false);
     expect(isImportDraftReady({
       ...draft,
       ingredients: draft.ingredients.map((ingredient) => ({ ...ingredient, matchedFood: matched })),

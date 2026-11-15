@@ -16,6 +16,7 @@ type IngredientMatchEditorProps = {
   amount: number;
   unit: string;
   onRematch: (food: FDAFood, amount: number, unit: string) => Promise<void>;
+  initiallySearchOpen?: boolean;
 };
 
 function mapCustomFoodToFDAFood(food: CustomFoodRecord): FDAFood {
@@ -47,11 +48,12 @@ function mapCustomFoodToFDAFood(food: CustomFoodRecord): FDAFood {
   };
 }
 
-export function IngredientMatchEditor({ ingredient, amount, unit, onRematch }: IngredientMatchEditorProps) {
-  const [searchOpen, setSearchOpen] = useState(false);
+export function IngredientMatchEditor({ ingredient, amount, unit, onRematch, initiallySearchOpen = false }: IngredientMatchEditorProps) {
+  const [searchOpen, setSearchOpen] = useState(initiallySearchOpen);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<FDAFood[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const isCustom = ingredient.sourceType === 'custom_food';
@@ -75,6 +77,7 @@ export function IngredientMatchEditor({ ingredient, amount, unit, onRematch }: I
   const search = async () => {
     if (!query.trim()) return;
     setSearching(true);
+    setSearched(false);
     setError('');
     try {
       const response = await getApiClient().searchFoods(query.trim());
@@ -90,6 +93,7 @@ export function IngredientMatchEditor({ ingredient, amount, unit, onRematch }: I
         // USDA/local results remain usable if custom-food lookup is unavailable.
       }
       setResults([...customResults, ...databaseFoods]);
+      setSearched(true);
     } catch {
       setResults([]);
       setError('Could not search the food database.');
@@ -168,6 +172,7 @@ export function IngredientMatchEditor({ ingredient, amount, unit, onRematch }: I
             <Button type="button" size="sm" onClick={search} disabled={searching || saving || !query.trim()} className="h-8">{searching ? 'Searching…' : 'Search'}</Button>
           </div>
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+          {searched && !searching && results.length === 0 && !error && <p role="status" className="text-xs text-stone-600">No matching foods found.</p>}
           <div className="max-h-44 overflow-y-auto space-y-1">
             {results.map((candidate) => (
               <Button key={candidate.customFoodId ?? candidate.fdcId} type="button" variant="outline" size="sm" disabled={saving} className="w-full h-auto py-2 text-xs justify-start text-left whitespace-normal" onClick={() => select(candidate)}>

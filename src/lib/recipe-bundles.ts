@@ -1,4 +1,5 @@
 import { getApiClient, type RecipeBundle, type RecipeBundleImportSummary } from './api-client';
+import { validatePendingImports } from './recipe-bundle-format';
 
 function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -10,6 +11,7 @@ function triggerDownload(blob: Blob, filename: string): void {
 }
 
 export function downloadRecipeBundle(bundle: RecipeBundle, filename: string): void {
+  validatePendingImports(bundle);
   const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
   triggerDownload(blob, filename);
 }
@@ -28,15 +30,25 @@ export async function readRecipeBundleFile(file: File): Promise<RecipeBundle> {
     throw new Error('Invalid recipe bundle');
   }
   const bundle = parsed as Partial<RecipeBundle>;
-  if (bundle.format !== 'dietledger.recipe-bundle' || (bundle.version !== 1 && bundle.version !== 2)) {
-    throw new Error('Unsupported bundle format (expected dietledger.recipe-bundle v1 or v2)');
+  if (bundle.format !== 'dietledger.recipe-bundle' || (bundle.version !== 1 && bundle.version !== 2 && bundle.version !== 3)) {
+    throw new Error('Unsupported bundle format (expected dietledger.recipe-bundle v1, v2 or v3)');
   }
+  validatePendingImports(bundle);
   return bundle as RecipeBundle;
 }
 
-export async function importRecipeBundleFromFile(file: File): Promise<RecipeBundleImportSummary> {
-  const bundle = await readRecipeBundleFile(file);
-  return getApiClient().importRecipeBundle(bundle);
+export type MissingImportDecision = (summary: RecipeBundleImportSummary) => Promise<RecipeBundleImportSummary>;
+
+export async function importRecipeBundle(bundle: RecipeBundle, decide?: MissingImportDecision): Promise<RecipeBundleImportSummary> {
+  validatePendingImports(bundle);
+  const summary = await getApiClient().importRecipeBundle(bundle);
+  if (!summary.requiresDecision) return summary;
+  if (!summary.pendingImportId || !decide) throw new Error('Import is preserved in quarantine and requires a missing-record decision.');
+  return decide(summary);
+}
+
+export async function importRecipeBundleFromFile(file: File, decide?: MissingImportDecision): Promise<RecipeBundleImportSummary> {
+  return importRecipeBundle(await readRecipeBundleFile(file), decide);
 }
 
 export function summarizeRecipeBundleImport(summary: RecipeBundleImportSummary): string {
@@ -49,6 +61,7 @@ export function summarizeRecipeBundleImport(summary: RecipeBundleImportSummary):
   add('updated', summary.updated);
   add('reused', summary.reused);
   add('skipped', summary.skipped);
+  if (summary.quarantined) parts.push(`${summary.quarantined} quarantined — relink at /recipes/quarantine`);
   if (summary.conflicts?.length) parts.push(`${summary.conflicts.length} conflict${summary.conflicts.length === 1 ? '' : 's'}`);
   return parts.length ? parts.join(' · ') : 'No changes';
 }

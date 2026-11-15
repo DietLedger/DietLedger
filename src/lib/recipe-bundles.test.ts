@@ -42,7 +42,15 @@ describe('readRecipeBundleFile', () => {
     await expect(readRecipeBundleFile(bundleFile(bundle))).resolves.toEqual(bundle);
   });
 
-  it.each([0, 3, -1, '1', '2', null, undefined])('rejects unsupported version %s', async (version) => {
+  it('preserves opaque v3 pending imports unchanged and rejects unsupported staging versions', async () => {
+    const bundle = { format: 'dietledger.recipe-bundle', version: 3, pendingImports: { version: 1, batches: [{ opaque: { ingredients: ['retained'] } }] } };
+    await expect(readRecipeBundleFile(bundleFile(bundle))).resolves.toEqual(bundle);
+    for (const pendingImports of [undefined, null, [], { version: 2 }]) {
+      await expect(readRecipeBundleFile(bundleFile({ ...bundle, pendingImports }))).rejects.toThrow('Unsupported pending imports');
+    }
+  });
+
+  it.each([0, -1, '1', '2', null, undefined])('rejects unsupported version %s', async (version) => {
     await expect(readRecipeBundleFile(bundleFile({
       format: 'dietledger.recipe-bundle',
       version,

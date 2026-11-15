@@ -5,8 +5,10 @@ import { useBooks, useCreateBook, useDeleteBook } from '@/hooks/use-books';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { getApiClient } from '@/lib/api-client';
-import { downloadRecipeBundle, importRecipeBundleFromFile, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { downloadRecipeBundle, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { ImportZipButton } from '@/components/import-zip-button';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -26,6 +28,7 @@ import { useRouter } from 'next/navigation';
 import { BOOK_COLORS } from '@/lib/types';
 
 export default function BooksPage() {
+  const { importFile, decisionDialog } = useRecipeImport();
   const { data: books = [], isLoading } = useBooks();
   const createBookMutation = useCreateBook();
   const deleteBookMutation = useDeleteBook();
@@ -72,7 +75,7 @@ export default function BooksPage() {
     setImporting(true);
     setTransferStatus(null);
     try {
-      const result = await importRecipeBundleFromFile(file);
+      const result = await importFile(file);
       setTransferStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
       qc.invalidateQueries({ queryKey: queryKeys.books.all });
       qc.invalidateQueries({ queryKey: queryKeys.recipes.all });
@@ -81,10 +84,11 @@ export default function BooksPage() {
     } finally {
       setImporting(false);
     }
-  }, [qc]);
+  }, [qc, importFile]);
 
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
+      {decisionDialog}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">My Books</h2>
@@ -158,6 +162,7 @@ export default function BooksPage() {
         >
           {transferStatus.kind === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
           {transferStatus.msg}
+          {transferStatus.msg.includes('quarantined') && <Link href="/recipes/quarantine" className="underline">Open quarantine</Link>}
         </div>
       )}
 

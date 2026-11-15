@@ -41,8 +41,11 @@ import {
 import { useCategories, useRecipeCategories, useCreateCategory, useDeleteCategory, useAssignCategory, useUnassignCategory, type CategoryNode } from '@/hooks/use-categories';
 import { getApiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { downloadRecipeBundle, importRecipeBundleFromFile, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { downloadRecipeBundle, safeBundleFilename, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { ImportZipButton } from '@/components/import-zip-button';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
+import { markdownDraftToBundle } from '@/lib/recipe-import-bundle';
+import Link from 'next/link';
 import { generateUUID } from '@/lib/utils';
 import { sumNutrition, emptyNutrition, serializeInstructions, type NutrientKeys } from '@/lib/recipe-types';
 import { searchFDAFoods } from '@/lib/fda-client';
@@ -220,6 +223,7 @@ export default function HomePage() {
 }
 
 function RecipePage() {
+  const { importFile, importBundle, decisionDialog } = useRecipeImport();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
@@ -439,7 +443,7 @@ function RecipePage() {
     setImporting(true);
     setTransferStatus(null);
     try {
-      const result = await importRecipeBundleFromFile(file);
+      const result = await importFile(file);
       setTransferStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
       queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
@@ -448,7 +452,7 @@ function RecipePage() {
     } finally {
       setImporting(false);
     }
-  }, [queryClient]);
+  }, [queryClient, importFile]);
 
   const handleMarkdownImportFiles = useCallback(async (files: File[]) => {
     setImporting(true);
@@ -508,42 +512,16 @@ function RecipePage() {
     setMarkdownImportSaving(true);
     setTransferStatus(null);
     try {
-      const recipe = await createRecipeMutation.mutateAsync(draft.title.trim());
-      await updateRecipeMutation.mutateAsync({
-        id: recipe.id,
-        data: {
-          servings: draft.servings,
-          servingName: draft.servingName.trim() || 'servings',
-          prepTime: draft.prepTime.trim() || undefined,
-          cookTime: draft.cookTime.trim() || undefined,
-          instructions: serializeInstructions({ steps: draft.instructionSteps, groups: [] }),
-          ingredientGroups: draft.ingredientGroups,
-        },
-      });
-      for (const ingredient of draft.ingredients) {
-        if (!ingredient.matchedFood) continue;
-        const isExplicitZero = ingredient.matchedFood.fdcId === -3 && ingredient.matchedFood.dataType === 'Manual';
-        const isManualNutrition = ingredient.matchedFood.dataType === 'Manual' || ingredient.matchedFood.dataType === 'Custom' || ingredient.matchedFood.fdcId < 0;
-        const ingredientData = isExplicitZero
-          ? buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit)
-          : isManualNutrition
-            ? buildCustomIngredientData(ingredient.name.trim() || ingredient.matchedFood.description, ingredient.matchedFood.nutrients, ingredient.amount, ingredient.unit)
-            : buildIngredientData(ingredient.matchedFood, ingredient.amount, ingredient.unit);
-        ingredientData.name = ingredient.name.trim() || ingredient.matchedFood.description;
-        ingredientData.description = ingredient.originalText !== ingredientData.name ? `Imported: ${ingredient.originalText}` : '';
-        ingredientData.groupId = ingredient.groupId;
-        ingredientData.prepInstructions = ingredient.prepInstructions;
-        await addIngredientMutation.mutateAsync({ recipeId: recipe.id, ingredient: ingredientData });
-      }
-      setActiveRecipeId(recipe.id);
-      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
-      removeCurrentMarkdownDraft(`Imported ${draft.title}.`);
+      const customFoods = draft.ingredients.some(ingredient => ingredient.matchedFood?.customFoodId)
+        ? await getApiClient().getCustomFoods() : [];
+      const result = await importBundle(markdownDraftToBundle(draft, customFoods));
+      removeCurrentMarkdownDraft(`Import result for ${draft.title}: ${summarizeRecipeBundleImport(result)}`);
     } catch (e) {
       setTransferStatus({ kind: 'err', msg: `Markdown import save failed: ${e instanceof Error ? e.message : 'error'}` });
     } finally {
       setMarkdownImportSaving(false);
     }
-  }, [markdownImportDrafts, markdownImportIndex, createRecipeMutation, updateRecipeMutation, addIngredientMutation, queryClient, removeCurrentMarkdownDraft]);
+  }, [markdownImportDrafts, markdownImportIndex, importBundle, removeCurrentMarkdownDraft]);
 
   const handleCreateRecipe = useCallback(async () => {
     if (!newRecipeName.trim()) return;
@@ -941,6 +919,7 @@ function RecipePage() {
 
   return (
     <>
+      {decisionDialog}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -963,6 +942,7 @@ function RecipePage() {
                     />
                   </div>
                 </div>
+                <Link href="/recipes/quarantine" className="text-xs underline">Recipe quarantine</Link>
                 <RecipeTransferStatus status={transferStatus} />
               </CardHeader>
               <CardContent className="pt-0 flex-1 min-h-0 flex flex-col">
@@ -1794,6 +1774,7 @@ function RecipePage() {
         drafts={markdownImportDrafts}
         currentIndex={markdownImportIndex}
         isSaving={markdownImportSaving}
+        error={transferStatus?.kind === 'err' ? transferStatus.msg : null}
         onOpenChange={setMarkdownImportOpen}
         onDraftChange={handleMarkdownDraftChange}
         onUndoCurrent={handleUndoMarkdownDraft}

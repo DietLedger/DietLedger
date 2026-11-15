@@ -46,6 +46,7 @@ interface RecipeImportDialogProps {
   drafts: ImportRecipeDraft[];
   currentIndex: number;
   isSaving: boolean;
+  error?: string | null;
   onOpenChange: (open: boolean) => void;
   onDraftChange: (index: number, draft: ImportRecipeDraft) => void;
   onUndoCurrent: () => void;
@@ -58,6 +59,7 @@ export function RecipeImportDialog({
   drafts,
   currentIndex,
   isSaving,
+  error,
   onOpenChange,
   onDraftChange,
   onUndoCurrent,
@@ -137,8 +139,9 @@ export function RecipeImportDialog({
         const q = searchQuery.trim().toLowerCase();
         customFoods = allCustom
           .filter((food) => food.name.toLowerCase().includes(q))
-          .map((food, idx) => ({
-            fdcId: -(Date.now() + idx + 1),
+          .map((food) => ({
+            fdcId: -2,
+            customFoodId: food.id,
             description: food.name,
             brandOwner: null,
             dataType: 'Custom',
@@ -219,7 +222,7 @@ export function RecipeImportDialog({
             <span className="text-xs font-normal text-stone-500 truncate max-w-[40%]">{draft.sourceFileName}</span>
           </DialogTitle>
           <p className="text-xs text-stone-500">
-            Review the parsed recipe and match every ingredient to a food database entry before saving.
+            Review the parsed recipe. Unmatched ingredients are preserved in quarantine for later relinking.
           </p>
         </DialogHeader>
 
@@ -399,9 +402,9 @@ export function RecipeImportDialog({
                 )}
                 {searchResults.map((food) => (
                   <button
-                    key={`${food.fdcId}-${food.description}`}
+                    key={food.customFoodId ?? `${food.fdcId}-${food.description}`}
                     type="button"
-                    className={`w-full text-left p-3 rounded-lg border transition-colors bg-white ${selectedIngredient?.matchedFood?.fdcId === food.fdcId ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors bg-white ${(food.customFoodId ? selectedIngredient?.matchedFood?.customFoodId === food.customFoodId : selectedIngredient?.matchedFood?.fdcId === food.fdcId) ? 'border-brand-400 bg-brand-50' : 'border-stone-200 hover:border-brand-200 hover:bg-stone-50'}`}
                     onClick={() => selectedIngredient && updateIngredient(selectedIngredient.id, { matchedFood: food })}
                   >
                     <div className="flex items-center gap-2">
@@ -422,11 +425,12 @@ export function RecipeImportDialog({
           </div>
         </div>
 
+        {error && <p role="alert" className="px-5 py-2 text-sm text-destructive">{error}</p>}
         <div className="px-5 py-3 border-t bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <p className="text-xs text-stone-500">
             {matchedCount === draft.ingredients.length
               ? 'All ingredients are matched. This recipe is ready to import.'
-              : `${draft.ingredients.length - matchedCount} ingredient${draft.ingredients.length - matchedCount === 1 ? '' : 's'} still need a database match.`}
+              : `${draft.ingredients.length - matchedCount} ingredient${draft.ingredients.length - matchedCount === 1 ? '' : 's'} will be preserved for quarantine relinking.`}
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={onUndoCurrent} disabled={isSaving}>

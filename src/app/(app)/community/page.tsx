@@ -10,8 +10,14 @@ import type { SharedRecipeRecord } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Users, LogIn } from 'lucide-react';
 import Link from 'next/link';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
+import { sharedRecipeToBundle } from '@/lib/recipe-import-bundle';
+import { summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { RecipeTransferStatus } from '@/components/recipe/recipe-transfer-status';
 
 export default function CommunityPage() {
+  const { importBundle, decisionDialog } = useRecipeImport();
+  const [importStatus, setImportStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const { isAuthenticated } = useAuth();
   const router = useRouter();
   const [recipes, setRecipes] = useState<SharedRecipeRecord[]>([]);
@@ -59,17 +65,19 @@ export default function CommunityPage() {
     }
     setImportingId(recipe.id);
     try {
-      await getApiClient().createRecipe(recipe.title);
-      toast.success(`"${recipe.title}" imported to your recipes!`);
-    } catch {
-      toast.error('Failed to import recipe');
+      const result = await importBundle(sharedRecipeToBundle(recipe));
+      setImportStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
+    } catch (error) {
+      setImportStatus({ kind: 'err', msg: error instanceof Error ? error.message : 'Failed to import recipe' });
     } finally {
       setImportingId(null);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, importBundle]);
 
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
+      {decisionDialog}
+      <RecipeTransferStatus status={importStatus} />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Community</h1>

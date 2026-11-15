@@ -70,6 +70,7 @@ export interface Recipe {
 
 export interface FDAFood {
   fdcId: number;
+  customFoodId?: string;
   description: string;
   brandOwner: string | null;
   dataType: string;

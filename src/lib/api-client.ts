@@ -148,7 +148,8 @@ export interface UserSecretInfo {
 
 export interface RecipeBundle {
   format: 'dietledger.recipe-bundle';
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  pendingImports?: { version: 1; [key: string]: unknown };
   exportedAt: string;
   source?: { app: string; version: string };
   recipes?: unknown[];
@@ -170,7 +171,20 @@ export interface RecipeBundle {
   mealGroups?: MealGroupRecord[];
 }
 
+export interface QuarantinedRecipe {
+  requiresDecision?: boolean;
+  id: string;
+  batchId: string;
+  recipe: RecipeRecord;
+  unresolvedIngredients: Array<{ ingredientId: string; reason: string }>;
+  bookTitles: string[];
+}
+
 export interface RecipeBundleImportSummary {
+  pendingImportId?: string;
+  requiresDecision?: boolean;
+  quarantined?: number;
+  promotedRecipeIds?: string[];
   created: Record<string, number>;
   updated: Record<string, number>;
   reused: Record<string, number>;
@@ -241,6 +255,9 @@ export interface ApiClient {
   exportRecipeBundle(request: { recipeIds?: string[]; bookIds?: string[]; profileIds?: string[]; mealPlanIds?: string[] }): Promise<RecipeBundle>;
   exportOwnerRecipeBookBackup(): Promise<RecipeBundle>;
   importRecipeBundle(bundle: RecipeBundle): Promise<RecipeBundleImportSummary>;
+  getQuarantinedRecipes(): Promise<QuarantinedRecipe[]>;
+  decideRecipeImport(batchId: string, action: 'keep' | 'cancel'): Promise<RecipeBundleImportSummary>;
+  resolveQuarantinedIngredient(recipeId: string, ingredientId: string, data: Partial<Omit<IngredientRecord, 'id' | 'recipeId'>>): Promise<RecipeBundleImportSummary>;
 
   // Books
   getBooks(): Promise<BookRecord[]>;

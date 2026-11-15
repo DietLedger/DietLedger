@@ -1,4 +1,5 @@
 export const queryKeys = {
+  recipeImports: { all: ['recipe-imports'] as const },
   instance: {
     all: ['instance'] as const,
     state: () => [...queryKeys.instance.all, 'state'] as const,

@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
 
 export function RecipeTransferStatus({ status }: { status: { kind: 'ok' | 'err'; msg: string } | null }) {
   if (!status) return null;
@@ -12,7 +13,7 @@ export function RecipeTransferStatus({ status }: { status: { kind: 'ok' | 'err';
       }`}
     >
       {status.kind === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
-      <span className={status.kind === 'err' ? 'min-w-0 break-words [overflow-wrap:anywhere]' : 'truncate'}>{status.msg}</span>
+      <span className={status.kind === 'err' || status.msg.includes('quarantined') ? 'min-w-0 break-words [overflow-wrap:anywhere]' : 'truncate'}>{status.msg} {status.msg.includes('quarantined') && <Link href="/recipes/quarantine" className="underline">Open quarantine</Link>}</span>
     </div>
   );
 }

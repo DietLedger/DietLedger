@@ -2,17 +2,17 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Download, Star, Loader2, ChevronDown, ChevronRight, BookOpen, Link2, UtensilsCrossed } from 'lucide-react';
-import { toast } from 'sonner';
 import { getApiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
+import { sharedRecipeToBundle } from '@/lib/recipe-import-bundle';
+import { summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { RecipeTransferStatus } from '@/components/recipe/recipe-transfer-status';
 import {
-  serializeInstructions,
   parseInstructions,
   sumNutrition,
   emptyNutrition,
@@ -76,7 +76,8 @@ function groupBy<T extends { groupId: string | null }>(items: T[]): { grouped: M
 function SharedRecipePageInner() {
   const params = useParams();
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const { importBundle, decisionDialog } = useRecipeImport();
+  const [importStatus, setImportStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const { isAuthenticated } = useAuth();
   const shareId = (params?.shareId as string) || '';
 
@@ -110,29 +111,14 @@ function SharedRecipePageInner() {
     }
     setImporting(true);
     try {
-      const parsed = JSON.parse(recipe.recipeData);
-      const newRecipe = await getApiClient().createRecipe(parsed.name || recipe.title);
-      const instructions = serializeInstructions({
-        steps: parsed.instructionSteps || [],
-        groups: parsed.instructionGroups || [],
-      });
-      await getApiClient().updateRecipe(newRecipe.id, {
-        servings: parsed.servings || 1,
-        servingName: parsed.servingName || 'serving',
-        instructions: instructions || '',
-        leftoverStorage: parsed.leftoverStorage,
-        ingredients: parsed.ingredients || [],
-        ingredientGroups: parsed.ingredientGroups || [],
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.recipes.lists() });
-      toast.success('Recipe imported to your collection!');
-      router.push('/recipes');
-    } catch {
-      toast.error('Failed to import recipe');
+      const result = await importBundle(sharedRecipeToBundle(recipe));
+      setImportStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
+    } catch (cause) {
+      setImportStatus({ kind: 'err', msg: cause instanceof Error ? cause.message : 'Failed to import recipe' });
     } finally {
       setImporting(false);
     }
-  }, [recipe, isAuthenticated, router, queryClient]);
+  }, [recipe, isAuthenticated, router, importBundle]);
 
   const parsed = useMemo<ParsedRecipe>(() => {
     const fallback: ParsedRecipe = {
@@ -214,6 +200,8 @@ function SharedRecipePageInner() {
 
   return (
     <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
+      {decisionDialog}
+      <RecipeTransferStatus status={importStatus} />
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">

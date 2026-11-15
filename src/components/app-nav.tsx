@@ -54,7 +54,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useAppTheme } from '@/hooks/use-app-theme';
 import { getApiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { downloadRecipeBundle, importRecipeBundleFromFile, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { downloadRecipeBundle, summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
+import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
 
 const NAV_ITEMS = [
   { href: '/recipes', label: 'Recipes', icon: Salad },
@@ -67,6 +68,7 @@ const NAV_ITEMS = [
 ] as const;
 
 export default function AppNav() {
+  const { importFile, decisionDialog } = useRecipeImport();
   const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -104,13 +106,13 @@ export default function AppNav() {
     if (!file) return;
     setDataBusy(true); setDataStatus(null);
     try {
-      const result = await importRecipeBundleFromFile(file);
+      const result = await importFile(file);
       setDataStatus({ kind: 'ok', msg: summarizeRecipeBundleImport(result) });
       queryClient.invalidateQueries({ queryKey: queryKeys.recipes.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.books.all });
     } catch (e) { setDataStatus({ kind: 'err', msg: e instanceof Error ? e.message : 'Import failed' }); }
     finally { setDataBusy(false); e.target.value = ''; }
-  }, [queryClient]);
+  }, [queryClient, importFile]);
 
   function getActiveSection(pathname: string): string | null {
     for (const item of NAV_ITEMS) {
@@ -125,6 +127,7 @@ export default function AppNav() {
 
   return (
     <header className="border-b bg-white shadow-sm">
+      {decisionDialog}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
         <Link href="/" className="flex items-center gap-3 shrink-0">
           <img src="/logo.svg" alt="DietLedger" className="w-9 h-9" />
@@ -409,7 +412,7 @@ export default function AppNav() {
                     </div>
 
                     {dataStatus && (
-                      <p className={`text-xs ${dataStatus.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{dataStatus.msg}</p>
+                      <p className={`text-xs ${dataStatus.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{dataStatus.msg} {dataStatus.msg.includes('quarantined') && <Link href="/recipes/quarantine" className="underline">Open quarantine</Link>}</p>
                     )}
                   </div>
                 </TabsContent>

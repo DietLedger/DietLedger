@@ -26,6 +26,7 @@ export interface ImportRecipeSnapshot {
 }
 
 export interface ImportRecipeDraft extends ImportRecipeSnapshot {
+  id: string;
   original: ImportRecipeSnapshot;
 }
 
@@ -75,6 +76,7 @@ export function parseSeedRecipeMarkdown(markdown: string, sourceFileName = 'reci
   };
 
   return {
+    id: generateUUID(),
     ...cloneSnapshot(snapshot),
     original: cloneSnapshot(snapshot),
   };
@@ -104,12 +106,13 @@ export function createZeroNutritionImportFood(name: string): FDAFood {
 }
 
 export function isImportDraftReady(draft: ImportRecipeDraft): boolean {
-  return draft.title.trim().length > 0 && draft.ingredients.length > 0 && draft.ingredients.every((ingredient) => ingredient.matchedFood !== null);
+  return draft.title.trim().length > 0;
 }
 
 export function resetImportDraft(draft: ImportRecipeDraft): ImportRecipeDraft {
   const original = cloneSnapshot(draft.original);
   return {
+    id: draft.id,
     ...cloneSnapshot(original),
     original,
   };
@@ -117,6 +120,7 @@ export function resetImportDraft(draft: ImportRecipeDraft): ImportRecipeDraft {
 
 export function cloneImportDraft(draft: ImportRecipeDraft): ImportRecipeDraft {
   return {
+    id: draft.id,
     ...cloneSnapshot(draft),
     original: cloneSnapshot(draft.original),
   };

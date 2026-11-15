@@ -1,3 +1,4 @@
+import { validatePendingImports } from './recipe-bundle-format';
 import type {
   ApiClient,
   AuthResult,
@@ -359,7 +360,9 @@ export class GoApiClient implements ApiClient {
       'POST',
       '/api/recipe-bundles/owner-backup',
     );
-    return this.unwrap(resp);
+    const bundle = this.unwrap(resp);
+    validatePendingImports(bundle);
+    return bundle;
   }
 
   async importRecipeBundle(bundle: import('./api-client').RecipeBundle): Promise<import('./api-client').RecipeBundleImportSummary> {
@@ -367,6 +370,25 @@ export class GoApiClient implements ApiClient {
       'POST',
       '/api/recipe-bundles/import',
       bundle,
+    );
+    return this.unwrap(resp);
+  }
+
+  async getQuarantinedRecipes(): Promise<import('./api-client').QuarantinedRecipe[]> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').QuarantinedRecipe[] }>('GET', '/api/recipe-imports');
+    return this.unwrap(resp);
+  }
+
+  async decideRecipeImport(batchId: string, action: 'keep' | 'cancel'): Promise<import('./api-client').RecipeBundleImportSummary> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundleImportSummary }>(
+      'POST', `/api/recipe-imports/${encodeURIComponent(batchId)}/decision`, { action },
+    );
+    return this.unwrap(resp);
+  }
+
+  async resolveQuarantinedIngredient(recipeId: string, ingredientId: string, data: Partial<Omit<IngredientRecord, 'id' | 'recipeId'>>): Promise<import('./api-client').RecipeBundleImportSummary> {
+    const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundleImportSummary }>(
+      'PUT', `/api/recipe-imports/${encodeURIComponent(recipeId)}/ingredients/${encodeURIComponent(ingredientId)}`, data,
     );
     return this.unwrap(resp);
   }
