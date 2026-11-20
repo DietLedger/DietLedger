@@ -36,7 +36,7 @@ Only web publishes a host port: `127.0.0.1:3000` by default. Open [http://localh
 
 ### Optional starter recipe books
 
-After setup, you can import either or both native recipe-book bundles. Download the JSON files from the `recipe_book_bundles/` directory at the same source tag/revision as your installed app: [Deliciously Healthy Dinners](recipe_book_bundles/deliciously-healthy-dinners-full.recipe-bundle.json) and [Deliciously Healthy Family Meals](recipe_book_bundles/deliciously-healthy-family-meals-full.recipe-bundle.json). These are repository files, not part of the five Docker release assets, so downloading them requires repository access. In GitHub, open a file at the matching source tag/revision and choose **Raw** or **Download**. Use an app version that supports native bundle version 4.
+After setup, you can import either or both native recipe-book bundles. Download the JSON files from the `recipe_book_bundles/` directory at the same source tag/revision as your installed app: [Deliciously Healthy Dinners](recipe_book_bundles/deliciously-healthy-dinners-full.recipe-bundle.json) and [Deliciously Healthy Family Meals](recipe_book_bundles/deliciously-healthy-family-meals-full.recipe-bundle.json). These are repository files, not part of the five Docker release assets. You will need to download them separately. In GitHub, open a file at the matching source tag/revision and choose **Raw** or **Download**. Use an app version that supports native bundle version 4.
 
 In DietLedger, go to **Settings → Data → Recipe Bundle Export / Import → Import**, then select a downloaded `.recipe-bundle.json` file. Import the books separately. If a book with the same name already exists, review the importer's merge/replace/cancel choice.
 
