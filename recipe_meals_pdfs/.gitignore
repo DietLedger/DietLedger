@@ -1,0 +1,21 @@
+/Deliciously Healthy Dinners.pdf
+/Delicously Healthy Family Meals.pdf
+/dinners-full-README.md
+/dinners-full-browser-plan.json
+/dinners-full-conversion-spec.md
+/dinners-full-page-inventory.json
+/dinners-full-verification.json
+/family-meals-first-two-README.md
+/family-meals-full-README.md
+/family-meals-full-conversion-spec.md
+/family-meals-full-page-inventory.json
+/family-meals-full-verification.json
+/verify-dinners-full-api.py
+/verify-dinners-full-browser.mjs
+/verify-dinners-full-bundle.py
+/verify-dinners-full-source.py
+/verify-dinners-full-text-pages.py
+/verify-family-meals-bundle.py
+/verify-family-meals-full-api.py
+/verify-family-meals-full-browser.mjs
+/verify-family-meals-full-bundle.py
