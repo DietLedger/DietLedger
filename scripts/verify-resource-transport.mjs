@@ -49,9 +49,9 @@ try {
   const base = `http://127.0.0.1:${webPort}`;
   const send = (path,body,headers={}) => fetch(base+path,{ method:'POST',body,duplex:'half',headers });
 
-  // Keep a real native v4 fixture's semantic content unchanged, adding legal
-  // JSON whitespace so hash/length checks detect even silent tail truncation.
-  const native = readFileSync(new URL('../recipe_meals_pdfs/deliciously-healthy-family-meals-full.recipe-bundle.json', import.meta.url),'utf8') + ' '.repeat(12*MiB);
+  // Use synthetic native v4 JSON with legal whitespace so hash/length checks
+  // detect even silent tail truncation without depending on recipe artifacts.
+  const native = JSON.stringify({ format:'dietledger.recipe-bundle', version:4, recipes:[] }) + ' '.repeat(12*MiB);
   let response = await send('/api/recipe-bundles/import',native,{ 'content-type':'application/json' });
   assert.equal(response.status,200);
   assert.equal((await response.json()).bytes,Buffer.byteLength(native));

@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"os"
-	"reflect"
 	"testing"
 )
 
@@ -251,76 +249,6 @@ func TestCustomRecipeNutritionLinkedImportAndRepair(t *testing.T) {
 	for _, r := range recipes {
 		if r.Name == "Parent" && r.Ingredients[0].Calories != 400 {
 			t.Fatalf("import trusted stale child snapshot: %+v", r)
-		}
-	}
-}
-
-func TestCustomRecipeNutritionArtifactPublicJourney(t *testing.T) {
-	raw, err := os.ReadFile("../recipe_meals_pdfs/deliciously-healthy-family-meals-first-two.recipe-bundle.json")
-	if os.IsNotExist(err) {
-		t.Skip("external PDF artifact not present")
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	var b RecipeBundle
-	if err := json.Unmarshal(raw, &b); err != nil {
-		t.Fatal(err)
-	}
-	if err := ValidateRecipeBundle(b); err != nil {
-		t.Fatal(err)
-	}
-	env := newTestEnv(t)
-	w := env.doRequest("POST", "/api/recipe-bundles/import", b)
-	if w.Code != 200 {
-		t.Fatalf("public import: %d %s", w.Code, w.Body.String())
-	}
-	s := env.store.(*PostgresStore)
-	rows, _, err := s.ListRecipes(env.userID, 1, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("artifact did not promote immediately: %s", w.Body.String())
-	}
-	want := map[string]BundleNutrients{b.Recipes[0].Name: {Calories: 992, Sodium: 1688, Protein: 80}, b.Recipes[1].Name: {Calories: 928, Sodium: 168, Protein: 72}}
-	ids := []string{}
-	for _, r := range rows {
-		ids = append(ids, r.ID)
-		if r.CustomNutrition == nil {
-			t.Fatal("lost published totals")
-		}
-		n := r.CustomNutrition.Nutrients
-		v := want[r.Name]
-		if r.Servings != 4 || n.Calories != v.Calories || n.Sodium != v.Sodium || n.Protein != v.Protein {
-			t.Fatalf("artifact facts: %+v", r)
-		}
-		for _, i := range r.Ingredients {
-			if i.ZeroNutritionOverride || i.LinkedRecipeID != nil || i.FdcID > 0 {
-				t.Fatalf("fabricated ingredient source: %+v", i)
-			}
-		}
-	}
-	w = env.doRequest("POST", "/api/recipe-bundles/export", map[string]interface{}{"recipeIds": ids})
-	if w.Code != 200 {
-		t.Fatalf("public export: %d %s", w.Code, w.Body.String())
-	}
-	w = env.doRequest("POST", "/api/recipe-bundles/owner-backup", map[string]interface{}{})
-	if w.Code != 200 {
-		t.Fatalf("public backup: %d %s", w.Code, w.Body.String())
-	}
-	backup, err := s.ExportOwnerRecipeBookBackup(env.userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if backup.Version != 4 || len(backup.Recipes) != 2 {
-		t.Fatalf("backup: %+v", backup)
-	}
-	for _, r := range backup.Recipes {
-		for _, original := range b.Recipes {
-			if r.Name == original.Name && (!reflect.DeepEqual(r.CustomNutrition, original.CustomNutrition) || !reflect.DeepEqual(r.Description, original.Description)) {
-				t.Fatal("artifact metadata changed")
-			}
 		}
 	}
 }

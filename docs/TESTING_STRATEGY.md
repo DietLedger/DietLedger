@@ -276,6 +276,24 @@ Avoid tests for:
 - constant declarations
 - obvious getters and setters
 
+## Retired recipe artifacts
+
+Do not maintain tests for the retired `seed-recipes/` directory or the finished
+recipe bundles in `recipe_meals_pdfs/`. Application tests and verification
+harnesses must not read either directory. Keep general recipe-bundle
+import/export, custom nutrition, PDF export and USDA food-ingestion coverage;
+use small synthetic fixtures rather than published recipe artifacts.
+
+Implementation note: remove the seed converter/cookbook artifact tests and the
+PDF-artifact-specific Go journey; replace artifact inputs in transport checks
+with synthetic native-bundle JSON. Acceptance: no test or verification harness
+depends on these directories, and the remaining frontend suite passes. Verify
+with focused transport tests, the full frontend suite, TypeScript, lint and
+non-database custom-nutrition Go tests. This is test retirement, not a product
+behavior change, so no new failing behavior test is required; the reported
+missing-seed-file failure is the reproduction. Do not alter application code,
+recipe artifacts or private ignored conversion/verification scripts.
+
 ---
 
 # Preferred Test Types
@@ -487,7 +505,7 @@ Focus on user-visible outcomes.
 
 ## Authoritative custom recipe nutrition
 
-`specs/custom-recipe-nutrition.md` requires coverage for validated whole-recipe facts, persistence and omission/removal semantics, authoritative serving totals without ingredient double-counting, nested-recipe fractions, custom import readiness, v4 import/export/backup and identity comparisons, logging/meal-plan/share/PDF consumers, and recipe scaling versus yield editing. Existing ingredient-derived recipe and historical-log behavior must remain unchanged. Run PostgreSQL integration checks only on a unique disposable database. The PDF artifact also has a standard-library check: `python recipe_meals_pdfs/verify-family-meals-bundle.py`, covering exact ingredient amounts/groups, nutrition/yield, red callouts, alternatives and serving labels; this is not a substitute for application integration tests.
+`specs/custom-recipe-nutrition.md` requires coverage for validated whole-recipe facts, persistence and omission/removal semantics, authoritative serving totals without ingredient double-counting, nested-recipe fractions, custom import readiness, v4 import/export/backup and identity comparisons, logging/meal-plan/share/PDF consumers, and recipe scaling versus yield editing. Existing ingredient-derived recipe and historical-log behavior must remain unchanged. Run PostgreSQL integration checks only on a unique disposable database. Use synthetic fixtures for this application coverage; finished PDF recipe artifacts are outside the maintained test suite.
 
 ## Nutrition correctness suites (Phase B hardening)
 
