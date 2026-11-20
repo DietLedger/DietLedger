@@ -921,6 +921,7 @@ function mountScene(container,kind,options) {
   const animations = new Set();
   const branches = kind === "branches";
   const hosting = kind==="hosting";
+  if (kind === "opening") find('[data-action="restart"]').hidden = true;
   const arrival = hosting ? {...SCHOOL_SETUP_COPY,...options.arrival} : null;
   const pilot = kind === "pilot";
   const menu = kind === "menu";
@@ -1811,6 +1812,7 @@ function mountAdventureChapter(container, key, options = {}) {
   const careLabels = {c1:'Give the details room', c2:'Turn attention into a plan', c3:'Create room for thoughtful care', c4:'Explore a care-planning pilot'};
   find('.next').textContent = (careLabels[key] || content.next) + ' →';
   find('.status').textContent = '';
+  if (key.endsWith('4')) find('[data-action="setup"]').hidden = true;
   find('.next').addEventListener('click', () => { skip(); options.onNext(); });
   const change = document.createElement('button');
   change.type = 'button'; change.textContent = 'Change path';
