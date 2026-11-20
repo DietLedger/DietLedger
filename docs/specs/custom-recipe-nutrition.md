@@ -1,7 +1,7 @@
 # Authoritative custom recipe nutrition
 
 ## Authorization and objective
-User explicitly authorized implementation without further approval: recipes with published nutrition must feed official DietLedger nutrition, remain usable as ingredients in other recipes, and need no individual ingredient matches. Deliver the first two recipes from `recipe_meals_pdfs/Delicously Healthy Family Meals.pdf` as a native bundle.
+User explicitly authorized implementation without further approval: recipes with published nutrition must feed official DietLedger nutrition, remain usable as ingredients in other recipes, and need no individual ingredient matches. Deliver the first two recipes from `recipe_book_bundles/Delicously Healthy Family Meals.pdf` as a native bundle.
 
 ## Design and contract
 - Reuse recipes, ingredients, ownership, portable identities and linked-recipe references. Add a one-to-one `custom_recipe_nutrition` table with recipe FK/ON DELETE CASCADE rather than duplicate the recipe domain.
@@ -39,8 +39,8 @@ User explicitly authorized implementation without further approval: recipes with
 Real-browser verification exposed an existing public-share crash: the anonymous app-layout branch omitted `BreadcrumbProvider` although the shared recipe page registers a breadcrumb. Provide the same context in that public branch, with a focused regression; otherwise authoritative custom recipes cannot be viewed anonymously through the existing public sharing workflow. Keep auth/onboarding routing unchanged.
 
 ## Verification evidence
-- Artifact: `recipe_meals_pdfs/deliciously-healthy-family-meals-first-two.recipe-bundle.json`; accompanying provenance README and standard-library verification script.
-- `python recipe_meals_pdfs/verify-family-meals-bundle.py`: 5/5 checks pass, including all 23 ingredient quantities/groups, source order, yield/serving/time, printed nutrients and red callouts.
+- Artifact: `recipe_book_bundles/deliciously-healthy-family-meals-first-two.recipe-bundle.json`; accompanying provenance README and standard-library verification script.
+- `python recipe_book_bundles/verify-family-meals-bundle.py`: 5/5 checks pass, including all 23 ingredient quantities/groups, source order, yield/serving/time, printed nutrients and red callouts.
 - Independent read-only visual review of rendered PDF pages 19–20 found no transcription discrepancies. Source date verified as December 2010, NIH Publication No. 10-7531. Calcium/iron conversions verified against FDA's historical DV table; original rounded percentages retained.
 - Final frontend verification: `npx vitest run` reports **46 files / 317 tests passed** (`/tmp/dietledger-custom-final-vitest.log`). `npx tsc --noEmit --incremental false` passes. ESLint across 31 feature-owned files passes without warnings; layout files checked separately after the runtime correction. `git diff --check` passes.
 - Runtime public-layout regression: focused test first failed with `useBreadcrumbLabels must be used within BreadcrumbProvider`; after adding context to the anonymous branch, all 5 layout tests pass.

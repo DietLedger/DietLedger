@@ -14,7 +14,8 @@ describe('public-release configuration boundary', () => {
 
   it('excludes credential-bearing local artifacts from both Docker build contexts', () => {
     const frontend = fs.readFileSync(path.join(root, '.dockerignore'), 'utf8').split(/\r?\n/);
-    for (const pattern of ['.env', '.env.*', '*.key', 'RecipeTool.zip', '.worktree-safety', '.pi', '.codegraph', '.dietledger-install.json']) expect(frontend.includes(pattern)).toBe(true);
+    for (const pattern of ['.env', '.env.*', '*.key', 'RecipeTool.zip', '.worktree-safety', '.pi', '.codegraph', '.dietledger-install.json', 'recipe_book_bundles/']) expect(frontend.includes(pattern)).toBe(true);
+    expect(frontend.includes('recipe_meals_pdfs/')).toBe(false);
     const backend = fs.readFileSync(path.join(root, 'sync-server/.dockerignore'), 'utf8').split(/\r?\n/);
     for (const pattern of ['.env', '.env.*', '*.pem', '*.key', '*.db', '*.exe']) expect(backend.includes(pattern)).toBe(true);
   });

@@ -279,7 +279,7 @@ Avoid tests for:
 ## Retired recipe artifacts
 
 Do not maintain tests for the retired `seed-recipes/` directory or the finished
-recipe bundles in `recipe_meals_pdfs/`. Application tests and verification
+recipe bundles in `recipe_book_bundles/`. Application tests and verification
 harnesses must not read either directory. Keep general recipe-bundle
 import/export, custom nutrition, PDF export and USDA food-ingestion coverage;
 use small synthetic fixtures rather than published recipe artifacts.

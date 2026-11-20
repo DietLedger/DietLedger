@@ -24,3 +24,11 @@ npx eslint src/scripts/private-operations-publication.test.ts src/scripts/deploy
 ```
 
 Result at this checkpoint: **15 tests passed** and targeted ESLint passed. Source/index history removal beyond the current publication boundary remains a separate reviewed operation. These checks do not establish clean historical refs, healthy deployed images or Windows runtime behavior.
+
+## Recipe conversion build exclusion
+
+The owner requires `recipe_book_bundles/` (PDF recipe conversions and finished bundles, formerly `recipe_meals_pdfs/`) to stay out of Docker build input. The root `.dockerignore` exclusion ensures ordinary local and release builds enforce the same boundary as the manually tested, filtered candidate. Other conversion inputs remain allowed subject to existing ignore rules; do not change artifacts or private conversion scripts.
+
+Acceptance: Docker excludes that entire directory, including nested files, while retaining an unrelated conversion fixture. Verify RED/GREEN using Docker's actual context filtering on a disposable synthetic context with the repository `.dockerignore` copied into it and a scratch-stage local export. Do not read recipe artifacts or add artifact-dependent application tests. No application rebuild, publication, deployment, or repeat of the owner's completed release checks is included in this change.
+
+Verification: before the exclusion, Docker exported both synthetic recipe-conversion files (including the nested file); after the exclusion, the entire fixture directory was absent and the unrelated conversion fixture remained. The four existing publication/build-boundary test files passed (16 tests), and `git diff --check` passed. The probe used only synthetic files outside the repository and read no actual recipe artifacts. Application images and running services were not changed.

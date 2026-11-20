@@ -4,6 +4,8 @@ out
 build
 builds
 docker-build
+# Finished PDF recipe conversions and bundles are not application build inputs.
+recipe_book_bundles/
 src-tauri
 download
 mini-services
