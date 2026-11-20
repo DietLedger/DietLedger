@@ -26,6 +26,14 @@ Select a **new** project/stack and new volume; do not point a fresh install at a
 
 The source-tree Compose file is not a published release asset: it explicitly requires `DIETLEDGER_VERSION` for a selected image tag, including before publication. An empty value must fail rather than silently select an imagined release. Developer builds are separate; `npm run docker:build:local` builds/loads only web and API and does not deploy.
 
+## Optional starter recipe books
+
+After setup, download either or both native recipe-book JSON bundles from the `recipe_book_bundles/` directory at the same source tag/revision as the installed app: [Deliciously Healthy Dinners](../recipe_book_bundles/deliciously-healthy-dinners-full.recipe-bundle.json) and [Deliciously Healthy Family Meals](../recipe_book_bundles/deliciously-healthy-family-meals-full.recipe-bundle.json). These files are not included in the five Docker release assets, so downloading them requires repository access. On GitHub, open a bundle at the matching tag and choose **Raw** or **Download**. Import requires an app version that supports native bundle version 4.
+
+In DietLedger, open **Settings → Data → Recipe Bundle Export / Import → Import** and select a `.recipe-bundle.json` file. Import the books separately. If a same-named book already exists, review the importer's merge/replace/cancel choice.
+
+Both are text-only transcriptions from the National Heart, Lung, and Blood Institute's (NHLBI) *Keep the Beat Recipes* series. [*Deliciously Healthy Dinners*](https://www.nih.gov/news-events/news-releases/nhlbi-publishes-new-heart-healthy-cookbook) (NIH Publication No. 10-2921; 2009, reprinted 2010) is a collection of 75 heart-healthy dinner and side-dish recipes influenced by several cuisines, plus cookbook appendices. [*Deliciously Healthy Family Meals*](https://www.nhlbi.nih.gov/resources/keep-beat-recipes-deliciously-healthy-family-meals) (NIH Publication No. 10-7531; December 2010) focuses on family-friendly meals, snacks, and cooking together; its bundle contains 46 DietLedger recipe entries representing 43 printed entries, with one multi-panel dips-and-vegetables item separated into individual entries. The original photographs and printed tables of contents are not included. Nutrition labels, food-safety instructions and other guidance are historical source material, not current medical or food-safety advice.
+
 ## Reruns, upgrades and recovery
 
 | Variable | Purpose |
