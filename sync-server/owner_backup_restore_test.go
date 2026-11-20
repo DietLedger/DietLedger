@@ -270,6 +270,11 @@ func TestOwnerBackupRestoreAcrossDatabases(t *testing.T) {
 	if _, err := target.db.Exec(`INSERT INTO food_items (fdc_id, description, data_type, calories) VALUES (111111, 'Unrelated target food', 'Foundation', 1)`); err != nil {
 		t.Fatal(err)
 	}
+	// This equality test assumes the recipient has trusted canonical sources.
+	// Bundle facts themselves must not provision the shared food database.
+	if _, err := target.db.Exec(`INSERT INTO food_items(fdc_id,description,data_type,calories) VALUES(987654,'USDA staple','Foundation',50),(989898,'USDA fixture','Foundation',50)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := target.ImportRecipeBundle(recipient.ID, downloaded); err != nil {
 		t.Fatal(err)
 	}

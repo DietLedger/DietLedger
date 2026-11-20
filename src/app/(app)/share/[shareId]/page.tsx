@@ -14,8 +14,8 @@ import { summarizeRecipeBundleImport } from '@/lib/recipe-bundles';
 import { RecipeTransferStatus } from '@/components/recipe/recipe-transfer-status';
 import {
   parseInstructions,
-  sumNutrition,
-  emptyNutrition,
+  recipeNutrition,
+  recipeMissingNutrients,
   type Ingredient,
   type InstructionStep,
   type InstructionGroup,
@@ -28,9 +28,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { fmt } from '@/lib/format';
 import { STORAGE_LOCATION_META, type StorageLocation } from '@/data/storage-locations';
 import Link from 'next/link';
-import type { SharedRecipeRecord } from '@/lib/types';
+import type { SharedRecipeRecord, CustomRecipeNutrition } from '@/lib/types';
+import { CustomNutritionNotice } from '@/components/recipe/custom-nutrition-editor';
 
 interface ParsedRecipe {
+  description?: string;
+  customNutrition?: CustomRecipeNutrition | null;
   name: string;
   servings: number;
   servingName?: string;
@@ -134,6 +137,8 @@ function SharedRecipePageInner() {
       const raw = JSON.parse(recipe.recipeData);
       const instrPayload = parseInstructions(raw.instructions ?? null);
       return {
+        description: raw.description,
+        customNutrition: raw.customNutrition,
         name: raw.name || recipe.title,
         servings: raw.servings || 1,
         servingName: raw.servingName,
@@ -151,8 +156,8 @@ function SharedRecipePageInner() {
   }, [recipe]);
 
   const totalNutrition = useMemo(
-    () => (parsed.ingredients.length > 0 ? sumNutrition(parsed.ingredients) : emptyNutrition()),
-    [parsed.ingredients],
+    () => recipeNutrition(parsed),
+    [parsed],
   );
   const servings = parsed.servings || 1;
 
@@ -160,6 +165,8 @@ function SharedRecipePageInner() {
     const div = (v: number) => Math.round((v / servings) * 10) / 10;
     return {
       servings,
+      missingNutrients: recipeMissingNutrients(parsed),
+      customNutrition: parsed.customNutrition,
       calories: div(totalNutrition.calories),
       totalFat: div(totalNutrition.totalFat),
       saturatedFat: div(totalNutrition.saturatedFat),
@@ -176,7 +183,7 @@ function SharedRecipePageInner() {
       iron: div(totalNutrition.iron),
       potassium: div(totalNutrition.potassium),
     };
-  }, [totalNutrition, servings]);
+  }, [totalNutrition, servings, parsed]);
 
   if (loading) {
     return (
@@ -209,12 +216,13 @@ function SharedRecipePageInner() {
               <CardTitle className="text-xl">{parsed.name}</CardTitle>
               {parsed.servings > 0 && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  {parsed.servings} {servingName}{parsed.servings !== 1 ? 's' : ''}
+                  {parsed.servings} servings · {servingName}
                 </p>
               )}
-              {recipe.description && (
-                <p className="text-sm text-muted-foreground mt-1">{recipe.description}</p>
+              {(parsed.description || recipe.description) && (
+                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">{parsed.description || recipe.description}</p>
               )}
+              <CustomNutritionNotice nutrition={parsed.customNutrition} />
             </div>
             <Button type="button" onClick={handleImport} disabled={importing} className="shrink-0">
               <Download className="h-4 w-4 mr-1" />
@@ -318,20 +326,20 @@ function SharedRecipePageInner() {
                 <Card className="border-stone-200 shadow-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-semibold text-stone-700">Nutrition Facts</CardTitle>
-                    <p className="text-xs text-stone-400">Per serving (1 {servingName})</p>
+                    <p className="text-xs text-stone-400">Per serving ({parsed.customNutrition ? servingName : `1 ${servingName}`})</p>
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="flex justify-center">
                       <NutritionLabel
                         data={perServingNutrition}
-                        servingDescription={`1 ${servingName}`}
+                        servingDescription={parsed.customNutrition ? servingName : `1 ${servingName}`}
                         servingsPerContainer={parsed.servings}
                       />
                     </div>
                     {parsed.ingredients.length > 0 && servings > 1 && (
                       <div className="mt-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
                         <p className="text-xs font-medium text-stone-600 mb-2">
-                          Full Recipe (all {servings} {servingName}{servings !== 1 ? 's' : ''})
+                          Full Recipe ({servings} servings)
                         </p>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div className="flex justify-between"><span className="text-stone-500">Calories</span><span className="font-medium">{fmt(totalNutrition.calories)}</span></div>

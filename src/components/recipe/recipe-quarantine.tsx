@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { getApiClient, type QuarantinedRecipe } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { emptyNutrition, sumNutrition, toPublicRecipe, type Ingredient } from '@/lib/recipe-types';
+import { emptyNutrition, recipeNutrition, toPublicRecipe, type Ingredient } from '@/lib/recipe-types';
 import { buildIngredientRematchUpdate, defaultLocationForFood, useFoodStorageDefaults, useFoodStorageDefaultLookup } from '@/hooks/use-recipes';
+import { CustomNutritionNotice } from './custom-nutrition-editor';
 import { IngredientMatchEditor } from './ingredient-match-editor';
 import { refreshRecipeImportQueries, useRecipeImport } from './recipe-import-workflow';
 import { Button } from '@/components/ui/button';
@@ -54,17 +55,17 @@ export function RecipeQuarantine() {
     <div className="grid gap-3 sm:grid-cols-3">
       <Input aria-label="Filter recipes" placeholder="Recipe name" value={nameFilter} onChange={event => setNameFilter(event.target.value)} />
       <Input aria-label="Filter missing ingredients" placeholder="Missing ingredient" value={ingredientFilter} onChange={event => setIngredientFilter(event.target.value)} />
-      <select aria-label="Filter by book" className="h-9 rounded-md border px-3 text-sm" value={bookFilter} onChange={event => setBookFilter(event.target.value)}>
-        <option value="">All books</option><option value="__standalone">Standalone / no book</option>
-        {books.map(title => <option key={title} value={title}>{title}</option>)}
+      <select aria-label="Filter by book" className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground" value={bookFilter} onChange={event => setBookFilter(event.target.value)}>
+        <option className="bg-background text-foreground" value="">All books</option><option className="bg-background text-foreground" value="__standalone">Standalone / no book</option>
+        {books.map(title => <option className="bg-background text-foreground" key={title} value={title}>{title}</option>)}
       </select>
     </div>
     {queue.isPending && <p role="status">Loading quarantine…</p>}
     {queue.isError && <div role="alert">Could not load quarantine. <Button variant="outline" onClick={() => queue.refetch()}>Retry</Button></div>}
-    {!queue.isPending && !queue.isError && <p role="status">{rows.length === 0 ? 'No quarantined recipes.' : `${visible.length} of ${rows.length} quarantined recipes`}</p>}
+    {!queue.isPending && !queue.isError && <p role="status">{rows.length === 0 ? 'No recipes! good job!' : `${visible.length} of ${rows.length} quarantined recipes`}</p>}
     {visible.map(row => {
       const recipe = toPublicRecipe(row.recipe);
-      const totals = sumNutrition(recipe.ingredients);
+      const totals = recipeNutrition(recipe);
       const open = expanded.has(row.id);
       return <section key={row.id} className="rounded-lg border bg-white">
         <h2><button className="w-full p-4 text-left" aria-expanded={open} aria-controls={`staged-${row.id}`} onClick={() => setExpanded(previous => {
@@ -74,7 +75,9 @@ export function RecipeQuarantine() {
           <span className="block text-sm text-stone-600">{row.unresolvedIngredients.length} unresolved · {row.bookTitles.join(', ') || 'Standalone / no book'}</span>
         </button></h2>
         {open && <div id={`staged-${row.id}`} className="border-t p-4 space-y-3">
-          <p className="text-xs text-stone-500">Current ingredient total: {fmt(totals.calories)} kcal (unconfirmed until linked)</p>
+          {recipe.description && <p className="whitespace-pre-wrap">{recipe.description}</p>}
+          <CustomNutritionNotice nutrition={recipe.customNutrition} />
+          <p className="text-xs text-stone-500">{recipe.customNutrition ? 'Custom recipe total' : 'Current ingredient total'}: {fmt(totals.calories)} kcal {recipe.customNutrition ? '(published facts; ingredients are descriptive)' : '(unconfirmed until linked)'}</p>
           {row.requiresDecision ? <p className="text-sm">Resume the import decision above and choose Relink later before editing this batch.</p> : recipe.ingredients.length === 0 ? <div className="space-y-2">
             <p>This recipe has no ingredients. Add its first ingredient to link nutrition and make it available.</p>
             <Button onClick={() => openNewIngredient(row)}>Add first ingredient</Button>

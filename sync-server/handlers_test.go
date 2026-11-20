@@ -24,9 +24,9 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("new auth: %v", err)
 	}
 	rl := NewRateLimiter()
-	server := NewServer(store, auth, "*", 10, rl)
+	server := NewServer(store, auth, "https://app.example", 10, rl)
 
-	resp, err := auth.Register("test@example.com", "Password123", "Test User")
+	resp, err := auth.Register("test@example.com", "Password123", "Test User", securityClaim)
 	if err != nil {
 		t.Fatalf("register test user: %v", err)
 	}
@@ -68,11 +68,13 @@ func (e *testEnv) doRequestNoAuth(method, path string, body interface{}) *httpte
 		bodyReader = bytes.NewReader(b)
 		req := httptest.NewRequest(method, path, bodyReader)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "https://app.example")
 		w := httptest.NewRecorder()
 		e.server.Routes().ServeHTTP(w, req)
 		return w
 	}
 	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Origin", "https://app.example")
 	w := httptest.NewRecorder()
 	e.server.Routes().ServeHTTP(w, req)
 	return w
@@ -123,6 +125,13 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	if w.Code != 409 {
 		t.Fatalf("status = %d, want 409", w.Code)
 	}
+	body := decodeJSON(t, w)
+	if body["ok"] != false || body["error"] != "unable to register account" || len(body) != 2 {
+		t.Fatal("registration conflict must use only the documented generic response")
+	}
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("registration conflict must not be cached")
+	}
 }
 
 func TestRegisterInvalidEmail(t *testing.T) {
@@ -163,9 +172,12 @@ func TestAuthRefresh(t *testing.T) {
 	env := newTestEnv(t)
 	loginResp, _ := env.auth.Login("test@example.com", "Password123")
 
-	w := env.doRequestNoAuth("POST", "/api/auth/refresh", RefreshRequest{
-		RefreshToken: loginResp.RefreshToken,
-	})
+	req := httptest.NewRequest("POST", "/api/auth/refresh", nil)
+	req.Header.Set("Origin", "https://app.example")
+	req.Header.Set("X-CSRF-Token", "dietledger")
+	req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: loginResp.RefreshToken})
+	w := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import type { ScaleOptions, ScaledRecipe, ScaleMode } from '@/lib/types';
 import { scaleRecipe, formatScaledAmount, classifyIngredient } from '@/lib/recipe-scaling';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,7 @@ interface ScalingControlsProps {
     servings: number;
     ingredients: Array<{ id: string; name: string; amount: number; unit: string }>;
     totalCalories?: number;
+    customNutrition?: import('@/lib/types').CustomRecipeNutrition | null;
   };
   onApplyScale?: (scaled: ScaledRecipe) => void;
 }
@@ -26,22 +27,28 @@ export function ScalingControls({ recipe, onApplyScale }: ScalingControlsProps) 
   const [multiplier, setMultiplier] = useState(1);
   const [calorieTarget, setCalorieTarget] = useState(recipe.totalCalories ?? 0);
   const [applied, setApplied] = useState(false);
+  const [largeBatchBeta, setLargeBatchBeta] = useState(false);
+  const [seasoningScalePercent, setSeasoningScalePercent] = useState(75);
+  const [proportionalIngredientIds, setProportionalIngredientIds] = useState<string[]>([]);
 
   const options: ScaleOptions = useMemo(() => {
     switch (mode) {
       case 'servings':
-        return { mode: 'servings', originalServings: recipe.servings, targetServings };
+        return { mode: 'servings', originalServings: recipe.servings, targetServings, largeBatchBeta, seasoningScalePercent, proportionalIngredientIds };
       case 'multiplier':
-        return { mode: 'multiplier', originalServings: recipe.servings, multiplier };
+        return { mode: 'multiplier', originalServings: recipe.servings, multiplier, largeBatchBeta, seasoningScalePercent, proportionalIngredientIds };
       case 'calorieTarget':
         return {
           mode: 'calorieTarget',
           originalServings: recipe.servings,
           calorieTarget,
           originalCalories: recipe.totalCalories,
+          largeBatchBeta,
+          seasoningScalePercent,
+          proportionalIngredientIds,
         };
     }
-  }, [mode, recipe.servings, recipe.totalCalories, targetServings, multiplier, calorieTarget]);
+  }, [mode, recipe.servings, recipe.totalCalories, targetServings, multiplier, calorieTarget, largeBatchBeta, seasoningScalePercent, proportionalIngredientIds]);
 
   const scaled = useMemo(() => scaleRecipe(recipe, options), [recipe, options]);
 
@@ -56,6 +63,9 @@ export function ScalingControls({ recipe, onApplyScale }: ScalingControlsProps) 
     setTargetServings(recipe.servings);
     setMultiplier(1);
     setCalorieTarget(recipe.totalCalories ?? 0);
+    setLargeBatchBeta(false);
+    setSeasoningScalePercent(75);
+    setProportionalIngredientIds([]);
     setApplied(false);
   };
 
@@ -145,6 +155,25 @@ export function ScalingControls({ recipe, onApplyScale }: ScalingControlsProps) 
           </div>
         )}
 
+        <div className="space-y-2 rounded border p-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={largeBatchBeta} disabled={!!recipe.customNutrition} onChange={event => { setLargeBatchBeta(event.target.checked); setApplied(false); }} />
+            Large batch scaling (Beta)
+          </label>
+          {recipe.customNutrition && <p className="text-xs text-muted-foreground">Unavailable for recipes with published nutrition; ingredient scaling remains proportional.</p>}
+          {largeBatchBeta && !recipe.customNutrition && <>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Seasoning starting amount (% of proportional)
+              <Input aria-label="Seasoning starting amount percent" type="number" min={1} max={100} value={seasoningScalePercent} className="w-16 h-7" onChange={event => { setSeasoningScalePercent(Math.min(100, Math.max(1, Number(event.target.value) || 1))); setApplied(false); }} />
+            </label>
+            <p className="text-xs text-muted-foreground">Beta estimates apply only to identified dried seasonings from 2x–4x; fresh herbs, salt, and uncertain forms remain proportional. Review every suggestion and test/adjust the recipe. Do not use this estimate for curing, preserving, or fermenting foods.</p>
+            <div className="flex flex-col items-start gap-1">
+              <a className="text-xs underline" href="https://uwyoextension.org/uwnutrition/newsletters/scaling-up-or-down/" target="_blank" rel="noreferrer">University of Wyoming Extension: scaling seasoning</a>
+              <a className="text-xs underline" href="https://theicn.org/cicn/resources/131/usda-recipe-standardization-guide-for-school-nutrition-programs/109523/usda-recipe-standardization-guide-for-school-nutrition-programs.pdf" target="_blank" rel="noreferrer">Institute of Child Nutrition: recipe standardization guide</a>
+            </div>
+          </>}
+        </div>
+
         {hasChanges && (
           <>
             <div className="text-xs text-muted-foreground">
@@ -175,6 +204,7 @@ export function ScalingControls({ recipe, onApplyScale }: ScalingControlsProps) 
                       </TooltipTrigger>
                       <TooltipContent>
                         <p>Original: {si.originalAmount} {si.originalUnit}</p>
+                        {si.scaleReason && <p>Proportional: {formatScaledAmount(si.originalAmount * scaled.scaleFactor)} {si.originalUnit}</p>}
                         {si.scaleReason && <p className="text-amber-500">{si.scaleReason}</p>}
                       </TooltipContent>
                     </Tooltip>
@@ -185,6 +215,7 @@ export function ScalingControls({ recipe, onApplyScale }: ScalingControlsProps) 
                   {si.scaleReason && (
                     <Badge variant="outline" className="text-xs h-5">{si.classification}</Badge>
                   )}
+                  {largeBatchBeta && si.largeBatchEligible && !recipe.customNutrition && scaled.scaleFactor >= 2 && scaled.scaleFactor <= 4 && <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={proportionalIngredientIds.includes(si.id)} onChange={event => { setProportionalIngredientIds(ids => event.target.checked ? [...ids, si.id] : ids.filter(id => id !== si.id)); setApplied(false); }} /> Proportional</label>}
                 </div>
               ))}
             </div>

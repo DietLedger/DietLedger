@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GoApiClient } from './api-client-go';
+import { setAccessToken, retireSession } from './auth-session';
 
 describe('authenticated food storage defaults API', () => {
-  afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+  afterEach(() => { vi.unstubAllGlobals(); retireSession(); localStorage.clear(); });
 
   it('reads caller defaults using the authorized API request', async () => {
-    localStorage.setItem('dietledger_access_token', 'user-token');
+    setAccessToken('user-token');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: [{ sourceType: 'usda', sourceKey: '456', location: 'Pantry' }] }) }));
     expect(await new GoApiClient('').getFoodStorageDefaults()).toEqual([{ sourceType: 'usda', sourceKey: '456', location: 'Pantry' }]);
     expect(fetch).toHaveBeenCalledWith('/api/food-storage-defaults', expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer user-token' }) }));

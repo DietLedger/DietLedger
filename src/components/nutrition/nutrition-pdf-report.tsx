@@ -129,6 +129,7 @@ export function NutritionPdfReport({ profile }: NutritionPdfReportProps) {
             ))}
           </SelectContent>
         </Select>
+        <p className="mt-1 text-xs text-muted-foreground">PDF logos must be uploaded PNG, JPEG, GIF or WebP images. SVG and external image URLs are not loaded for safety and privacy; the PDF shows a notice when a logo is omitted.</p>
       </div>
 
       <Card>

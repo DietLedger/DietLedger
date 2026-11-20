@@ -1,55 +1,74 @@
 # DietLedger
 
-DietLedger is a community-focused nutrition, diet-tracking, and care-management tool built to help individuals, schools, non-profits, and independent care providers support healthier lives. 
+**Recipes, nutrition insights, meal plans, and shopping lists—connected in one self-hosted workspace.**
 
-The goal of DietLedger is to provide reliable, accessible nutrition and care-tracking software to the people and small practices doing hands-on community care—without locking essential health tools behind expensive enterprise paywalls.
+DietLedger helps households and care professionals bring food planning and nutrition tracking into a single workflow. Build recipes, review their nutrition, plan meals, and turn those plans into a grocery list—then track food and revisit your goals over time.
 
----
+> **Beta software:** DietLedger is self-hosted software, not a hosted service. You provide and operate the server and database. Features and setup are still evolving; validate the application and its data before relying on it. It is not medical advice or a substitute for professional care.
 
-## Why the Community Care License?
+## Why DietLedger?
 
-Traditional open-source licenses make it easy for massive healthcare conglomerates, insurance companies, and AI auto-cloners to take a solo developer's work, repackage it into proprietary SaaS products, and profit without ever giving back to the creator or the community. Conversely, strict proprietary licenses shut out independent dietitians, small clinics, non-profits, and schools who cannot afford enterprise software contracts.
+- **Recipes with nutrition context.** Organize recipes and review nutrient analysis. Recipes can preserve published cookbook nutrition with source and unreported-nutrient notices; nutrition depends on the data and matches available.
+- **Dietary filters you can inspect.** Explore recipes against editable nutrition targets, including an optional Diabetes-aware starter profile. This is a screening aid—not a diabetes-safe certification or treatment plan. Unknown nutrition is not a confirmed match.
+- **Plan it, shop for it.** Put recipes on a meal plan and generate a grocery list that scales and aggregates planned recipe ingredients.
+- **Keep the workflow together.** Log food, review nutrition over time, manage recipe collections, and export printable cookbooks.
+- **Self-host and manage your own instance.** You operate the deployment and PostgreSQL database. Recipe/book export and owner backups support portability; they are not full-account backups.
 
-DietLedger is released under the **Community Care License (CCL) 1.0** to balance both needs:
-* **Empowering Communities & Small Caregivers:** Individuals, accredited schools, registered non-profits, public agencies, and small independent care practices can use, host, and customize DietLedger completely free of charge.
-* **Protecting Sustainable Open Development:** Large hospital networks, health insurers, corporate conglomerates, and competing software/SaaS vendors are required to purchase a commercial license. That enterprise revenue directly funds ongoing development and keeps DietLedger free for everyday users and neighborhood clinics.
+## Installation: Docker Compose first
 
----
+> **Pre-publication candidate.** No public release, image availability or fresh-install runtime verification is claimed. Manual testing, security/history review and publication remain separate owner gates. Do not use real patient/client information in a candidate test.
 
-## License Summary
+Public installation targets **Linux/amd64 only**, using standard **Docker Compose or Portainer CE Docker Standalone**, pulling `ghcr.io/dietledger/dietledger-web` and `ghcr.io/dietledger/dietledger-api` directly; PostgreSQL uses the pinned official upstream image. No setup helper/image, host installer, Node, Go, Git, buildx or registry login is required. See [the full installation and recovery guide](docs/docker-registry-install.md).
 
-![Community Care License Summary](./ccl-summary.jpeg)
+### Compose after an approved release is published
 
-For the full legal terms, please read **[LICENSE.md](./LICENSE.md)**.
+1. Download all five files—`release.json`, `.env.example`, `docker-compose.yml`, `docker-compose.portainer.yml` and `SHA256SUMS`—from that exact approved GitHub release. Check origin, run `sha256sum --check SHA256SUMS` (or compare every file with Windows `Get-FileHash -Algorithm SHA256`), and review the literal web/API image digests in the released Compose assets. Do not invent a release tag or digest. Source Compose instead requires an explicit `DIETLEDGER_VERSION`; an unpublished source checkout is not a registry release.
+2. Copy `.env.example` to `.env` in a private directory. Before filling it, restrict the directory/file (Linux: `chmod 700` on the directory, `chmod 600 .env`; Windows: protected restrictive ACLs for the intended account/trusted administrators). Fill the five empty assignments—`POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, `API_DB_PASSWORD`, `HMAC_SECRET`, `SETUP_CLAIM_SECRET`—with **five independent** CSPRNG values: each 32 random bytes rendered as 64 lowercase hex characters, from a trusted password manager or five separate optional `openssl rand -hex 32` invocations. Migration/runtime passwords must be distinct and exactly 64 lowercase hex. Hex passwords are URL-safe for the connection URLs. Never publish `.env` or credential-bearing expanded configuration.
+3. Confirm the Docker endpoint and a new project/volume, then run from the assets directory:
 
-### ✅ Permitted Free Uses
-* **Personal Use:** Free for non-commercial personal or household tracking.
-* **Non-Profits, Schools & Public Care:** Free for internal operational use by accredited educational institutions, registered non-profits, and public/government human-care agencies.
-* **Small Independent Care Clinics:** Free for private healthcare, nutrition, childcare, or elder-care organizations with **fewer than 40 total personnel** AND **under $3,000,000 in annual gross revenue** (aggregated across all corporate affiliates).
+   ```sh
+   docker compose --env-file .env -f docker-compose.yml -p dietledger config --quiet
+   docker compose --env-file .env -f docker-compose.yml -p dietledger pull
+   docker compose --env-file .env -f docker-compose.yml -p dietledger up -d
+   ```
 
-### 📋 Requirements (Copyleft & Attribution)
-* **Share Modified Source Code:** If you modify DietLedger or incorporate its code into another project and distribute or host it over a network for external users (such as patients or clients), you must make the complete corresponding source code available under this same license.
-* **API Safe Harbor:** Building an independent app, plugin, or client that merely communicates with a DietLedger instance via standard APIs, webhooks, or HTTP requests does **not** subject your independent code to this license.
-* **Preserve All Notices:** You must retain all `Required Notice:` lines and a copy of the license whenever you distribute any part of the software.
+Only web publishes a host port: `127.0.0.1:3000` by default. Open [http://localhost:3000](http://localhost:3000); `CORS_ORIGIN` must match the exact browser origin. `AUTH_ALLOW_INSECURE_LOOPBACK=true` is for loopback HTTP only. First administrator creation requires the private `SETUP_CLAIM_SECRET`. Verify healthy PostgreSQL/API/web and successful bootstrap/migration jobs before use.
 
-### 🚫 Restrictions (Commercial License Required)
-* **Large Hospital Networks & Health Insurers:** Entities exceeding the 40-personnel or $3M annual revenue thresholds (including parent companies and affiliates) must obtain a separate written commercial license.
-* **Competing Software & Standalone SaaS:** You may not offer DietLedger as a hosted SaaS platform for external clinics, white-label it, commercialize its API, or use its code to build a competing nutrition or practice-management product.
+### Portainer and developer builds
 
----
+Portainer CE Docker Standalone can use Web editor/Upload with the reviewed release Compose asset, or a Git stack with the approved repository, **exact approved tag/ref** and `docker-compose.portainer.yml`. Explicitly enter/import variables in Portainer; it does not read a host `.env` automatically. Keep identical service health/successful-completion dependencies, disable automatic updates, and use a new stack/volume. No relative bind mounts or Business Edition feature is required. Source review identifies a candidate version; actual Portainer runtime verification remains pending—see the guide.
 
-## Enterprise & Commercial Licensing
+Developer source builds are separate and may require Node/buildx: `npm run docker:build:local` builds/loads web and API only, without deployment. Local runtime tests need explicit approval and disposable resources; they do not prove anonymous GHCR installation.
 
-If you represent a larger healthcare network, urgent care chain, health insurer, corporate wellness program, or software vendor and would like to use, host, or integrate DietLedger commercially, please reach out to arrange a commercial license:
+### Reruns, upgrades and recovery
 
-* **Licensor:** Matthew Dumas
-* **Contact:** `matt@dietledger.app`
-* **Website:** `https://www.dietledger.app`
+Operators must preserve credentials/data across reruns; there is no automatic generation or rotation. Keep **all five values and deployment configuration in an encrypted offline backup alongside a tested full PostgreSQL backup**; recipe/book exports are not full-account/database backups. **The original HMAC is essential to decrypt stored provider settings after restore.** Missing/incorrect initialized credentials require recovery, not silent password/HMAC replacement. Never delete a data volume to get past validation, and never add `down -v` to routine maintenance.
 
----
+Ordinary API startup does not perform migrations or use database bootstrap authority. Existing deployments need an explicit, backed-up database-role/session/configuration migration; rebuilding images alone is not that migration. Existing Portainer stacks remain owned by their original manager and must not receive an automatic replacement configuration. Operator-specific build/deploy scripts remain private local tools, not public installation dependencies.
 
-## Getting Started
+Factory reset retains consumed first-admin claim receipts. Recovery uses explicit **claim-only rotation**, preserving database/HMAC secrets; see the installation guide before changing anything. A fresh deployment is not permission to adopt existing data or change its manager.
 
-We are still in alpha, this will be completed when in Beta.
+### Before permitting LAN or internet access
 
-Unfortunately, to preserve my right to this project I was required to put it online early. It is not ready for community use and interaction just yet. 
+- Complete the security verification, manual test, history/credential and publication gates. Loopback is not protection if another service proxies it publicly.
+- Keep `BIND_ADDRESS=127.0.0.1` for a reviewed host-local HTTPS reverse proxy; broader binding needs an explicit firewall/TLS design. PostgreSQL and API are not host-published by default.
+- Set `CORS_ORIGIN` to the exact browser-facing HTTPS origin and `AUTH_ALLOW_INSECURE_LOOPBACK=false`. Web Locks are always required, including localhost; HTTPS through trusted ingress is required except for explicitly configured loopback HTTP. Serve the web UI and `/api` on the same browser origin, not separate API origins. CORS is not a firewall.
+- Verify full restoration, protect Portainer's stored variables, and confirm the license permits your use. Do not publish private configuration, local build folders, unresolved audit material or credentials.
+
+## License and permitted use
+
+DietLedger is **source-available under the Community Care License (CCL) 1.0**. It is not offered under a conventional OSI-approved open-source license, and “free” does not mean every organization or use is permitted.
+
+The license permits non-commercial personal or household use, specified internal use by qualifying educational institutions, registered non-profits and public agencies, and use by eligible small direct-care organizations with **fewer than 40 personnel and under $3,000,000 in annual gross revenue** (with affiliates aggregated). It includes source-availability and notice obligations for covered distribution and external network use. Standalone SaaS, competing products, white-labeling and certain larger-enterprise uses are restricted or require a separate written commercial license. This summary is not the license; read the full terms and definitions to determine whether your use qualifies.
+
+Read [LICENSE.md](LICENSE.md) in full before use. For commercial licensing inquiries, see the contact information in the license and on [dietledger.app](https://www.dietledger.app).
+
+## Learn more
+
+- **GitHub repository:** [DietLedger/DietLedger](https://github.com/DietLedger/DietLedger)
+- **Project landing page:** [GitHub Pages](https://dietledger.github.io/DietLedger/)
+- **Full license:** [Community Care License 1.0](LICENSE.md)
+
+## Beta feedback
+
+Review the project and open a GitHub issue for reproducible bugs or product feedback. Do not include passwords, API keys, personal health information, or other sensitive data in issues. Do not submit real patient or client information to a beta instance.

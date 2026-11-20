@@ -104,7 +104,8 @@ describe('SetupWizard — account -> basics transition', () => {
     await user.type(screen.getByPlaceholderText('Admin'), 'Admin User')
     await user.type(screen.getByPlaceholderText('you@example.com'), 'admin@example.com')
     await user.type(screen.getByPlaceholderText('At least 8 characters'), 'supersecret')
-    const [passwordInput, confirmInput] = container.querySelectorAll('input[type="password"]')
+    await user.type(screen.getByLabelText('Installation setup claim'), 'synthetic-claim-value')
+    const [, passwordInput, confirmInput] = container.querySelectorAll('input[type="password"]')
     expect(confirmInput).toBeDefined()
     await user.type(confirmInput as HTMLElement, 'supersecret')
 

@@ -19,6 +19,7 @@ import type {
   CustomFoodRecord,
   TemplateRecord,
   DietaryProfileRecord,
+  DietaryRecipeAssessment,
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
@@ -50,6 +51,7 @@ export type {
   PantryStapleRecord,
   ExportCandidateRecord,
   DietaryProfileRecord,
+  DietaryRecipeAssessment,
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
@@ -97,7 +99,7 @@ export interface PaginatedResult<T> {
 
 export interface AuthResult {
   accessToken: string;
-  refreshToken: string;
+  csrfToken: string;
   expiresIn: number;
   user: { id: string; email: string; displayName: string; isAdmin?: boolean };
 }
@@ -148,7 +150,7 @@ export interface UserSecretInfo {
 
 export interface RecipeBundle {
   format: 'dietledger.recipe-bundle';
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   pendingImports?: { version: 1; [key: string]: unknown };
   exportedAt: string;
   source?: { app: string; version: string };
@@ -180,8 +182,30 @@ export interface QuarantinedRecipe {
   bookTitles: string[];
 }
 
+export interface BookImportConflictCandidate {
+  targetBookId: string;
+  title: string;
+  targetFingerprint: string;
+}
+
+export interface BookImportConflict {
+  bundleBookId: string;
+  title: string;
+  candidates: BookImportConflictCandidate[];
+}
+
+export interface BookImportDecision {
+  bundleBookId: string;
+  targetBookId: string;
+  action: 'merge' | 'replace';
+  targetFingerprint: string;
+}
+
 export interface RecipeBundleImportSummary {
   pendingImportId?: string;
+  requiresBookDecision?: boolean;
+  bookConflicts?: BookImportConflict[];
+  importCancelled?: boolean;
   requiresDecision?: boolean;
   quarantined?: number;
   promotedRecipeIds?: string[];
@@ -194,9 +218,10 @@ export interface RecipeBundleImportSummary {
 
 export interface ApiClient {
   // Auth
-  register(email: string, password: string, displayName: string): Promise<AuthResult>;
+  register(email: string, password: string, displayName: string, setupClaim?: string): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
-  refreshToken(token: string): Promise<AuthResult>;
+  refreshToken(): Promise<AuthResult>;
+  logout(expectedPrincipalID?: string | null): Promise<void>;
 
   // Instance metadata
   getInstanceState(): Promise<InstanceState>;
@@ -228,7 +253,7 @@ export interface ApiClient {
     data: Partial<
       Pick<
         RecipeRecord,
-        'name' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
+        'name' | 'description' | 'customNutrition' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
       >
     >
   ): Promise<RecipeRecord>;
@@ -254,7 +279,7 @@ export interface ApiClient {
   getRecipeBundleExportCandidates(): Promise<ExportCandidateRecord[]>;
   exportRecipeBundle(request: { recipeIds?: string[]; bookIds?: string[]; profileIds?: string[]; mealPlanIds?: string[] }): Promise<RecipeBundle>;
   exportOwnerRecipeBookBackup(): Promise<RecipeBundle>;
-  importRecipeBundle(bundle: RecipeBundle): Promise<RecipeBundleImportSummary>;
+  importRecipeBundle(bundle: RecipeBundle, bookDecisions?: BookImportDecision[]): Promise<RecipeBundleImportSummary>;
   getQuarantinedRecipes(): Promise<QuarantinedRecipe[]>;
   decideRecipeImport(batchId: string, action: 'keep' | 'cancel'): Promise<RecipeBundleImportSummary>;
   resolveQuarantinedIngredient(recipeId: string, ingredientId: string, data: Partial<Omit<IngredientRecord, 'id' | 'recipeId'>>): Promise<RecipeBundleImportSummary>;
@@ -445,6 +470,8 @@ export interface ApiClient {
 
   // Dietary Profiles (server-persisted)
   getDietaryProfiles(): Promise<DietaryProfileRecord[]>;
+  restoreDiabetesAwareProfile(): Promise<DietaryProfileRecord>;
+  getDietaryRecipeAssessments(profileId: string): Promise<DietaryRecipeAssessment[]>;
   createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord>;
   updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord>;
   deleteDietaryProfile(id: string): Promise<void>;

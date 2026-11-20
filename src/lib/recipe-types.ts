@@ -18,6 +18,7 @@ export interface InstructionsPayload {
 }
 
 export interface Ingredient {
+  missingNutrients?: string[];
   id: string;
   fdcId: number;
   name: string;
@@ -52,6 +53,8 @@ export interface Ingredient {
 }
 
 export interface Recipe {
+  description?: string;
+  customNutrition?: import('./types').CustomRecipeNutrition | null;
   id: string;
   readonly portableId?: string;
   name: string;
@@ -195,11 +198,24 @@ export function emptyNutrition(): Record<NutrientKeys, number> {
   };
 }
 
-export function sumNutrition(items: Ingredient[]): Record<NutrientKeys, number> {
+export function recipeMissingNutrients(recipe: { customNutrition?: import('./types').CustomRecipeNutrition | null; ingredients?: Array<Pick<Ingredient, 'name' | 'missingNutrients'>> }): string[] {
+  if (recipe.customNutrition) return [...(recipe.customNutrition.missingNutrients ?? [])];
+  return [...new Set((recipe.ingredients ?? []).flatMap(ingredient => ingredient.missingNutrients ?? []))];
+}
+
+// Presentation of server-owned snapshots: custom facts replace ingredient totals.
+// multiplier is a fraction of the whole recipe, NOT a serving count.
+export function recipeNutrition(recipe: { customNutrition?: import('./types').CustomRecipeNutrition | null; ingredients?: Array<Partial<Record<NutrientKeys, number>>> }, multiplier = 1): Record<NutrientKeys, number> {
+  const totals = recipe.customNutrition ? { ...recipe.customNutrition.nutrients } : sumNutrition(recipe.ingredients ?? []);
+  for (const key of NUTRIENT_KEYS) totals[key] *= multiplier;
+  return totals;
+}
+
+export function sumNutrition(items: Array<Partial<Record<NutrientKeys, number>>>): Record<NutrientKeys, number> {
   const totals = emptyNutrition();
   for (const ing of items) {
     for (const key of NUTRIENT_KEYS) {
-      totals[key] += ing[key];
+      totals[key] += ing[key] ?? 0;
     }
   }
   return totals;

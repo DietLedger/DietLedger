@@ -8,8 +8,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+const securityClaim = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func testStore(t *testing.T) Store {
 	t.Helper()
+	t.Setenv("HMAC_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("SETUP_CLAIM_SECRET", securityClaim)
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL not set — skipping test requiring PostgreSQL")
@@ -45,7 +49,11 @@ func testStore(t *testing.T) Store {
 
 func createUser(t *testing.T, s Store, suffix string) *User {
 	t.Helper()
-	u, err := s.CreateUser("user"+suffix+"@test.com", "password123", "User "+suffix)
+	claim := ""
+	if n, _ := s.UserCount(); n == 0 {
+		claim = securityClaim
+	}
+	u, err := s.CreateUser("user"+suffix+"@test.com", "password123", "User "+suffix, claim)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

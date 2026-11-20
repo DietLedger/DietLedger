@@ -31,7 +31,7 @@ func assertJSONEqual(t *testing.T, want, got string) {
 func TestUserCRUD(t *testing.T) {
 	s := testStore(t)
 
-	u, err := s.CreateUser("alice@test.com", "hunter2", "Alice")
+	u, err := s.CreateUser("alice@test.com", "hunter2", "Alice", securityClaim)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -41,8 +41,8 @@ func TestUserCRUD(t *testing.T) {
 	if u.Email != "alice@test.com" {
 		t.Fatalf("email = %q, want alice@test.com", u.Email)
 	}
-	if u.APIKey == "" {
-		t.Fatal("expected non-empty API key")
+	if u.APIKey != "" {
+		t.Fatal("legacy API key must not be issued")
 	}
 
 	got, err := s.GetUserByID(u.ID)
@@ -59,22 +59,6 @@ func TestUserCRUD(t *testing.T) {
 	}
 	if got.ID != u.ID {
 		t.Fatalf("id mismatch: %q vs %q", got.ID, u.ID)
-	}
-
-	got, err = s.GetUserByAPIKey(u.APIKey)
-	if err != nil {
-		t.Fatalf("get by api key: %v", err)
-	}
-	if got.ID != u.ID {
-		t.Fatalf("id mismatch: %q vs %q", got.ID, u.ID)
-	}
-
-	got, err = s.GetUserByAPIKey("nonexistent")
-	if err != nil {
-		t.Fatalf("get by bad key: %v", err)
-	}
-	if got != nil {
-		t.Fatal("expected nil for bad key")
 	}
 
 	if _, err := s.CreateUser("alice@test.com", "x", "Dup"); err == nil {
@@ -364,7 +348,7 @@ func TestWeightEntryCRUD(t *testing.T) {
 		t.Fatal("expected non-empty ID")
 	}
 
-	entries, err := s.ListWeightEntries(p.ID, "2025-01-01", "2025-01-31")
+	entries, err := s.ListWeightEntries(p.UserID, p.ID, "2025-01-01", "2025-01-31")
 	if err != nil {
 		t.Fatalf("list weights: %v", err)
 	}
@@ -372,7 +356,7 @@ func TestWeightEntryCRUD(t *testing.T) {
 		t.Fatalf("len = %d, want 1", len(entries))
 	}
 
-	outside, err := s.ListWeightEntries(p.ID, "2025-02-01", "2025-02-28")
+	outside, err := s.ListWeightEntries(p.UserID, p.ID, "2025-02-01", "2025-02-28")
 	if err != nil {
 		t.Fatalf("list outside range: %v", err)
 	}
@@ -380,7 +364,7 @@ func TestWeightEntryCRUD(t *testing.T) {
 		t.Fatalf("len = %d, want 0 outside range", len(outside))
 	}
 
-	updated, err := s.UpdateWeightEntry(w.ID, &CreateWeightEntryRequest{
+	updated, err := s.UpdateWeightEntry(p.UserID, p.ID, w.ID, &CreateWeightEntryRequest{
 		Date:     "2025-01-15",
 		WeightKg: 69.8,
 	})
@@ -391,7 +375,7 @@ func TestWeightEntryCRUD(t *testing.T) {
 		t.Fatalf("weight = %f, want 69.8", updated.WeightKg)
 	}
 
-	if err := s.DeleteWeightEntry(w.ID); err != nil {
+	if err := s.DeleteWeightEntry(p.UserID, p.ID, w.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 }
@@ -462,7 +446,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 	u := createUser(t, s, "1")
 	mp, _ := s.CreateMealPlan(u.ID, &CreateMealPlanRequest{Name: "W1", WeekStart: "2025-01-13"})
 
-	entry, err := s.CreateDayPlanEntry(mp.ID, &CreateDayPlanEntryRequest{
+	entry, err := s.CreateDayPlanEntry(mp.UserID, mp.ID, &CreateDayPlanEntryRequest{
 		Date:       "2025-01-13",
 		Slot:       "morning",
 		SourceType: "recipe",
@@ -473,7 +457,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 		t.Fatalf("create entry: %v", err)
 	}
 
-	entries, err := s.ListDayPlanEntries(mp.ID)
+	entries, err := s.ListDayPlanEntries(mp.UserID, mp.ID)
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
 	}
@@ -481,7 +465,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 		t.Fatalf("len = %d, want 1", len(entries))
 	}
 
-	updated, err := s.UpdateDayPlanEntry(entry.ID, &CreateDayPlanEntryRequest{
+	updated, err := s.UpdateDayPlanEntry(mp.UserID, mp.ID, entry.ID, &CreateDayPlanEntryRequest{
 		Date:       "2025-01-13",
 		Slot:       "noon",
 		SourceType: "recipe",
@@ -495,7 +479,7 @@ func TestDayPlanEntryCRUD(t *testing.T) {
 		t.Fatalf("position = %d, want 2", updated.Position)
 	}
 
-	if err := s.DeleteDayPlanEntry(entry.ID); err != nil {
+	if err := s.DeleteDayPlanEntry(mp.UserID, mp.ID, entry.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 }

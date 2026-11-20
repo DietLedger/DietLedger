@@ -92,6 +92,22 @@ func TestSecretUpsertReturnsCurrentIDAndValue(t *testing.T) {
 	}
 }
 
+func TestNonAdminCannotPublishOrMutateDefaultTemplate(t *testing.T) {
+	env := newTestEnv(t)
+	other, err := env.auth.Register("nonadmin-template@test.com", "Password123", "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/api/templates", bytes.NewBufferString(`{"name":"forged default","type":"recipe","isDefault":true,"layout":"{}"}`))
+	req.Header.Set("Authorization", "Bearer "+other.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("non-admin default creation status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestTemplateCRUD(t *testing.T) {
 	env := newTestEnv(t)
 

@@ -103,6 +103,11 @@ func TestImportStagingBackupRestoresCanonicalPortions(t *testing.T) {
 	}
 	target := ownerBackupRestoreStore(t, s)
 	owner := createUser(t, target, "portion-staging-restore")
+	// Trusted ingestion on the recipient is a prerequisite for canonical
+	// rematching. The empty-catalog path is covered by the security offline test.
+	if _, err := target.db.Exec(`INSERT INTO food_items(fdc_id,description,data_type,calories,portions) VALUES(9876,'Piece food','Foundation',100,'[{"amount":1,"measureUnit":"piece","gramWeight":42}]')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := target.ImportRecipeBundle(owner.ID, *backup); err != nil {
 		t.Fatal(err)
 	}

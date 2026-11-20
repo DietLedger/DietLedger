@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -55,32 +56,12 @@ func (s *Server) deleteAccountHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the caller is the last administrator, require a successor to hand
-	// admin off to before the account is removed (prevents lockout).
-	if user.IsAdmin {
-		count, err := s.store.AdminCount()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to verify administrators")
+	// Membership validation, successor promotion and deletion commit together.
+	if err := s.store.DeleteAccount(user.ID, req.NewAdminUserID); err != nil {
+		if errors.Is(err, ErrLastAdmin) {
+			writeError(w, http.StatusBadRequest, ErrLastAdmin.Error())
 			return
 		}
-		if count <= 1 {
-			if req.NewAdminUserID == "" || req.NewAdminUserID == user.ID {
-				writeError(w, http.StatusBadRequest, "You are the only administrator. Select another user to promote before deleting your account.")
-				return
-			}
-			succ, err := s.store.GetUserByID(req.NewAdminUserID)
-			if err != nil || succ == nil {
-				writeError(w, http.StatusBadRequest, "successor user not found")
-				return
-			}
-			if err := s.store.SetUserAdmin(req.NewAdminUserID, true); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to promote successor")
-				return
-			}
-		}
-	}
-
-	if err := s.store.DeleteAccount(user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete account")
 		return
 	}

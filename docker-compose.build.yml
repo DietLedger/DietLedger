@@ -2,6 +2,9 @@ services:
   web:
     build:
       context: .
+      target: runner
+      args:
+        BUILD_VERSION: ${APP_VERSION:-dev}
     image: recipetool-dietledger
     container_name: dietledger
 

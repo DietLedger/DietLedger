@@ -5,8 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -15,127 +13,108 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ErrRegistrationDisabled is returned when self-service registration is closed
-// by the admin AND an admin already exists. The very first user (fresh install)
-// is always allowed so the instance can be set up.
 var ErrRegistrationDisabled = errors.New("registration is disabled")
+var ErrCredentials = errors.New("invalid credentials")
+
+const accessLifetime = 15 * time.Minute
+
+// Precomputed bcrypt work for the unknown-account branch; no per-request salt
+// generation or account-dependent outward error. Cost matches account creation.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("not-an-account-password"), bcrypt.DefaultCost)
 
 type AuthService struct {
-	privateKey  *rsa.PrivateKey
-	publicKey   *rsa.PublicKey
-	hmacSecret  []byte
-	store       Store
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
+	hmacSecret []byte
+	store      Store
 }
 
 func NewAuthService(store Store, signingKeyPath string) (*AuthService, error) {
-	hmacSecret := os.Getenv("HMAC_SECRET")
-	if hmacSecret == "" {
-		hmacSecret = uuid.New().String()
-		log.Println("[Auth] No HMAC_SECRET env var set, using generated secret. Tokens will not survive restarts.")
-	} else {
-		log.Println("[Auth] Using HMAC_SECRET from environment.")
+	secret := os.Getenv("HMAC_SECRET")
+	if !validDeploymentSecret(secret, 32) {
+		return nil, errors.New("persistent strong HMAC_SECRET is required")
 	}
-	a := &AuthService{store: store, hmacSecret: []byte(hmacSecret)}
+	a := &AuthService{store: store, hmacSecret: []byte(secret)}
 	if signingKeyPath != "" {
-		keyData, err := os.ReadFile(signingKeyPath)
+		data, err := os.ReadFile(signingKeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("read signing key: %w", err)
+			return nil, errors.New("cannot read signing key")
 		}
-		block, _ := pem.Decode(keyData)
+		block, _ := pem.Decode(data)
 		if block == nil {
-			return nil, fmt.Errorf("decode PEM block failed")
+			return nil, errors.New("invalid signing key")
 		}
-		if block.Type == "RSA PRIVATE KEY" {
-			priv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("parse private key: %w", err)
+		switch block.Type {
+		case "RSA PRIVATE KEY":
+			a.privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		case "PRIVATE KEY":
+			var key any
+			key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+			if err == nil {
+				var ok bool
+				a.privateKey, ok = key.(*rsa.PrivateKey)
+				if !ok {
+					return nil, errors.New("RSA private signing key required")
+				}
 			}
-			a.privateKey = priv
-			a.publicKey = &priv.PublicKey
-		} else if block.Type == "PUBLIC KEY" {
-			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("parse public key: %w", err)
-			}
-			a.publicKey = pub.(*rsa.PublicKey)
+		default:
+			return nil, errors.New("RSA private signing key required")
 		}
-	}
-	if a.privateKey == nil {
-		log.Println("[Auth] No RSA key provided, using HMAC HS256 with generated secret. For production, use RS256.")
+		if err != nil || a.privateKey == nil || a.privateKey.N.BitLen() < 2048 {
+			return nil, errors.New("valid RSA signing key of at least 2048 bits required")
+		}
+		a.publicKey = &a.privateKey.PublicKey
 	}
 	return a, nil
 }
 
-func (a *AuthService) Register(email, password, displayName string) (*AuthResponse, error) {
-	allowed, err := a.registrationAllowed()
+func (a *AuthService) Register(email, password, displayName string, setupClaim ...string) (*AuthResponse, error) {
+	user, err := a.store.CreateUser(email, password, displayName, setupClaim...)
 	if err != nil {
-		return nil, fmt.Errorf("check registration: %w", err)
-	}
-	if !allowed {
-		return nil, ErrRegistrationDisabled
-	}
-	user, err := a.store.CreateUser(email, password, displayName)
-	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
+		return nil, err
 	}
 	return a.generateTokens(user)
 }
 
-// registrationAllowed permits account creation when self-service registration
-// is enabled, or when no users exist yet (so a fresh install can create its
-// first admin via the setup wizard).
-func (a *AuthService) registrationAllowed() (bool, error) {
-	state, err := a.store.GetInstanceState()
-	if err != nil {
-		return false, err
-	}
-	if state.RegistrationEnabled {
-		return true, nil
-	}
-	count, err := a.store.UserCount()
-	if err != nil {
-		return false, err
-	}
-	return count == 0, nil
-}
-
 func (a *AuthService) Login(email, password string) (*AuthResponse, error) {
 	user, err := a.store.GetUserByEmail(email)
+	hash := dummyPasswordHash
+	if err == nil && user != nil {
+		hash = []byte(user.PasswordHash)
+	}
+	passwordErr := bcrypt.CompareHashAndPassword(hash, []byte(password))
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, errors.New("authentication unavailable")
 	}
-	if user == nil {
-		return nil, fmt.Errorf("invalid credentials")
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return nil, fmt.Errorf("invalid credentials")
+	if user == nil || passwordErr != nil {
+		return nil, ErrCredentials
 	}
 	if err := a.store.UpdateUserLastLogin(user.ID); err != nil {
-		log.Printf("Warning: failed to update last login: %v", err)
+		return nil, errors.New("authentication unavailable")
 	}
 	return a.generateTokens(user)
 }
 
 func (a *AuthService) RefreshToken(refreshToken string) (*AuthResponse, error) {
-	claims, err := a.parseToken(refreshToken)
+	if len(refreshToken) != 64 {
+		return nil, ErrInvalidSession
+	}
+	next, err := sessionSecret()
 	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token: %w", err)
+		return nil, err
 	}
-	if claims["type"] != "refresh" {
-		return nil, fmt.Errorf("not a refresh token")
+	uid, sid, expiry, err := a.store.RotateSession(tokenHash(refreshToken), tokenHash(next))
+	if err != nil {
+		return nil, err
 	}
-	userID, ok := claims["sub"].(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
-	}
-	user, err := a.store.GetUserByID(userID)
+	user, err := a.store.GetUserByID(uid)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, ErrInvalidSession
 	}
-	return a.generateTokens(user)
+	return a.sessionResponse(user, sid, next, expiry)
 }
 
 func (a *AuthService) ValidateAccessToken(tokenString string) (string, error) {
@@ -143,19 +122,24 @@ func (a *AuthService) ValidateAccessToken(tokenString string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if claims["type"] != "access" {
-		return "", fmt.Errorf("not an access token")
-	}
 	sub, ok := claims["sub"].(string)
-	if !ok {
-		return "", fmt.Errorf("invalid token claims")
+	if !ok || sub == "" || claims["type"] != "access" {
+		return "", ErrInvalidSession
+	}
+	sid, ok := claims["sid"].(string)
+	if !ok || sid == "" || a.store == nil {
+		return "", ErrInvalidSession
+	}
+	active, err := a.store.SessionActive(sid, sub)
+	if err != nil {
+		return "", err
+	}
+	if !active {
+		return "", ErrInvalidSession
 	}
 	return sub, nil
 }
 
-// VerifyUserPassword confirms the supplied plaintext password against the
-// stored hash. Used to gate destructive admin actions (a password challenge)
-// independently of the request's bearer token.
 func (a *AuthService) VerifyUserPassword(userID, password string) bool {
 	if userID == "" || password == "" {
 		return false
@@ -168,85 +152,57 @@ func (a *AuthService) VerifyUserPassword(userID, password string) bool {
 }
 
 func (a *AuthService) generateTokens(user *User) (*AuthResponse, error) {
+	refresh, err := sessionSecret()
+	if err != nil {
+		return nil, err
+	}
+	sid := uuid.NewString()
+	expiry, err := a.store.CreateSession(user.ID, sid, tokenHash(refresh))
+	if err != nil {
+		return nil, err
+	}
+	return a.sessionResponse(user, sid, refresh, expiry)
+}
+
+func (a *AuthService) sessionResponse(user *User, sid, refresh string, expiry time.Time) (*AuthResponse, error) {
 	now := time.Now()
-	accessExpiry := now.Add(24 * time.Hour)
-	refreshExpiry := now.Add(30 * 24 * time.Hour)
-
-	accessClaims := jwt.MapClaims{
-		"sub":   user.ID,
-		"email": user.Email,
-		"type":  "access",
-		"iat":   now.Unix(),
-		"exp":   accessExpiry.Unix(),
-	}
-	refreshClaims := jwt.MapClaims{
-		"sub":   user.ID,
-		"type":  "refresh",
-		"iat":   now.Unix(),
-		"exp":   refreshExpiry.Unix(),
-	}
-
-	accessToken, err := a.signToken(accessClaims)
+	access, err := a.signToken(jwt.MapClaims{"sub": user.ID, "sid": sid, "type": "access", "iat": now.Unix(), "exp": now.Add(accessLifetime).Unix()})
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := a.signToken(refreshClaims)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresIn:    int64(24 * time.Hour / time.Second),
-		User:         *user,
-	}, nil
+	return &AuthResponse{AccessToken: access, RefreshToken: refresh, RefreshExpiresAt: expiry, ExpiresIn: 900, CSRFToken: "dietledger", User: *user}, nil
 }
 
 func (a *AuthService) signToken(claims jwt.MapClaims) (string, error) {
-	token := jwt.NewWithClaims(a.signingMethod(), claims)
-	return token.SignedString(a.signingKey())
+	return jwt.NewWithClaims(a.signingMethod(), claims).SignedString(a.signingKey())
 }
-
 func (a *AuthService) signingMethod() jwt.SigningMethod {
 	if a.privateKey != nil {
 		return jwt.SigningMethodRS256
 	}
 	return jwt.SigningMethodHS256
 }
-
 func (a *AuthService) signingKey() interface{} {
 	if a.privateKey != nil {
 		return a.privateKey
 	}
 	return a.hmacSecret
 }
-
-func (a *AuthService) parseToken(tokenString string) (jwt.MapClaims, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+func (a *AuthService) parseToken(raw string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(raw, func(token *jwt.Token) (interface{}, error) {
 		if a.publicKey != nil {
-			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
 			return a.publicKey, nil
 		}
 		return a.hmacSecret, nil
-	})
+	}, jwt.WithValidMethods([]string{a.signingMethod().Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidSession
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidSession
 	}
 	return claims, nil
 }
 
-func (a *AuthService) SecretKey() []byte {
-	if len(a.hmacSecret) >= 32 {
-		return a.hmacSecret[:32]
-	}
-	padded := make([]byte, 32)
-	copy(padded, a.hmacSecret)
-	return padded
-}
+func (a *AuthService) SecretKey() []byte { return a.hmacSecret[:32] }

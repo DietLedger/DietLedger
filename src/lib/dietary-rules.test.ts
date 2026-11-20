@@ -5,6 +5,7 @@ import {
   inferDietaryTags,
   isRecipeCompliant,
   getAllergenNames,
+  filterByNutritionAssessment,
 } from './dietary-rules';
 
 describe('detectAllergens', () => {
@@ -134,6 +135,33 @@ describe('isRecipeCompliant', () => {
       peanutAllergyProfile,
     );
     expect(result.compliant).toBe(true);
+  });
+});
+
+describe('server-assessed recipe filtering', () => {
+  const profile: DietaryProfileRecord = { id: 'diabetes', name: 'My targets', dietaryTags: ['diabetesAware'], allergens: [], nutrientThresholds: [], isActive: false, createdAt: '', updatedAt: '' };
+  const recipes = [
+    { id: 'match', ingredients: [{ name: 'beans' }] },
+    { id: 'low-fiber', ingredients: [{ name: 'rice' }] },
+    { id: 'unknown', ingredients: [{ name: 'vegetables' }] },
+    { id: 'not-returned', ingredients: [{ name: 'beans' }] },
+  ];
+  const assessments = [
+    { recipeId: 'match', status: 'match' as const, reasons: [] },
+    { recipeId: 'low-fiber', status: 'noMatch' as const, reasons: ['Fiber below target'] },
+    { recipeId: 'unknown', status: 'notAssessed' as const, reasons: ['Fiber unreported'] },
+  ];
+  it('shows only server-confirmed matches, never unknown or missing assessments', () => {
+    expect(filterByNutritionAssessment(recipes, assessments, profile)).toEqual([recipes[0]]);
+    expect(filterByNutritionAssessment(recipes, undefined, profile)).toEqual([]);
+  });
+  it('also respects the selected profile\'s allergens and ordinary dietary preferences', () => {
+    const confirmed = [{ id: 'milk', ingredients: [{ name: 'milk' }] }, { id: 'peanuts', ingredients: [{ name: 'peanut butter' }] }, recipes[0]];
+    const matches = confirmed.map(r => ({ recipeId: r.id, status: 'match' as const, reasons: [] }));
+    expect(filterByNutritionAssessment(confirmed, matches, { ...profile, dietaryTags: ['diabetesAware', 'vegan'], allergens: ['peanuts'] })).toEqual([recipes[0]]);
+  });
+  it('never infers diabetes suitability from ingredient names', () => {
+    expect(inferDietaryTags([{ name: 'beans' }])).not.toContain('diabetesAware');
   });
 });
 

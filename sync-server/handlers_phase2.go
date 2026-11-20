@@ -137,6 +137,10 @@ func (s *Server) templatesRouter(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "name and type are required")
 			return
 		}
+		if req.IsDefault && !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required to publish a default template")
+			return
+		}
 		if req.Type != "recipe" && req.Type != "book-page" && req.Type != "book-recipe" {
 			writeError(w, http.StatusBadRequest, "type must be recipe, book-page, or book-recipe")
 			return
@@ -172,6 +176,23 @@ func (s *Server) templateItemRouter(w http.ResponseWriter, r *http.Request, id s
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		current, err := s.store.GetTemplate(user.ID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get template")
+			return
+		}
+		if current == nil {
+			writeError(w, http.StatusNotFound, "template not found")
+			return
+		}
+		if current.IsDefault && !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required")
+			return
+		}
+		if req.IsDefault != nil && *req.IsDefault && !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required to publish a default template")
+			return
+		}
 		t, err := s.store.UpdateTemplate(user.ID, id, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update template")
@@ -188,6 +209,10 @@ func (s *Server) templateItemRouter(w http.ResponseWriter, r *http.Request, id s
 			writeError(w, http.StatusNotFound, "template not found")
 			return
 		}
+		if t.IsDefault && !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required")
+			return
+		}
 		if err := s.store.DeleteTemplate(user.ID, id); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to delete template")
 			return
@@ -199,6 +224,41 @@ func (s *Server) templateItemRouter(w http.ResponseWriter, r *http.Request, id s
 }
 
 // ── Dietary Profiles ─────────────────────────────────────────────────
+
+func (s *Server) recipeAssessmentsRouter(w http.ResponseWriter, r *http.Request, profileID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user := getUserFromContext(r)
+	profile, err := s.store.GetDietaryProfile(user.ID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get dietary profile")
+		return
+	}
+	if profile == nil {
+		writeError(w, http.StatusNotFound, "dietary profile not found")
+		return
+	}
+	const pageSize = 100
+	page := 1
+	assessments := make([]RecipeAssessment, 0)
+	for {
+		recipes, total, err := s.store.ListRecipes(user.ID, page, pageSize)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to assess recipes")
+			return
+		}
+		for _, recipe := range recipes {
+			assessments = append(assessments, assessRecipeNutrients(*profile, recipe))
+		}
+		if len(assessments) >= total {
+			break
+		}
+		page++
+	}
+	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: assessments})
+}
 
 func (s *Server) dietaryProfilesRouter(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
@@ -221,6 +281,23 @@ func (s *Server) dietaryProfilesRouter(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Name == "" {
 			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if req.Allergens == "" {
+			req.Allergens = "[]"
+		}
+		if req.DietaryTags == "" {
+			req.DietaryTags = "[]"
+		}
+		if validateDietaryProfileEnumArray(req.Allergens, dietaryProfileAllergens) != nil || validateDietaryProfileEnumArray(req.DietaryTags, dietaryProfileTags) != nil {
+			writeError(w, http.StatusBadRequest, "allergens and dietaryTags must be arrays of known values")
+			return
+		}
+		if req.NutrientThresholds == "" {
+			req.NutrientThresholds = "[]"
+		}
+		if err := validateNutrientThresholds(req.NutrientThresholds); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid nutrient thresholds")
 			return
 		}
 		p, err := s.store.CreateDietaryProfile(user.ID, &req)
@@ -259,6 +336,20 @@ func (s *Server) dietaryProfileItemRouter(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		if req.Allergens != nil && validateDietaryProfileEnumArray(*req.Allergens, dietaryProfileAllergens) != nil {
+			writeError(w, http.StatusBadRequest, "allergens must be an array of known values")
+			return
+		}
+		if req.DietaryTags != nil && validateDietaryProfileEnumArray(*req.DietaryTags, dietaryProfileTags) != nil {
+			writeError(w, http.StatusBadRequest, "dietaryTags must be an array of known values")
+			return
+		}
+		if req.NutrientThresholds != nil {
+			if err := validateNutrientThresholds(*req.NutrientThresholds); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid nutrient thresholds")
+				return
+			}
+		}
 		p, err := s.store.UpdateDietaryProfile(user.ID, id, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update dietary profile")
@@ -288,6 +379,15 @@ func (s *Server) dietaryProfileItemRouter(w http.ResponseWriter, r *http.Request
 // ── Allergen Rules ───────────────────────────────────────────────────
 
 func (s *Server) allergenRulesRouter(w http.ResponseWriter, r *http.Request, user *User, profileID string) {
+	profile, err := s.store.GetDietaryProfile(user.ID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get dietary profile")
+		return
+	}
+	if profile == nil {
+		writeError(w, http.StatusNotFound, "dietary profile not found")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		rules, err := s.store.ListAllergenRules(user.ID, profileID)
@@ -314,13 +414,17 @@ func (s *Server) allergenRulesRouter(w http.ResponseWriter, r *http.Request, use
 			writeError(w, http.StatusInternalServerError, "failed to create allergen rule")
 			return
 		}
+		if rule == nil {
+			writeError(w, http.StatusNotFound, "dietary profile not found")
+			return
+		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: rule})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func (s *Server) allergenRuleItemRouter(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) allergenRuleItemRouter(w http.ResponseWriter, r *http.Request, profileID, id string) {
 	user := getUserFromContext(r)
 	switch r.Method {
 	case "PUT":
@@ -329,15 +433,19 @@ func (s *Server) allergenRuleItemRouter(w http.ResponseWriter, r *http.Request, 
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		rule, err := s.store.UpdateAllergenRule(user.ID, id, &req)
+		rule, err := s.store.UpdateAllergenRule(user.ID, profileID, id, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update allergen rule")
 			return
 		}
+		if rule == nil {
+			writeError(w, http.StatusNotFound, "allergen rule not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: rule})
 	case "DELETE":
-		if err := s.store.DeleteAllergenRule(user.ID, id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to delete allergen rule")
+		if err := s.store.DeleteAllergenRule(user.ID, profileID, id); err != nil {
+			writeError(w, http.StatusNotFound, "allergen rule not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -542,9 +650,9 @@ func (s *Server) secretItemRouter(w http.ResponseWriter, r *http.Request, id str
 					return
 				}
 				writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: map[string]string{
-					"id":       sec.ID,
-					"keyName":  sec.KeyName,
-					"value":    string(decrypted),
+					"id":      sec.ID,
+					"keyName": sec.KeyName,
+					"value":   string(decrypted),
 				}})
 				return
 			}

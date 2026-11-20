@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { getApiAuthHeaders } from './api-auth';
+import { setAccessToken, retireSession } from './auth-session';
 
-afterEach(() => localStorage.clear());
+afterEach(() => { retireSession(); localStorage.clear(); });
 
 describe('getApiAuthHeaders', () => {
   it('returns the bearer token used by authenticated API routes', () => {
-    localStorage.setItem('dietledger_access_token', 'access-token');
+    setAccessToken('access-token');
     expect(getApiAuthHeaders()).toEqual({ Authorization: 'Bearer access-token' });
   });
 

@@ -22,7 +22,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWeekPlan, useEnsureMealPlan, useAddRecipeToSlot, useAddFoodToSlot, useRemoveEntry, useMoveEntry, useUpdateServings, useCreateMealGroup, useAddToGroup, useRemoveFromGroup, useDeleteMealGroupAndUngroup, useToggleLeftover, useUpdateSlotTimes, useReorderEntries } from '@/hooks/use-meal-plans';
 import { queryKeys } from '@/lib/query-keys';
 import { useRecipes, type Recipe } from '@/hooks/use-recipes';
-import { toPublicRecipe } from '@/lib/recipe-types';
+import { toPublicRecipe, recipeNutrition, recipeMissingNutrients, NUTRIENT_KEYS, type NutrientKeys } from '@/lib/recipe-types';
 import { useAppSettings } from '@/hooks/use-settings';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
@@ -462,30 +462,15 @@ export default function WeeklyPlanPage() {
     const recipeServings = recipe.servings || 1;
     const perServing = 1 / recipeServings;
     const multiplier = perServing * entry.servings;
-    return {
-      servings: entry.servings,
-      calories: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.calories * multiplier, 0) * 10) / 10,
-      totalFat: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.totalFat * multiplier, 0) * 10) / 10,
-      saturatedFat: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.saturatedFat * multiplier, 0) * 10) / 10,
-      transFat: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.transFat * multiplier, 0) * 10) / 10,
-      cholesterol: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.cholesterol * multiplier, 0) * 10) / 10,
-      sodium: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.sodium * multiplier, 0) * 10) / 10,
-      totalCarbs: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.totalCarbs * multiplier, 0) * 10) / 10,
-      dietaryFiber: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.dietaryFiber * multiplier, 0) * 10) / 10,
-      totalSugars: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.totalSugars * multiplier, 0) * 10) / 10,
-      addedSugars: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.addedSugars * multiplier, 0) * 10) / 10,
-      protein: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.protein * multiplier, 0) * 10) / 10,
-      vitaminD: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.vitaminD * multiplier, 0) * 10) / 10,
-      calcium: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.calcium * multiplier, 0) * 10) / 10,
-      iron: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.iron * multiplier, 0) * 10) / 10,
-      potassium: Math.round((recipe.ingredients || []).reduce((s, i) => s + i.potassium * multiplier, 0) * 10) / 10,
-    };
+    const totals = recipeNutrition(recipe, multiplier);
+    for (const key of NUTRIENT_KEYS) totals[key] = Math.round(totals[key] * 10) / 10;
+    return { servings: entry.servings, ...totals, missingNutrients: recipeMissingNutrients(recipe), customNutrition: recipe.customNutrition };
   }
 
   function getCombinedNutrition(entries: DayPlanEntryRecord[]): NutritionData | null {
     const results = entries.map((e) => getNutritionForEntry(e)).filter(Boolean) as NutritionData[];
     if (results.length === 0) return null;
-    const keys: (keyof NutritionData)[] = [
+    const keys: NutrientKeys[] = [
       'calories', 'totalFat', 'saturatedFat', 'transFat', 'cholesterol',
       'sodium', 'totalCarbs', 'dietaryFiber', 'totalSugars', 'addedSugars',
       'protein', 'vitaminD', 'calcium', 'iron', 'potassium',
@@ -497,6 +482,7 @@ export default function WeeklyPlanPage() {
       totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0,
       calcium: 0, iron: 0, potassium: 0,
     };
+    combined.missingNutrients = [...new Set(results.flatMap(r => r.missingNutrients ?? []))];
     for (const r of results) {
       for (const k of keys) {
         combined[k] += r[k];

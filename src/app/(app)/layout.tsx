@@ -66,7 +66,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated && isPublic) {
-    return <div className="min-h-screen flex flex-col bg-stone-50">{children}</div>;
+    return (
+      <BreadcrumbProvider>
+        <div className="min-h-screen flex flex-col bg-stone-50">{children}</div>
+      </BreadcrumbProvider>
+    );
   }
 
   return (

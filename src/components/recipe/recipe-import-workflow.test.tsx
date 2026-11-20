@@ -13,7 +13,7 @@ function ImportControl() {
   const [status, setStatus] = React.useState('');
   return <>{decisionDialog}<button onClick={async () => {
     const file = { name: 'recipes.json', text: async () => JSON.stringify({ format: 'dietledger.recipe-bundle', version: 2 }) } as File;
-    try { const result = await importFile(file); setStatus(`Done: ${result.quarantined} quarantined`); } catch (error) { setStatus(String(error)); }
+    try { const result = await importFile(file); setStatus(result.importCancelled ? 'Import cancelled' : `Done: ${result.quarantined} quarantined`); } catch (error) { setStatus(String(error)); }
   }}>Import file</button><p>{status}</p></>;
 }
 function renderControl() {
@@ -42,6 +42,60 @@ describe('shared missing-record decision workflow', () => {
     expect(await screen.findByText(/Done:/)).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['recipe-imports'] });
+  });
+
+  it('asks how to handle a same-name book before submitting the import with the selected merge target', async () => {
+    api.importRecipeBundle
+      .mockResolvedValueOnce({
+        requiresBookDecision: true,
+        bookConflicts: [{ bundleBookId: 'source-book', title: 'Garden book', candidates: [{ targetBookId: 'existing-book', title: 'Garden book', targetFingerprint: 'fingerprint-1' }] }],
+      })
+      .mockResolvedValueOnce(summary);
+    const user = userEvent.setup();
+    renderControl();
+    await user.click(screen.getByRole('button', { name: 'Import file' }));
+    expect(await screen.findByRole('dialog', { name: 'Duplicate recipe book' })).toHaveTextContent('Garden book');
+    await user.click(screen.getByRole('button', { name: 'Merge' }));
+    await waitFor(() => expect(api.importRecipeBundle).toHaveBeenCalledTimes(2));
+    expect(api.importRecipeBundle.mock.calls[1]).toEqual([
+      expect.objectContaining({ format: 'dietledger.recipe-bundle' }),
+      [{ bundleBookId: 'source-book', targetBookId: 'existing-book', action: 'merge', targetFingerprint: 'fingerprint-1' }],
+    ]);
+    expect(await screen.findByText(/Done:/)).toBeInTheDocument();
+  });
+
+  it('lets the user pick a matching book and replace it', async () => {
+    api.importRecipeBundle
+      .mockResolvedValueOnce({
+        requiresBookDecision: true,
+        bookConflicts: [{ bundleBookId: 'source-book', title: 'Garden book', candidates: [
+          { targetBookId: 'existing-book-1', title: 'Garden book', targetFingerprint: 'fingerprint-1' },
+          { targetBookId: 'existing-book-2', title: 'GARDEN BOOK', targetFingerprint: 'fingerprint-2' },
+        ] }],
+      })
+      .mockResolvedValueOnce(summary);
+    const user = userEvent.setup();
+    renderControl();
+    await user.click(screen.getByRole('button', { name: 'Import file' }));
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Existing book to use' }), 'existing-book-2');
+    await user.click(screen.getByRole('button', { name: 'Replace' }));
+    await waitFor(() => expect(api.importRecipeBundle).toHaveBeenCalledTimes(2));
+    expect(api.importRecipeBundle.mock.calls[1][1]).toEqual([
+      { bundleBookId: 'source-book', targetBookId: 'existing-book-2', action: 'replace', targetFingerprint: 'fingerprint-2' },
+    ]);
+  });
+
+  it('lets the user cancel the entire file import on a same-name book conflict', async () => {
+    api.importRecipeBundle.mockResolvedValueOnce({
+      requiresBookDecision: true,
+      bookConflicts: [{ bundleBookId: 'source-book', title: 'Garden book', candidates: [{ targetBookId: 'existing-book', title: 'Garden book', targetFingerprint: 'fingerprint-1' }] }],
+    });
+    const user = userEvent.setup();
+    renderControl();
+    await user.click(screen.getByRole('button', { name: 'Import file' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel import' }));
+    expect(api.importRecipeBundle).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Import cancelled/)).toBeInTheDocument();
   });
 
   it('retains the recoverable stage and dialog on decision failure, supports retry without importing again', async () => {

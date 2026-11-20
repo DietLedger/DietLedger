@@ -8,7 +8,8 @@ import {
   toPublicIngredient,
   toPublicRecipe,
   convertToGrams,
-  sumNutrition,
+  recipeNutrition,
+  recipeMissingNutrients,
   serializeInstructions,
   NUTRIENT_KEYS,
   type Recipe,
@@ -322,11 +323,12 @@ export function buildCustomIngredientData(name: string, nutrition: Record<Nutrie
 }
 
 export function buildRecipeAsIngredientData(sourceRecipe: Recipe, multiplier: number): Omit<import('@/lib/api-client').IngredientRecord, 'id' | 'recipeId'> {
-  const sourceNutrition = sumNutrition(sourceRecipe.ingredients);
+  const sourceNutrition = recipeNutrition(sourceRecipe);
   const scaleVal = (v: number) => Math.round(v * multiplier * 100) / 100;
 
   return {
     fdcId: -1,
+    missingNutrients: recipeMissingNutrients(sourceRecipe),
     name: sourceRecipe.name,
     amount: multiplier,
     unit: '× recipe',
@@ -393,6 +395,7 @@ export function buildRescaledIngredientUpdate(ingredient: Ingredient, data: { na
 
   const updateData: Record<string, unknown> = {
     fdcId: ingredient.fdcId,
+    missingNutrients: ingredient.missingNutrients,
     name: data.name !== undefined ? data.name : ingredient.name,
     amount: newAmount,
     unit: newUnit,

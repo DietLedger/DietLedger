@@ -1,92 +1,24 @@
-/// <reference lib="webworker" />
-
-const CACHE_NAME = 'dietledger-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-];
-
-// Install: cache the app shell
+// Retirement update for installations which previously registered /sw.js.
+// Never intercept requests or persist private responses.
+let retirement = Promise.resolve();
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
-
-// Activate: clean up old caches
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
-  );
-  self.clients.claim();
+  retirement = (async () => {
+    // Replace old controllers in every open tab before unregistering. Existing
+    // tabs keep this inert worker, not the old private-response cache handler.
+    await self.clients.claim();
+    await caches.delete('dietledger-v1');
+    await self.registration.unregister();
+  })();
+  event.waitUntil(retirement);
 });
-
-// Fetch: network-first for API, cache-first for static
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // Skip non-GET requests
-  if (request.method !== 'GET') return;
-
-  // Skip chrome-extension and other non-http requests
-  if (!url.protocol.startsWith('http')) return;
-
-  // API requests: network-first (always try fresh data)
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache successful API responses
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, clone);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          // Fallback to cache when offline
-          return caches.match(request);
-        })
-    );
-    return;
-  }
-
-  // Static assets and pages: stale-while-revalidate
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetchPromise = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, clone);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          // If both cache and network fail, show offline page for navigation
-          if (request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          return new Response('Offline', { status: 503 });
-        });
-
-      return cached || fetchPromise;
-    })
-  );
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'DIETLEDGER_RETIRE') return;
+  event.waitUntil((async () => {
+    await retirement;
+    await caches.delete('dietledger-v1');
+    event.ports[0]?.postMessage({ type: 'DIETLEDGER_RETIRED' });
+  })());
 });

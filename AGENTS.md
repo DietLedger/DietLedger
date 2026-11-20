@@ -14,7 +14,7 @@ Always read:
 
 Read additional documents only when relevant.
 
-## PROJECT.md
+## docs/PROJECT.md
 
 Read when working on:
 
@@ -24,7 +24,7 @@ Read when working on:
 * workflow design
 * user experience decisions
 
-## ARCHITECTURE.md
+## docs/ARCHITECTURE.md
 
 Read when working on:
 
@@ -35,7 +35,7 @@ Read when working on:
 * frontend/backend responsibilities
 * infrastructure decisions
 
-## NUTRITION_DOMAIN.md
+## docs/NUTRITION_DOMAIN.md
 
 Read when working on:
 
@@ -47,7 +47,7 @@ Read when working on:
 * dietary compliance
 * health metrics
 
-## DECISIONS.md
+## docs/DECISIONS.md
 
 Read when:
 
@@ -57,7 +57,7 @@ Read when:
 * proposing major refactors
 * revisiting historical architectural decisions and rationale
 
-## TESTING_STRATEGY.md
+## docs/TESTING_STRATEGY.md
 
 Read when:
 * interacting with testing requirements, priorities, and standards
@@ -212,7 +212,7 @@ Avoid introducing new architectural styles, frameworks, abstractions, or infrast
 
 # Architecture Rules
 
-Detailed architecture documentation lives in ARCHITECTURE.md.
+Detailed architecture documentation lives in docs/ARCHITECTURE.md.
 
 Important rules:
 
@@ -223,24 +223,21 @@ Important rules:
 * The browser is not authoritative.
 * API contracts should stay explicit and boring; avoid hidden client-side business rules.
 
-Consult ARCHITECTURE.md before making architectural decisions. New services, persistence patterns, background jobs, external integrations, or state-management approaches require a clear reason and documentation updates.
+Consult docs/ARCHITECTURE.md before making architectural decisions. New services, persistence patterns, background jobs, external integrations, or state-management approaches require a clear reason and documentation updates.
 
 ---
 
 # Deployment Rules
 
-The backend (Go API) and frontend (Next.js) both run as Docker containers on a
-remote host (`deploy.example.invalid`). A local `go build` / `npm run build` does NOT update
-the running services — only a rebuilt Docker image deployed to the host does.
+The Go API, Next.js frontend and PostgreSQL run in Docker. A local compile does not update running services. The public installation target is standard Docker Compose first and Portainer CE Docker Standalone Web editor/Upload or an exact approved Git ref; actual runtime support must be verified, not inferred. Public release images/configuration come from the project's GitHub/GHCR; the official PostgreSQL upstream is allowed. Do not embed a developer's hosts, accounts, paths, topology, credentials or private operation scripts in public files or release artifacts.
 
-When producing a deployable tar, follow the conventions in `build-all.bat`:
-
-* Build both images via `docker buildx bake --load -f docker-compose.build.yml`.
-* Save a **single combined tar**: `docker save -o docker-build/dietledger-{VERSION}.tar recipetool-dietledger recipetool-api` (VERSION from `package.json`).
-* Copy `docker-compose.yml` into `docker-build/` for local packaging if needed.
-* Remote deployment is operator-managed; remote-operation tooling is not included.
-
-Do not invent alternative tar names, locations, or single-image tars.
+* Portable local image builds use `npm run docker:build:local` or `docker buildx bake --load -f docker-compose.build.yml`. These build/load only: no SSH, SCP, deploy or container recreation.
+* Optional offline application packaging retains one combined `docker-build/dietledger-{VERSION}.tar` containing `recipetool-dietledger` and `recipetool-api`, with VERSION from `package.json`. Do not invent alternative application tar names or single-image tars.
+* Operator-only build/upload/native-service scripts are ignored and untracked but may remain locally. Never delete or modify those private copies without explicit authorization; public tests/builds cannot depend on their presence.
+* Existing Portainer stacks remain operator-managed. Do not upload replacement configuration, adopt/recreate a stack, rotate its credentials, reset a database or claim a redeploy without explicit authorization.
+* The owner's explicit standard Compose requirement (`docs/specs/standard-compose-ghcr-install.md`) supersedes installer/setup-helper requirements. Public installation pulls exactly web/API packages directly from GHCR, needs no host installer/Node/Git/buildx/login, and keeps database/API ports private. Release Compose assets contain literal approved image digests; source Compose explicitly requires `DIETLEDGER_VERSION` until publication rather than inventing a release.
+* Operators supply/preserve five independent secrets; `.env.example` leaves all five empty. Recommend 32 random bytes rendered as 64 lowercase hex for each; migration/runtime passwords require exactly that format and must differ. No automatic generation/rotation or adoption is authorized. Protect configuration with restrictive permissions/Windows ACLs and encrypted offline backups alongside PostgreSQL; HMAC is essential for decrypting restored provider configuration. Runtime credentials never belong in shared images, source archives or beta release assets. Retain bootstrap/migration/runtime least-privilege and missing/incorrect initialized-credential refusal.
+* Implementation and local verification do not authorize public beta/image publication. The owner requested a build/deploy/manual-test handoff before the beta release stage. History force-updates and remote settings/deletions require exact ref/operation approval.
 
 ---
 
@@ -260,7 +257,7 @@ Changes affecting:
 
 require careful validation.
 
-Consult NUTRITION_DOMAIN.md before making domain changes.
+Consult docs/NUTRITION_DOMAIN.md before making domain changes.
 
 Incorrect nutrition calculations are product defects.
 
@@ -294,20 +291,20 @@ Documentation is part of implementation. Update the relevant docs, specs, plans,
 
 Update:
 
-* ARCHITECTURE.md
-* DECISIONS.md
+* docs/ARCHITECTURE.md
+* docs/DECISIONS.md
 
 ## Domain Changes
 
 Update:
 
-* NUTRITION_DOMAIN.md
+* docs/NUTRITION_DOMAIN.md
 
 ## Product Changes
 
 Update:
 
-* PROJECT.md
+* docs/PROJECT.md
 
 ## API Changes
 
@@ -320,7 +317,7 @@ Update:
 
 Update:
 
-* TESTING_STRATEGY.md when changing test policy, test tooling, or what must be covered.
+* docs/TESTING_STRATEGY.md when changing test policy, test tooling, or what must be covered.
 
 ---
 

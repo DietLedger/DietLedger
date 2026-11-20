@@ -35,6 +35,9 @@ export function DietaryBadges({ ingredients, profile, compact }: DietaryBadgesPr
   if (ingredients.length === 0) return null;
 
   if (compact && profile) {
+    if (profile.dietaryTags.includes('diabetesAware') || profile.nutrientThresholds.some(t => t.perMealMax != null || t.per1000KcalMin != null)) {
+      return <Badge variant="outline" className="text-xs gap-0.5"><HelpCircle className="h-3 w-3" />Nutrition not assessed</Badge>;
+    }
     if (!compliance) return null;
     if (compliance.compliant) {
       return (

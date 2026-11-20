@@ -14,6 +14,7 @@ type importRecipeResult struct {
 	recipe   BundleRecipe
 	blockers []ImportIngredientBlocker
 	total    BundleNutrients
+	missing  []string
 }
 type importEvaluator struct {
 	store    *PostgresStore
@@ -70,7 +71,7 @@ func (e *importEvaluator) recipeByIdentity(key string) (importRecipeResult, erro
 		if main == nil {
 			return importRecipeResult{ready: false}, nil
 		}
-		r = BundleRecipe{PortableID: main.PortableID, BundleRecipeID: id, Name: main.Name, Servings: main.Servings, ServingName: main.ServingName}
+		r = BundleRecipe{Description: main.Description, CustomNutrition: main.CustomNutrition, PortableID: main.PortableID, BundleRecipeID: id, Name: main.Name, Servings: main.Servings, ServingName: main.ServingName}
 		for _, ing := range main.Ingredients {
 			src := BundleIngredientSourceRef{Type: emptyDefault(ing.SourceType, "manual")}
 			switch {
@@ -83,16 +84,26 @@ func (e *importEvaluator) recipeByIdentity(key string) (importRecipeResult, erro
 			case ing.FdcID > 0:
 				src = BundleIngredientSourceRef{Type: "usda", FdcID: ing.FdcID}
 			}
-			r.Ingredients = append(r.Ingredients, BundleIngredient{BundleIngredientID: ing.ID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride})
+			r.Ingredients = append(r.Ingredients, BundleIngredient{MissingNutrients: ing.MissingNutrients, BundleIngredientID: ing.ID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride})
 		}
 	}
 	result := importRecipeResult{ready: true, changed: e.changed[key], recipe: r, blockers: []ImportIngredientBlocker{}}
 	result.recipe.Ingredients = append([]BundleIngredient(nil), r.Ingredients...)
-	if len(r.Ingredients) == 0 {
+	if r.CustomNutrition != nil {
+		if err := validateRecipeMetadata(r.Description, r.CustomNutrition); err != nil {
+			return importRecipeResult{}, err
+		}
+	}
+	if r.CustomNutrition == nil && len(r.Ingredients) == 0 {
 		result.ready = false
 		result.blockers = append(result.blockers, ImportIngredientBlocker{IngredientID: "new", Reason: "Recipe has no ingredients"})
 	}
 	for i, ing := range r.Ingredients {
+		// Published totals waive descriptive food matching, not actual recipe
+		// dependency ordering. Keep referenced children ahead of their parent.
+		if r.CustomNutrition != nil && ing.Source.Type != "recipe" {
+			continue
+		}
 		ready, nutrients, reason, err := e.ingredient(batch, ing, false)
 		if err != nil {
 			return importRecipeResult{}, err
@@ -101,12 +112,33 @@ func (e *importEvaluator) recipeByIdentity(key string) (importRecipeResult, erro
 			result.ready = false
 			result.blockers = append(result.blockers, ImportIngredientBlocker{IngredientID: ing.BundleIngredientID, Reason: reason})
 		} else {
+			if nutrients != ing.Nutrients {
+				result.changed = true
+			}
 			result.recipe.Ingredients[i].Nutrients = nutrients
+			if ing.Source.Type == "recipe" {
+				dep := e.results[e.linkedIdentity(batch, ing.Source.BundleRecipeID)]
+				missing := dep.missing
+				if dep.recipe.CustomNutrition == nil {
+					missing = unionMissingNutrients(ing.MissingNutrients, missing)
+				}
+				if len(missing) > 0 || len(ing.MissingNutrients) > 0 {
+					if !reflect.DeepEqual(missing, ing.MissingNutrients) {
+						result.changed = true
+					}
+					result.recipe.Ingredients[i].MissingNutrients = missing
+				}
+			}
+			result.missing = unionMissingNutrients(result.missing, result.recipe.Ingredients[i].MissingNutrients)
 			result.total = addImportNutrients(result.total, nutrients)
 			if row != nil && ing.Source.Type == "recipe" && e.results[e.linkedIdentity(batch, ing.Source.BundleRecipeID)].changed {
 				result.changed = true
 			}
 		}
+	}
+	if r.CustomNutrition != nil {
+		result.total = r.CustomNutrition.Nutrients
+		result.missing = append([]string{}, r.CustomNutrition.MissingNutrients...)
 	}
 	e.results[key] = result
 	if result.ready && row != nil {
@@ -147,15 +179,9 @@ func (e *importEvaluator) ingredient(batch *recipeImportBatch, ing BundleIngredi
 		if food != nil {
 			canonical = nutrientsFromFoodItem(*food)
 			portions = food.Portions
-		} else if batch != nil && !batch.Materialized {
-			for _, candidate := range batch.Context.FoodItems {
-				if candidate.FdcID == ing.Source.FdcID {
-					canonical = candidate.Nutrients
-					portions = candidate.Portions
-					break
-				}
-			}
 		}
+		// Retained package facts are unconfirmed even when they name a valid
+		// FDC ID. Only an existing trusted database row can verify this link.
 		if !meaningfulImportNutrition(canonical) {
 			return false, ing.Nutrients, "Required USDA food record is missing or has no meaningful nutrition", nil
 		}
@@ -189,18 +215,26 @@ func (e *importEvaluator) ingredient(batch *recipeImportBatch, ing BundleIngredi
 		if !dependency.ready {
 			return false, ing.Nutrients, "Linked recipe is missing, incomplete or cyclic", nil
 		}
-		if recalculate || (batch != nil && dependency.changed) {
-			return true, scaleImportNutrients(dependency.total, ing.Amount), "", nil
+		if recalculate || dependency.recipe.CustomNutrition != nil || (batch != nil && dependency.changed) {
+			return checkedImportScale(dependency.total, ing.Amount)
 		}
 		return true, ing.Nutrients, "", nil
 	default:
 		return false, BundleNutrients{}, "", fmt.Errorf("unsupported ingredient source %q", ing.Source.Type)
 	}
 	if recalculate {
-		return true, scaleImportNutrients(canonical, importFoodGrams(ing.Amount, ing.Unit, portions)/100), "", nil
+		return checkedImportScale(canonical, importFoodGrams(ing.Amount, ing.Unit, portions)/100)
 	}
 	return true, ing.Nutrients, "", nil
 }
+func checkedImportScale(n BundleNutrients, factor float64) (bool, BundleNutrients, string, error) {
+	scaled := scaleImportNutrients(n, factor)
+	if field := validateNutritionNumbers(scaled); field != "" {
+		return false, BundleNutrients{}, "", fmt.Errorf("derived nutrient %s exceeds allowed bounds", field)
+	}
+	return true, scaled, "", nil
+}
+
 func meaningfulImportNutrition(n BundleNutrients) bool {
 	v := reflect.ValueOf(n)
 	for i := 0; i < v.NumField(); i++ {

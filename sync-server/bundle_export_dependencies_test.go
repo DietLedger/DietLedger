@@ -327,12 +327,14 @@ func TestBundleExportCustomFoodRequiresRequesterAuthorization(t *testing.T) {
 	}
 	r := makePublicRecipe("Public recipe with private dependency", owned, shared)
 	t.Run("public recipe cannot expose private food", func(t *testing.T) {
-		if bundle, err := s.ExportRecipeBundleForUser(viewer, []string{r.ID}, nil, nil, nil); !errors.Is(err, ErrExportForbidden) || bundle != nil {
-			t.Fatalf("public recipe leaked private canonical food: bundle=%+v err=%v", bundle, err)
+		for _, requester := range []*User{viewer, {ID: viewer.ID, IsAdmin: true}} {
+			if bundle, err := s.ExportRecipeBundleForUser(requester, []string{r.ID}, nil, nil, nil); !errors.Is(err, ErrExportForbidden) || bundle != nil {
+				t.Fatalf("public recipe/admin privilege leaked private canonical food: bundle=%+v err=%v", bundle, err)
+			}
 		}
 	})
-	t.Run("owner and explicit admin export remain allowed", func(t *testing.T) {
-		for _, requester := range []*User{owner, {ID: viewer.ID, IsAdmin: true}} {
+	t.Run("owner export remains allowed", func(t *testing.T) {
+		for _, requester := range []*User{owner} {
 			bundle, err := s.ExportRecipeBundleForUser(requester, []string{r.ID}, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)

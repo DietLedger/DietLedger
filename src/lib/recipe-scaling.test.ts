@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { emptyNutrition } from './recipe-types';
 import {
   classifyIngredient,
   computeScaleFactor,
   formatScaledAmount,
   scaleIngredient,
+  scaleRecipe,
 } from './recipe-scaling';
 
 describe('classifyIngredient', () => {
@@ -24,6 +26,15 @@ describe('classifyIngredient', () => {
     expect(classifyIngredient('Lemon Juice')).toBe('acid');
     expect(classifyIngredient('vinegar')).toBe('acid');
     expect(classifyIngredient('balsamic vinegar')).toBe('acid');
+  });
+
+  it('does not classify seasoning mentions inside composite foods', () => {
+    expect(classifyIngredient('Tomato sauce, canned, no salt added')).toBe('linear');
+    expect(classifyIngredient('Tomato sauce with basil')).toBe('linear');
+    expect(classifyIngredient('Peppermint candy')).toBe('linear');
+    expect(classifyIngredient('Tomato sauce, no spices added')).toBe('linear');
+    expect(classifyIngredient('Tomato sauce with basil added')).toBe('linear');
+    expect(classifyIngredient('Ground cumin')).toBe('spice');
   });
 
   it('classifies regular ingredients as linear', () => {
@@ -105,26 +116,38 @@ describe('scaleIngredient', () => {
     expect(result.scaleReason).toBeUndefined();
   });
 
-  it('caps leavening scaling at 1.5x', () => {
-    const result = scaleIngredient(
-      { id: '1', name: 'Baking Powder', amount: 1, unit: 'tsp' },
-      4,
-    );
-    expect(result.scaledAmount).toBe(1.5);
-    expect(result.classification).toBe('leavening');
-    expect(result.scaleReason).toContain('capped');
+  it('scales every ingredient proportionally by default, including seasonings and leaveners', () => {
+    const sauce = scaleIngredient({ id: '1', name: 'Tomato sauce, canned, no salt added', amount: 4, unit: 'tbsp' }, 100);
+    const basil = scaleIngredient({ id: '2', name: 'Basil, fresh', amount: 1, unit: 'leaf' }, 100);
+    const spice = scaleIngredient({ id: '3', name: 'Cumin, ground', amount: 1, unit: 'tsp' }, 4);
+    const bakingPowder = scaleIngredient({ id: '4', name: 'Baking Powder', amount: 1, unit: 'tsp' }, 4);
+
+    expect(sauce.scaledAmount).toBe(400);
+    expect(basil.scaledAmount).toBe(100);
+    expect(spice.scaledAmount).toBe(4);
+    expect(bakingPowder.scaledAmount).toBe(4);
   });
 
-  it('applies sub-linear scaling to spices', () => {
-    const result = scaleIngredient(
-      { id: '1', name: 'Salt', amount: 1, unit: 'tsp' },
-      4,
-    );
-    expect(result.scaledAmount).toBeCloseTo(Math.pow(4, 0.5), 5);
-    expect(result.classification).toBe('spice');
+  it('uses beta 1.5x seasoning estimate at 2x while fresh herbs remain proportional', () => {
+    const cumin = scaleIngredient({ id: '1', name: 'Cumin, ground', amount: 1, unit: 'tsp' }, 2, { largeBatchBeta: true });
+    const freshBasil = scaleIngredient({ id: '2', name: 'Basil, fresh', amount: 1, unit: 'leaf' }, 2, { largeBatchBeta: true });
+    expect(cumin.scaledAmount).toBe(1.5);
+    expect(cumin.scaleReason).toContain('beta');
+    expect(freshBasil.scaledAmount).toBe(2);
   });
 
-  it('does not cap spices when scaling down', () => {
+  it('keeps beta proportional below 2x and above 4x', () => {
+    expect(scaleIngredient({ id: '1', name: 'Cumin, ground', amount: 1, unit: 'tsp' }, 1.5, { largeBatchBeta: true }).scaledAmount).toBe(1.5);
+    expect(scaleIngredient({ id: '1', name: 'Cumin, ground', amount: 1, unit: 'tsp' }, 100, { largeBatchBeta: true }).scaledAmount).toBe(100);
+  });
+
+  it('keeps beta proportional for recipes with published custom nutrition', () => {
+    const result = scaleRecipe({ id: 'recipe', servings: 1, totalCalories: 100, customNutrition: { basis: 'recipeTotal', nutrients: { ...emptyNutrition(), calories: 100 }, source: 'label' }, ingredients: [{ id: '1', name: 'Cumin, ground', amount: 1, unit: 'tsp' }] }, { mode: 'multiplier', originalServings: 1, multiplier: 2, largeBatchBeta: true });
+    expect(result.ingredients[0].scaledAmount).toBe(2);
+    expect(result.warnings.join(' ')).toContain('unavailable for recipes with published nutrition');
+  });
+
+  it('does not change exact proportional scaling when scaling down', () => {
     const result = scaleIngredient(
       { id: '1', name: 'Salt', amount: 2, unit: 'tsp' },
       0.5,

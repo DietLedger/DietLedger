@@ -1,4 +1,5 @@
 import { validatePendingImports } from './recipe-bundle-format';
+import { authenticatedPrincipalID, getAccessToken, setAccessToken, retireSession, sessionGeneration } from './auth-session';
 import type {
   ApiClient,
   AuthResult,
@@ -29,6 +30,7 @@ import type {
   TemplateRecord,
   PantryStapleRecord,
   DietaryProfileRecord,
+  DietaryRecipeAssessment,
   AllergenRuleRecord,
   SharedRecipeRecord,
   ShareVisibility,
@@ -47,39 +49,55 @@ function parseGroceryChecklist(wire: GroceryChecklistWire): GroceryChecklistReco
   return { ...wire, checkedItems };
 }
 
-const TOKEN_KEY = 'dietledger_access_token';
-const REFRESH_KEY = 'dietledger_refresh_token';
+type DietaryProfileWire = Omit<DietaryProfileRecord, 'allergens' | 'dietaryTags' | 'nutrientThresholds'> & {
+  allergens: unknown;
+  dietaryTags: unknown;
+  nutrientThresholds: unknown;
+};
+
+function parseDietaryProfile(p: DietaryProfileWire): DietaryProfileRecord {
+  const parse = (value: unknown): unknown => {
+    try { return typeof value === 'string' ? JSON.parse(value) : value; }
+    catch { throw new Error('Invalid dietary profile data from server'); }
+  };
+  const allergens = parse(p.allergens);
+  const dietaryTags = parse(p.dietaryTags);
+  const nutrientThresholds = parse(p.nutrientThresholds);
+  const allowedAllergens = ['milk', 'eggs', 'fish', 'shellfish', 'treeNuts', 'peanuts', 'wheat', 'soybeans', 'sesame'];
+  const allowedTags = ['vegetarian', 'vegan', 'glutenFree', 'dairyFree', 'nutFree', 'soyFree', 'eggFree', 'keto', 'paleo', 'lowFodmap', 'dASH', 'mediterranean', 'diabetesAware'];
+  if (!Array.isArray(allergens) || !allergens.every(a => typeof a === 'string' && allowedAllergens.includes(a)) ||
+      !Array.isArray(dietaryTags) || !dietaryTags.every(t => typeof t === 'string' && allowedTags.includes(t)) ||
+      !Array.isArray(nutrientThresholds) || !nutrientThresholds.every(t => t && typeof t === 'object' &&
+        typeof t.nutrient === 'string' && ['warning', 'danger'].includes(t.alertLevel) &&
+        ['dailyMax', 'perMealMax', 'per1000KcalMin'].every(field => t[field] == null || (typeof t[field] === 'number' && Number.isFinite(t[field]))))) {
+    // Do not silently drop a restriction or turn malformed legacy data into an empty profile.
+    throw new Error('Invalid dietary profile data from server');
+  }
+  return { ...p, allergens: allergens as DietaryProfileRecord['allergens'], dietaryTags: dietaryTags as DietaryProfileRecord['dietaryTags'], nutrientThresholds };
+}
 
 export class GoApiClient implements ApiClient {
   private baseUrl: string;
+  private refreshFlight: Promise<AuthResult> | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
   private getToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(TOKEN_KEY);
+    return getAccessToken();
   }
 
-  private setTokens(access: string, refresh: string): void {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(TOKEN_KEY, access);
-    localStorage.setItem(REFRESH_KEY, refresh);
-  }
-
-  private clearTokens(): void {
-    if (typeof window === 'undefined') return;
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-  }
+  private clearTokens(): void { retireSession(); }
 
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
     authRetry = true,
-    rlRetries = 5
+    rlRetries = 5,
+    generation = sessionGeneration()
   ): Promise<T> {
+    if (generation !== sessionGeneration()) throw new Error('Session changed');
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -96,12 +114,16 @@ export class GoApiClient implements ApiClient {
 
     if (res.status === 429 && rlRetries > 0) {
       await new Promise((r) => setTimeout(r, 500));
-      return this.request<T>(method, path, body, authRetry, rlRetries - 1);
+      return this.request<T>(method, path, body, authRetry, rlRetries - 1, generation);
     }
 
-    if (res.status === 401 && authRetry) {
-      const refreshed = await this.tryRefresh();
-      if (refreshed) return this.request<T>(method, path, body, false);
+    if (generation !== sessionGeneration()) throw new Error('Session changed');
+    if (res.status === 401 && authRetry && token) {
+      try {
+        await this.refreshToken();
+        if (generation === sessionGeneration()) return this.request<T>(method, path, body, false, rlRetries, generation);
+      } catch { /* unauthorized below */ }
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
       this.clearTokens();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('dietledger:unauthorized'));
@@ -114,25 +136,76 @@ export class GoApiClient implements ApiClient {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
 
-    return res.json();
+    const data: T = await res.json();
+    if (generation !== sessionGeneration()) throw new Error('Session changed');
+    return data;
   }
 
-  private async tryRefresh(): Promise<boolean> {
-    const refresh = typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null;
-    if (!refresh) return false;
-    try {
-      const res = await fetch(`${this.baseUrl}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: refresh }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      this.setTokens(data.accessToken, data.refreshToken);
-      return true;
-    } catch {
-      return false;
+  private async withCookieLock<T>(operation: () => Promise<T>): Promise<T> {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+    if (!locks || typeof locks.request !== 'function') {
+      throw new Error('Authentication requires Web Locks. Use a supported browser with HTTPS (or localhost) and enable Web Locks.');
     }
+    // Web Locks is origin-wide: a per-tab queue cannot protect shared cookies
+    // against late Set-Cookie responses from a different tab.
+    return locks.request('dietledger-refresh', operation) as unknown as Promise<T>;
+  }
+
+  private async cookieRequest(path: string): Promise<Response> {
+    return fetch(`${this.baseUrl}${path}`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'dietledger' },
+    });
+  }
+
+  async refreshToken(): Promise<AuthResult> {
+    if (this.refreshFlight) return this.refreshFlight;
+    const generation = sessionGeneration();
+    const refresh = async () => {
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
+      const res = await this.cookieRequest('/api/auth/refresh');
+      if (!res.ok) throw new Error('Unauthorized');
+      const data: AuthResult = await res.json();
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
+      const principalID = authenticatedPrincipalID();
+      if (principalID !== null && principalID !== data.user.id) {
+        // Another tab may have replaced the shared cookie without delivering a
+        // BroadcastChannel event. Never replay this tab's writes as that user.
+        // Retire only local state: the other principal's server session is valid.
+        retireSession();
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dietledger:unauthorized'));
+        throw new Error('Session principal changed; sign in again.');
+      }
+      setAccessToken(data.accessToken, data.user.id);
+      return data;
+    };
+    // Each tab rotates the current shared cookie only after the previous tab
+    // completes. Never share bearer credentials through localStorage/messages.
+    const flight = this.withCookieLock(refresh);
+    this.refreshFlight = flight.finally(() => { this.refreshFlight = null; });
+    return this.refreshFlight;
+  }
+
+  async logout(expectedPrincipalID: string | null = authenticatedPrincipalID()): Promise<void> {
+    retireSession();
+    const generation = sessionGeneration();
+    const logout = async () => {
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
+      if (expectedPrincipalID !== null) {
+        // Cookies belong to the whole browser, not this tab. Confirm ownership
+        // under the same lock before revoking; never adopt these proof tokens.
+        const proof = await this.cookieRequest('/api/auth/refresh');
+        if (!proof.ok) throw new Error('Server logout could not be confirmed');
+        const current: AuthResult = await proof.json();
+        if (generation !== sessionGeneration()) throw new Error('Session changed');
+        if (current.user?.id !== expectedPrincipalID) {
+          throw new Error('Session principal changed; server logout could not be confirmed');
+        }
+      }
+      const res = await this.cookieRequest('/api/auth/logout');
+      if (!res.ok) throw new Error('Server logout failed');
+    };
+    await this.withCookieLock(logout);
   }
 
   private unwrap<T>(resp: { ok: boolean; data: T }): T {
@@ -151,31 +224,24 @@ export class GoApiClient implements ApiClient {
 
   // ── Auth ──────────────────────────────────────────────────────────
 
-  async register(email: string, password: string, displayName: string): Promise<AuthResult> {
-    const res = await this.request<AuthResult>('POST', '/api/auth/register', {
-      email,
-      password,
-      displayName,
-    });
-    this.setTokens(res.accessToken, res.refreshToken);
-    return res;
+  private async authenticate(path: string, body: unknown): Promise<AuthResult> {
+    const generation = sessionGeneration();
+    const send = async () => {
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
+      const res = await this.request<AuthResult>('POST', path, body, false);
+      if (generation !== sessionGeneration()) throw new Error('Session changed');
+      setAccessToken(res.accessToken, res.user.id);
+      return res;
+    };
+    return this.withCookieLock(send);
+  }
+
+  async register(email: string, password: string, displayName: string, setupClaim?: string): Promise<AuthResult> {
+    return this.authenticate('/api/auth/register', { email, password, displayName, setupClaim });
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
-    const res = await this.request<AuthResult>('POST', '/api/auth/login', {
-      email,
-      password,
-    });
-    this.setTokens(res.accessToken, res.refreshToken);
-    return res;
-  }
-
-  async refreshToken(token: string): Promise<AuthResult> {
-    const res = await this.request<AuthResult>('POST', '/api/auth/refresh', {
-      refreshToken: token,
-    });
-    this.setTokens(res.accessToken, res.refreshToken);
-    return res;
+    return this.authenticate('/api/auth/login', { email, password });
   }
 
   // ── Instance metadata ──────────────────────────────────────────────
@@ -295,7 +361,7 @@ export class GoApiClient implements ApiClient {
     data: Partial<
       Pick<
         RecipeRecord,
-        'name' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
+        'name' | 'description' | 'customNutrition' | 'servings' | 'servingName' | 'prepTime' | 'cookTime' | 'instructions' | 'leftoverStorage' | 'ingredients' | 'ingredientGroups'
       >
     >
   ): Promise<RecipeRecord> {
@@ -328,6 +394,11 @@ export class GoApiClient implements ApiClient {
         sourceKey: ing.sourceKey || null,
         prepInstructions: ing.prepInstructions || [],
         storageLocation: ing.storageLocation || '',
+        position: ing.position ?? 0,
+        missingNutrients: ing.missingNutrients,
+        zeroNutritionOverride: ing.zeroNutritionOverride ?? false,
+        unresolvedSource: ing.unresolvedSource ?? null,
+        unconfirmedNutrition: ing.unconfirmedNutrition ?? null,
       }));
     }
     if (data.ingredientGroups) {
@@ -365,18 +436,24 @@ export class GoApiClient implements ApiClient {
     return bundle;
   }
 
-  async importRecipeBundle(bundle: import('./api-client').RecipeBundle): Promise<import('./api-client').RecipeBundleImportSummary> {
+  async importRecipeBundle(
+    bundle: import('./api-client').RecipeBundle,
+    bookDecisions?: import('./api-client').BookImportDecision[],
+  ): Promise<import('./api-client').RecipeBundleImportSummary> {
     const resp = await this.request<{ ok: boolean; data: import('./api-client').RecipeBundleImportSummary }>(
       'POST',
       '/api/recipe-bundles/import',
-      bundle,
+      { bundle, bookDecisions },
     );
     return this.unwrap(resp);
   }
 
   async getQuarantinedRecipes(): Promise<import('./api-client').QuarantinedRecipe[]> {
-    const resp = await this.request<{ ok: boolean; data: import('./api-client').QuarantinedRecipe[] }>('GET', '/api/recipe-imports');
-    return this.unwrap(resp);
+    const resp = await this.request<{ ok: boolean; data?: unknown; error?: string }>('GET', '/api/recipe-imports');
+    if (resp.ok !== true) throw new Error(resp.error || 'Could not load quarantine');
+    if (resp.data === null) return [];
+    if (!Array.isArray(resp.data)) throw new Error('Invalid quarantine response');
+    return resp.data as import('./api-client').QuarantinedRecipe[];
   }
 
   async decideRecipeImport(batchId: string, action: 'keep' | 'cancel'): Promise<import('./api-client').RecipeBundleImportSummary> {
@@ -444,6 +521,7 @@ export class GoApiClient implements ApiClient {
         prepInstructions: ingredient.prepInstructions || [],
         storageLocation: ingredient.storageLocation || '',
         position: ingredient.position,
+        missingNutrients: ingredient.missingNutrients,
         zeroNutritionOverride: ingredient.zeroNutritionOverride,
         unresolvedSource: ingredient.unresolvedSource || null,
         unconfirmedNutrition: ingredient.unconfirmedNutrition || null,
@@ -1083,19 +1161,19 @@ export class GoApiClient implements ApiClient {
   // ── Dietary Profiles (server-persisted) ──────────────────────────
 
   async getDietaryProfiles(): Promise<DietaryProfileRecord[]> {
-    type ProfileResponse = Omit<DietaryProfileRecord, 'allergens' | 'dietaryTags' | 'nutrientThresholds'> & {
-      allergens: DietaryProfileRecord['allergens'] | string;
-      dietaryTags: DietaryProfileRecord['dietaryTags'] | string;
-      nutrientThresholds: DietaryProfileRecord['nutrientThresholds'] | string;
-    };
-    const resp = await this.request<{ ok: boolean; data: ProfileResponse[] }>('GET', '/api/dietary-profiles');
+    const resp = await this.request<{ ok: boolean; data: DietaryProfileWire[] }>('GET', '/api/dietary-profiles');
     const profiles = resp?.data ?? [];
-    return profiles.map((p) => ({
-      ...p,
-      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
-      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
-      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
-    }));
+    return profiles.map(parseDietaryProfile);
+  }
+  async restoreDiabetesAwareProfile(): Promise<DietaryProfileRecord> {
+    const resp = await this.request<{ ok: boolean; data: DietaryProfileWire }>('POST', '/api/dietary-profiles/diabetes-aware-starter');
+    return parseDietaryProfile(resp.data);
+  }
+  async getDietaryRecipeAssessments(profileId: string): Promise<DietaryRecipeAssessment[]> {
+    const resp = await this.request<{ ok: boolean; data: DietaryRecipeAssessment[] }>(
+      'GET', `/api/dietary-profiles/${encodeURIComponent(profileId)}/recipe-assessments`,
+    );
+    return resp.data;
   }
   async createDietaryProfile(data: Omit<DietaryProfileRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<DietaryProfileRecord> {
     const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord }>('POST', '/api/dietary-profiles', {
@@ -1105,13 +1183,7 @@ export class GoApiClient implements ApiClient {
       nutrientThresholds: JSON.stringify(data.nutrientThresholds),
       isActive: data.isActive,
     });
-    const p = resp.data as DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string };
-    return {
-      ...p,
-      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
-      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
-      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
-    };
+    return parseDietaryProfile(resp.data);
   }
   async updateDietaryProfile(id: string, data: Partial<Omit<DietaryProfileRecord, 'id' | 'createdAt'>>): Promise<DietaryProfileRecord> {
     const body: Record<string, unknown> = {};
@@ -1121,13 +1193,7 @@ export class GoApiClient implements ApiClient {
     if (data.nutrientThresholds !== undefined) body.nutrientThresholds = JSON.stringify(data.nutrientThresholds);
     if (data.isActive !== undefined) body.isActive = data.isActive;
     const resp = await this.request<{ ok: boolean; data: DietaryProfileRecord }>('PUT', `/api/dietary-profiles/${id}`, body);
-    const p = resp.data as DietaryProfileRecord & { allergens?: string; dietaryTags?: string; nutrientThresholds?: string };
-    return {
-      ...p,
-      allergens: typeof p.allergens === 'string' ? JSON.parse(p.allergens) : p.allergens,
-      dietaryTags: typeof p.dietaryTags === 'string' ? JSON.parse(p.dietaryTags) : p.dietaryTags,
-      nutrientThresholds: typeof p.nutrientThresholds === 'string' ? JSON.parse(p.nutrientThresholds) : p.nutrientThresholds,
-    };
+    return parseDietaryProfile(resp.data);
   }
   async deleteDietaryProfile(id: string): Promise<void> {
     await this.request('DELETE', `/api/dietary-profiles/${id}`);

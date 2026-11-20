@@ -28,6 +28,11 @@ interface DietaryFiltersProps {
   onTagsChange: (tags: DietaryTag[]) => void;
   excludeAllergens: boolean;
   onExcludeAllergensChange: (exclude: boolean) => void;
+  diabetesProfileId?: string | null;
+  onDiabetesProfileChange?: (id: string | null) => void;
+  onRestoreDiabetesProfile?: () => void;
+  diabetesProfileRestorePending?: boolean;
+  diabetesFilterRequested?: boolean;
 }
 
 export function DietaryFilters({
@@ -35,6 +40,11 @@ export function DietaryFilters({
   onTagsChange,
   excludeAllergens,
   onExcludeAllergensChange,
+  diabetesProfileId = null,
+  onDiabetesProfileChange,
+  onRestoreDiabetesProfile,
+  diabetesProfileRestorePending = false,
+  diabetesFilterRequested = false,
 }: DietaryFiltersProps) {
   const [expanded, setExpanded] = useState(false);
   const { profiles, activeProfileId } = useDietaryProfiles();
@@ -52,9 +62,14 @@ export function DietaryFilters({
   const clearAll = () => {
     onTagsChange([]);
     onExcludeAllergensChange(false);
+    onDiabetesProfileChange?.(null);
   };
 
-  const hasFilters = activeTags.length > 0 || excludeAllergens;
+  const diabetesProfiles = profiles.filter(p => p.dietaryTags.includes('diabetesAware'));
+  const selectedDiabetesProfile = diabetesProfiles.find(p => p.id === diabetesProfileId);
+  const restoreProfileId = diabetesProfiles.find(p => p.id === activeProfileId)?.id ?? diabetesProfiles[0]?.id ?? null;
+  const diabetesRequested = diabetesFilterRequested || !!diabetesProfileId || diabetesProfileRestorePending;
+  const hasFilters = activeTags.length > 0 || excludeAllergens || diabetesRequested;
 
   return (
     <div className="space-y-2">
@@ -63,12 +78,13 @@ export function DietaryFilters({
           variant={hasFilters ? 'default' : 'outline'}
           size="sm"
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
         >
           <Filter className="h-3.5 w-3.5 mr-1" />
           Dietary Filters
           {hasFilters && (
             <Badge variant="secondary" className="ml-1.5 h-5 px-1.5">
-              {activeTags.length + (excludeAllergens ? 1 : 0)}
+              {activeTags.length + (excludeAllergens ? 1 : 0) + (diabetesRequested ? 1 : 0)}
             </Badge>
           )}
         </Button>
@@ -80,20 +96,24 @@ export function DietaryFilters({
       </div>
 
       {expanded && (
-        <div className="space-y-3 p-3 border rounded-lg bg-card">
+        <div className="max-h-72 overflow-y-auto space-y-3 p-3 border rounded-lg bg-card">
           <div className="flex flex-wrap gap-1.5">
             {ALL_TAGS.map(({ tag, label }) => (
-              <Badge
-                key={tag}
-                variant={activeTags.includes(tag) ? 'default' : 'outline'}
-                className="cursor-pointer select-none"
-                onClick={() => toggleTag(tag)}
-              >
+              <Button key={tag} type="button" size="sm" className="h-6 px-2 text-xs" variant={activeTags.includes(tag) ? 'default' : 'outline'} aria-pressed={activeTags.includes(tag)} onClick={() => toggleTag(tag)}>
                 {label}
-              </Badge>
+              </Button>
             ))}
           </div>
 
+          {onDiabetesProfileChange && (
+            <Button type="button" size="sm" className="h-6 px-2 text-xs" variant={diabetesRequested ? 'default' : 'outline'} aria-pressed={diabetesRequested} disabled={diabetesProfileRestorePending} onClick={() => {
+              if (selectedDiabetesProfile) onDiabetesProfileChange(null);
+              else if (restoreProfileId) onDiabetesProfileChange(restoreProfileId);
+              else onRestoreDiabetesProfile?.();
+            }}>
+              Diabetic
+            </Button>
+          )}
           {activeProfile && (
             <div className="flex items-center gap-2">
               <Switch

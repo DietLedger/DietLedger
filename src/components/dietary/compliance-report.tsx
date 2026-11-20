@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Download, FileCheck, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { nutrientUnit } from './nutrient-units';
 
 export function ComplianceReport() {
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
@@ -158,7 +159,8 @@ export function ComplianceReport() {
                   <tr className="border-b">
                     <th className="text-left py-1.5 pr-3">Nutrient</th>
                     <th className="text-right py-1.5 pr-3">Daily Max</th>
-                    <th className="text-right py-1.5 pr-3">Per Meal Max</th>
+                    <th className="text-right py-1.5 pr-3">Per serving max</th>
+                    <th className="text-right py-1.5 pr-3">Minimum per 1,000 kcal</th>
                     <th className="text-left py-1.5">Alert Level</th>
                   </tr>
                 </thead>
@@ -166,8 +168,9 @@ export function ComplianceReport() {
                   {selectedDietaryProfile.nutrientThresholds.map((t, i) => (
                     <tr key={i} className="border-b border-gray-100">
                       <td className="py-1.5 pr-3">{t.nutrient}</td>
-                      <td className="text-right py-1.5 pr-3">{t.dailyMax != null ? `${t.dailyMax}` : '—'}</td>
-                      <td className="text-right py-1.5 pr-3">{t.perMealMax != null ? `${t.perMealMax}` : '—'}</td>
+                      <td className="text-right py-1.5 pr-3">{t.dailyMax != null ? `${t.dailyMax} ${nutrientUnit(t.nutrient)}` : '—'}</td>
+                      <td className="text-right py-1.5 pr-3">{t.perMealMax != null ? `${t.perMealMax} ${nutrientUnit(t.nutrient)}` : '—'}</td>
+                      <td className="text-right py-1.5 pr-3">{t.per1000KcalMin != null ? `${t.per1000KcalMin} ${nutrientUnit(t.nutrient)} / 1,000 kcal` : '—'}</td>
                       <td className="py-1.5">
                         <Badge variant={t.alertLevel === 'danger' ? 'destructive' : 'secondary'} className="text-xs">
                           {t.alertLevel}

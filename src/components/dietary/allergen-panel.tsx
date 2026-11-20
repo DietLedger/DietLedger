@@ -32,6 +32,7 @@ const TAG_LABELS: Record<DietaryTag, string> = {
   lowFodmap: 'Low-FODMAP',
   dASH: 'DASH',
   mediterranean: 'Mediterranean',
+  diabetesAware: 'Diabetes-aware',
 };
 
 interface AllergenPanelProps {

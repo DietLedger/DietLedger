@@ -23,6 +23,64 @@ function brand(L: number, C: number, H: number): V {
   };
 }
 
+// Dark selections must support light foregrounds as well as brand-colored labels.
+function darkBrand(L: number, C: number, H: number): V {
+  return {
+    ...brand(L, C, H),
+    '--brand-50': `oklch(0.29 ${+(C * 0.5).toFixed(3)} ${H})`,
+    '--brand-100': `oklch(0.34 ${+(C * 0.5).toFixed(3)} ${H})`,
+    '--brand-600': `oklch(0.78 ${C} ${H})`,
+    '--brand-700': `oklch(0.86 ${+(C * 0.6).toFixed(3)} ${H})`,
+    '--brand-800': `oklch(0.90 ${+(C * 0.45).toFixed(3)} ${H})`,
+    '--brand-900': `oklch(0.94 ${+(C * 0.3).toFixed(3)} ${H})`,
+  };
+}
+
+const DARK_LUXURY: V = {
+  '--background': 'oklch(0.17 0.025 55)',
+  '--foreground': 'oklch(0.93 0.025 85)',
+  '--card': 'oklch(0.225 0.032 55)',
+  '--card-foreground': 'oklch(0.93 0.025 85)',
+  '--popover': 'oklch(0.225 0.032 55)',
+  '--popover-foreground': 'oklch(0.93 0.025 85)',
+  '--primary': 'oklch(0.76 0.105 72)',
+  '--primary-foreground': 'oklch(0.18 0.025 55)',
+  '--secondary': 'oklch(0.29 0.065 165)',
+  '--secondary-foreground': 'oklch(0.94 0.02 85)',
+  '--muted': 'oklch(0.27 0.025 55)',
+  '--muted-foreground': 'oklch(0.78 0.025 75)',
+  '--accent': 'oklch(0.33 0.07 165)',
+  '--accent-foreground': 'oklch(0.95 0.02 85)',
+  '--destructive': 'oklch(0.74 0.17 25)',
+  '--border': 'oklch(0.48 0.065 68)',
+  '--input': 'oklch(0.48 0.055 68)',
+  '--ring': 'oklch(0.76 0.105 72)',
+  '--chart-1': 'oklch(0.76 0.105 72)',
+  '--chart-2': 'oklch(0.72 0.13 165)',
+  '--chart-3': 'oklch(0.7 0.13 48)',
+  '--chart-4': 'oklch(0.75 0.08 95)',
+  '--chart-5': 'oklch(0.66 0.08 185)',
+  '--sidebar': 'oklch(0.20 0.035 55)',
+  '--sidebar-foreground': 'oklch(0.93 0.025 85)',
+  '--sidebar-primary': 'oklch(0.76 0.105 72)',
+  '--sidebar-primary-foreground': 'oklch(0.18 0.025 55)',
+  '--sidebar-accent': 'oklch(0.31 0.065 165)',
+  '--sidebar-accent-foreground': 'oklch(0.95 0.02 85)',
+  '--sidebar-border': 'oklch(0.48 0.065 68)',
+  '--sidebar-ring': 'oklch(0.76 0.105 72)',
+  // Existing brand utilities assume light backgrounds and dark text for 50/700.
+  '--brand-50': 'oklch(0.29 0.065 165)',
+  '--brand-100': 'oklch(0.34 0.07 165)',
+  '--brand-200': 'oklch(0.48 0.075 70)',
+  '--brand-300': 'oklch(0.64 0.09 72)',
+  '--brand-400': 'oklch(0.75 0.11 75)',
+  '--brand-500': 'oklch(0.72 0.12 165)',
+  '--brand-600': 'oklch(0.76 0.105 72)',
+  '--brand-700': 'oklch(0.86 0.09 80)',
+  '--brand-800': 'oklch(0.9 0.07 85)',
+  '--brand-900': 'oklch(0.94 0.04 85)',
+};
+
 const THEMES: ThemeDefinition[] = [
   {
     id: 'vintage-teal',
@@ -94,7 +152,7 @@ const THEMES: ThemeDefinition[] = [
       '--sidebar-accent-foreground': 'oklch(0.93 0.012 80)',
       '--sidebar-border': 'oklch(1 0 0 / 10%)',
       '--sidebar-ring': 'oklch(0.65 0.07 192)',
-      ...brand(0.65, 0.07, 192),
+      ...darkBrand(0.65, 0.07, 192),
     },
   },
   {
@@ -167,7 +225,7 @@ const THEMES: ThemeDefinition[] = [
       '--sidebar-accent-foreground': 'oklch(0.93 0.015 80)',
       '--sidebar-border': 'oklch(1 0 0 / 10%)',
       '--sidebar-ring': 'oklch(0.68 0.14 80)',
-      ...brand(0.68, 0.14, 80),
+      ...darkBrand(0.68, 0.14, 80),
     },
   },
   {
@@ -240,7 +298,7 @@ const THEMES: ThemeDefinition[] = [
       '--sidebar-accent-foreground': 'oklch(0.93 0.012 20)',
       '--sidebar-border': 'oklch(1 0 0 / 10%)',
       '--sidebar-ring': 'oklch(0.65 0.09 15)',
-      ...brand(0.65, 0.09, 15),
+      ...darkBrand(0.65, 0.09, 15),
     },
   },
   {
@@ -313,7 +371,7 @@ const THEMES: ThemeDefinition[] = [
       '--sidebar-accent-foreground': 'oklch(0.93 0.014 100)',
       '--sidebar-border': 'oklch(1 0 0 / 10%)',
       '--sidebar-ring': 'oklch(0.65 0.11 115)',
-      ...brand(0.65, 0.11, 115),
+      ...darkBrand(0.65, 0.11, 115),
     },
   },
   {
@@ -386,11 +444,51 @@ const THEMES: ThemeDefinition[] = [
       '--sidebar-accent-foreground': 'oklch(0.93 0.005 260)',
       '--sidebar-border': 'oklch(1 0 0 / 10%)',
       '--sidebar-ring': 'oklch(0.65 0.03 260)',
-      ...brand(0.65, 0.03, 260),
+      ...darkBrand(0.65, 0.03, 260),
     },
+  },
+  {
+    id: 'dark-luxury',
+    name: 'Luxury',
+    description: 'Art deco, ivory, emerald and bronze',
+    light: {
+      '--background': 'oklch(0.97 0.015 85)',
+      '--foreground': 'oklch(0.22 0.025 55)',
+      '--card': 'oklch(0.99 0.009 85)',
+      '--card-foreground': 'oklch(0.22 0.025 55)',
+      '--popover': 'oklch(0.99 0.009 85)',
+      '--popover-foreground': 'oklch(0.22 0.025 55)',
+      '--primary': 'oklch(0.42 0.075 165)',
+      '--primary-foreground': 'oklch(0.98 0.01 85)',
+      '--secondary': 'oklch(0.91 0.035 70)',
+      '--secondary-foreground': 'oklch(0.27 0.04 55)',
+      '--muted': 'oklch(0.93 0.018 75)',
+      '--muted-foreground': 'oklch(0.45 0.03 55)',
+      '--accent': 'oklch(0.91 0.035 165)',
+      '--accent-foreground': 'oklch(0.25 0.04 165)',
+      '--destructive': 'oklch(0.577 0.245 27.325)',
+      '--border': 'oklch(0.80 0.04 70)',
+      '--input': 'oklch(0.80 0.04 70)',
+      '--ring': 'oklch(0.46 0.075 165)',
+      '--chart-1': 'oklch(0.46 0.075 165)',
+      '--chart-2': 'oklch(0.55 0.11 55)',
+      '--chart-3': 'oklch(0.52 0.09 75)',
+      '--chart-4': 'oklch(0.55 0.08 185)',
+      '--chart-5': 'oklch(0.48 0.08 35)',
+      '--sidebar': 'oklch(0.94 0.022 80)',
+      '--sidebar-foreground': 'oklch(0.22 0.025 55)',
+      '--sidebar-primary': 'oklch(0.42 0.075 165)',
+      '--sidebar-primary-foreground': 'oklch(0.98 0.01 85)',
+      '--sidebar-accent': 'oklch(0.90 0.035 165)',
+      '--sidebar-accent-foreground': 'oklch(0.25 0.04 165)',
+      '--sidebar-border': 'oklch(0.80 0.04 70)',
+      '--sidebar-ring': 'oklch(0.46 0.075 165)',
+      ...brand(0.46, 0.075, 165),
+    },
+    dark: DARK_LUXURY,
   },
 ];
 
 export { THEMES };
-export const DEFAULT_THEME = 'vintage-teal';
+export const DEFAULT_THEME = 'dark-luxury';
 export const THEME_STORAGE_KEY = 'dietledger-theme';

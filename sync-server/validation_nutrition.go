@@ -118,6 +118,9 @@ func invalidNutrientMessage(field string) string {
 // validateIngredient applies the per-ingredient rules: a name, a known-ish
 // non-negative amount, and sane nutrient numbers.
 func validateIngredient(req *CreateIngredientReq) string {
+	if err := validateMissingNutrients(req.MissingNutrients); err != nil {
+		return err.Error()
+	}
 	if strings.TrimSpace(req.Name) == "" {
 		return "ingredient name is required"
 	}

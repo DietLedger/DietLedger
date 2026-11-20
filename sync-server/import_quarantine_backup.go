@@ -15,8 +15,14 @@ func (s *PostgresStore) backupPendingImports(userID string, bundle *RecipeBundle
 		return fmt.Errorf("read pending imports for owner backup: %w", err)
 	}
 	hasPending := len(rows) > 0
+	unconfirmedFoods := map[string]bool{}
 	for _, batch := range batches {
-		hasPending = hasPending || !batch.Accepted
+		missing, err := bundleNeedsFoodQuarantine(s.reader(), batch.Context)
+		if err != nil {
+			return err
+		}
+		unconfirmedFoods[batch.ID] = missing
+		hasPending = hasPending || !batch.Accepted || missing
 	}
 	if !hasPending {
 		return nil
@@ -39,7 +45,7 @@ func (s *PostgresStore) backupPendingImports(userID string, bundle *RecipeBundle
 		identities[r.Recipe.PortableID] = true
 	}
 	for _, b := range batches {
-		include := !b.Accepted
+		include := !b.Accepted || unconfirmedFoods[b.ID]
 		for _, r := range b.Context.Recipes {
 			if identities[r.PortableID] {
 				include = true
@@ -54,7 +60,11 @@ func (s *PostgresStore) backupPendingImports(userID string, bundle *RecipeBundle
 		// An unaccepted file may reuse existing book structure without owning
 		// staged rows yet. Retain those authorized aliases as transport keys so
 		// Keep after restore does not create a second book/chapter.
-		for kind, keys := range placementKeys(b.Context) {
+		for kind, keys := range placementKeys(effectiveBookContext(b)) {
+			if b.BookState.Version > 0 {
+				// New batches own explicit aliases, never a global-key guess.
+				continue
+			}
 			for _, key := range keys {
 				if b.Placements[kind][key] != "" {
 					continue
@@ -71,6 +81,9 @@ func (s *PostgresStore) backupPendingImports(userID string, bundle *RecipeBundle
 					b.Placements[kind][key] = target
 				}
 			}
+		}
+		if err := s.backupBookState(userID, b, *bundle); err != nil {
+			return err
 		}
 		// Canonicalize references to existing main records to portable identities.
 		// Context-local source keys remain intact and are remapped through their
@@ -109,14 +122,20 @@ func (s *PostgresStore) backupPendingImports(userID string, bundle *RecipeBundle
 	if len(pending.Recipes) != len(rows) {
 		return errors.New("owner backup omitted staged recipe batch context")
 	}
-	bundle.Version = 3
+	if bundle.Version != 4 {
+		bundle.Version = 3
+	}
 	bundle.PendingImports = pending
+	if bundleHasV4Metadata(*bundle) {
+		bundle.Version = 4
+	}
 	return nil
 }
 
-// Current canonical dependencies belong in the native closure, not only in a
-// retained source context. Restore installs them once; later repairs must not
-// replay old package food facts over canonical edits or resurrect deleted rows.
+// Current source dependencies belong in the native closure as well as retained
+// context. Standard-food facts are unconfirmed on the recipient until trusted
+// ingestion supplies a row. Repairs never replay package food facts over the
+// shared catalog or resurrect deleted canonical rows.
 func (s *PostgresStore) addStagedCanonicalSources(userID string, recipe BundleRecipe, context RecipeBundle, bundle *RecipeBundle) error {
 	for _, ingredient := range recipe.Ingredients {
 		source := ingredient.Source
@@ -291,6 +310,9 @@ func (s *PostgresStore) restorePendingImportsTx(tx *sql.Tx, userID string, bundl
 				saved.Placements[kind][key] = target
 			}
 		}
+		if err := s.restoreBookStateTx(tx, userID, bundle, &saved); err != nil {
+			return err
+		}
 		context, err := json.Marshal(saved.Context)
 		if err != nil {
 			return err
@@ -299,7 +321,11 @@ func (s *PostgresStore) restorePendingImportsTx(tx *sql.Tx, userID string, bundl
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO recipe_import_batches(id,user_id,request_hash,accepted,context,placements,materialized) VALUES($1,$2,$3,$4,$5,$6,$7)`, saved.ID, userID, hash, saved.Accepted, string(context), string(placements), saved.Materialized); err != nil {
+		bookState, err := json.Marshal(saved.BookState)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO recipe_import_batches(id,user_id,request_hash,accepted,context,placements,materialized,book_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, saved.ID, userID, hash, saved.Accepted, string(context), string(placements), saved.Materialized, string(bookState)); err != nil {
 			return err
 		}
 		batchMap[sourceID] = saved.ID

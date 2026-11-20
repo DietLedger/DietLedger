@@ -7,10 +7,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import AppNav from './app-nav';
 import SettingsPage from '@/app/(app)/settings/page';
 import type { RecipeBundle } from '@/lib/api-client';
+import { THEMES } from '@/lib/themes';
 
 const mocks = vi.hoisted(() => ({
   backup: vi.fn(), selectedExport: vi.fn(), deleteAccount: vi.fn(), logout: vi.fn(), replace: vi.fn(),
-  listUsers: vi.fn(), admin: false,
+  listUsers: vi.fn(), admin: false, themeId: 'olive-botanical', themeMounted: false, isDark: false, appearance: 'light', setAppearance: vi.fn(),
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: mocks.replace, push: vi.fn() }), usePathname: () => '/recipes' }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { id: 'owner', isAdmin: mocks.admin, email: 'owner@example.test' }, logout: mocks.logout }) }));
@@ -25,7 +26,7 @@ vi.mock('@/hooks/use-secrets', () => ({
   useFDAKey: () => ({ data: 'DEMO_KEY' }), useSetFDAKey: () => ({}), useSecrets: () => ({ data: [] }),
   useCreateSecret: () => ({}), useDeleteSecret: () => ({}),
 }));
-vi.mock('@/hooks/use-app-theme', () => ({ useAppTheme: () => ({ themes: [], themeId: 'default', mounted: false }) }));
+vi.mock('@/hooks/use-app-theme', () => ({ useAppTheme: () => ({ themes: THEMES, themeId: mocks.themeId, mounted: mocks.themeMounted, isDark: mocks.isDark, appearance: mocks.appearance, setAppearance: mocks.setAppearance }) }));
 vi.mock('@/hooks/use-instance', () => ({ useInstanceState: () => ({}), useSetRegistrationEnabled: () => ({}) }));
 vi.mock('@/hooks/use-settings', () => ({ useAppSettings: () => ({}), useUpdateSingleSlotTime: () => ({}), useUpdateSettings: () => ({}) }));
 vi.mock('@/components/food-database-panel', () => ({ default: () => null }));
@@ -34,6 +35,52 @@ vi.mock('@/components/pantry-staples-panel', () => ({ default: () => null }));
 vi.mock('@/components/custom-foods-panel', () => ({ default: () => null }));
 vi.mock('@/components/location-panel', () => ({ default: () => null }));
 vi.mock('@/components/nutrition/log-weight-dialog', () => ({ LogWeightDialog: () => null }));
+
+describe('AppNav theme icon', () => {
+  afterEach(cleanup);
+
+  it('uses the original icon for light appearances and a subdued icon for dark appearances', () => {
+    mocks.themeId = 'dark-luxury';
+    mocks.themeMounted = false;
+    mocks.isDark = true;
+    const queryClient = new QueryClient();
+    const nav = () => <QueryClientProvider client={queryClient}><TooltipProvider><AppNav /></TooltipProvider></QueryClientProvider>;
+    const { rerender } = render(nav());
+    expect(screen.getByRole('img', { name: 'DietLedger' })).toHaveAttribute('src', '/logo.svg');
+    mocks.themeMounted = true;
+    rerender(nav());
+    expect(screen.getByRole('img', { name: 'DietLedger' })).toHaveAttribute('src', '/logo-dark-luxury.svg');
+    for (const theme of ['olive-botanical', 'vintage-teal']) {
+      mocks.themeId = theme;
+      mocks.isDark = true;
+      rerender(nav());
+      expect(screen.getByRole('img', { name: 'DietLedger' })).toHaveAttribute('src', '/logo-dark-luxury.svg');
+      mocks.isDark = false;
+      rerender(nav());
+      expect(screen.getByRole('img', { name: 'DietLedger' })).toHaveAttribute('src', '/logo.svg');
+    }
+  });
+
+  it('lets non-admin users select the dark appearance in the settings popup', async () => {
+    mocks.admin = false;
+    mocks.themeId = 'olive-botanical';
+    mocks.themeMounted = true;
+    mocks.isDark = false;
+    mocks.appearance = 'light';
+    mocks.setAppearance.mockClear();
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    Element.prototype.scrollIntoView = () => {};
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><TooltipProvider><AppNav /></TooltipProvider></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle('Settings'));
+    await user.click(screen.getByRole('combobox', { name: 'Color appearance' }));
+    await user.click(screen.getByRole('option', { name: 'Dark' }));
+    expect(mocks.setAppearance).toHaveBeenCalledWith('dark');
+  });
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

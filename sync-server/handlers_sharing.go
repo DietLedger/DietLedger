@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -53,9 +54,19 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "recipeId, title, and recipeData are required")
 		return
 	}
+	if req.Visibility == "" {
+		req.Visibility = VisibilityPrivate
+	} else if !validVisibility(req.Visibility) {
+		writeError(w, http.StatusBadRequest, "invalid visibility")
+		return
+	}
 
 	shared, err := s.store.CreateSharedRecipe(user.ID, req.RecipeID, req.Title, req.Description, req.Category, req.Tags, req.RecipeData, req.Visibility)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "recipe not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}
@@ -85,6 +96,15 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 		writeError(w, http.StatusNotFound, "shared recipe not found")
 		return
 	}
+	canonical, err := s.store.GetRecipe(shared.UserID, shared.RecipeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify shared recipe")
+		return
+	}
+	if canonical == nil {
+		writeError(w, http.StatusNotFound, "shared recipe not found")
+		return
+	}
 
 	user := getUserFromContext(r)
 	switch shared.Visibility {
@@ -100,6 +120,9 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 			writeError(w, http.StatusForbidden, "this recipe is private")
 			return
 		}
+	default:
+		writeError(w, http.StatusNotFound, "shared recipe not found")
+		return
 	}
 
 	go s.store.IncrementSharedRecipeViews(shared.ID)
@@ -107,7 +130,12 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 }
 
 func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request, id string) {
-	if err := s.store.DeleteSharedRecipe(id); err != nil {
+	user := getUserFromContext(r)
+	if err := s.store.DeleteSharedRecipe(user.ID, id); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "share not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete share")
 		return
 	}
@@ -122,7 +150,16 @@ func (s *Server) updateShare(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := s.store.SetSharedRecipeVisibility(id, req.Visibility); err != nil {
+	if !validVisibility(req.Visibility) {
+		writeError(w, http.StatusBadRequest, "invalid visibility")
+		return
+	}
+	user := getUserFromContext(r)
+	if err := s.store.SetSharedRecipeVisibility(user.ID, id, req.Visibility); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "share not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update share")
 		return
 	}

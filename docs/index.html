@@ -1,0 +1,1961 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DietLedger</title>
+<style>html,body{margin:0;background:#102e28}</style>
+</head>
+<body>
+<main id="preview"></main>
+
+<template id="ledger-shell">
+<style>
+  :host {
+    display:block; container-type:inline-size;
+    background:var(--emerald); color:var(--cream);
+    font:16px/1.45 system-ui,sans-serif;
+  }
+  *,*::before,*::after { box-sizing:border-box; }
+  .book {
+    min-height:100svh;
+    background:radial-gradient(ellipse at 51% 37%,#c2cf8724,transparent 53%),
+               linear-gradient(115deg,#00000015,transparent 45%,#00000024);
+  }
+  .page { width:min(100%,var(--width)); margin:auto; padding:20px clamp(16px,4cqi,48px) 16px; }
+  .mast,.brand { display:flex; align-items:center; }
+  .mast { gap:14px; }
+  .brand { gap:8px; font:22px Georgia,serif; }
+  .brand svg { width:34px; height:34px; }
+  .rule { flex:1; height:1px; background:#efd4a53c; }
+  header { text-align:center; margin:clamp(20px,3cqi,37px) auto 0; }
+  h1,h2,.label,.times { font-family:Georgia,"Times New Roman",serif; font-weight:normal; }
+  h1 { margin:0; font-size:var(--heading); line-height:1.04; letter-spacing:-.048em; text-wrap:balance; }
+  h1 em { color:#f1cb91; }
+  header p { color:#d4ddce; margin:12px auto 0; text-wrap:balance; }
+  .stage { width:100%; display:block; overflow:visible; }
+  h2 { display:flex; align-items:center; gap:18px; margin:3px 0 18px; text-align:center; font-size:clamp(22px,3cqi,32px); line-height:1.2; }
+  h2::before,h2::after { content:""; flex:1; height:1px; background:#e2c99a4a; }
+  .choices { display:grid; grid-template-columns:repeat(var(--columns),minmax(0,1fr)); gap:14px; }
+  .choice {
+    appearance:none; width:100%; display:grid; grid-template-columns:auto 1fr;
+    align-content:start; text-align:left; padding:13px 18px 20px;
+    border:1px solid #cdb68a; border-radius:6px;
+    background:linear-gradient(140deg,#fff8e6,#efe2c6); color:#223b30;
+    box-shadow:0 4px 9px #06150e35; font:inherit; cursor:pointer;
+  }
+  .choice:hover,.choice[aria-pressed=true] { background:#fff7df; border-color:#fff0bb; }
+  .choice[aria-pressed=true] { box-shadow:inset 0 0 0 3px #9f693c; }
+  button:focus-visible,h1:focus-visible { outline:3px solid #ffcf78; outline-offset:4px; }
+  .portrait { display:block; width:78px; height:62px; overflow:visible; }
+  .arrow { justify-self:end; align-self:center; font-size:21px; color:#765637; }
+  .label { grid-column:1/-1; margin:5px 0; font-size:clamp(21px,2.6cqi,29px); line-height:1.12; }
+  .desc { grid-column:1/-1; color:#425246; font-size:.91rem; }
+  .branches .choice { grid-template-columns:82px 1fr 18px; column-gap:14px; align-content:center; }
+  .branches .portrait { grid-column:1; grid-row:1/3; align-self:center; }
+  .branches .label,.branches .desc { grid-column:2; }
+  .branches .label { grid-row:1; }
+  .branches .desc { grid-row:2; }
+  .branches .arrow { grid-column:3; grid-row:1/3; }
+  footer { display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; margin-top:10px; }
+  .status { color:#e9d4ac; font-size:.86rem; margin:0 auto 0 0; }
+  .controls { margin-left:auto; display:flex; flex-wrap:wrap; gap:5px; }
+  .controls button {
+    color:#e0e4d6; font:inherit; font-size:.86rem; min-height:44px;
+    padding:0 10px; border:0; background:transparent; cursor:pointer;
+  }
+  .controls button:hover { text-decoration:underline; }
+  .controls .setup { color:#f1cb91; }
+  .defs { position:absolute; width:0; height:0; overflow:hidden; pointer-events:none; }
+  .wire,.trace { stroke:var(--copper); fill:none; stroke-linecap:round; stroke-dasharray:1; }
+  .wire { stroke-width:2; }
+  .trace { stroke-width:2.6; }
+  .terminal { fill:var(--copper); }
+
+  /* S1 only. The HTML labels share the SVG's 1/6, 1/2, 5/6 positions. */
+  /* S1 meal selector and S2 recipe stationery */
+  .meal-times {display:flex;justify-content:space-around;position:relative;margin:22px auto 0;max-width:38rem}
+  .meal-times::before {content:"";position:absolute;left:25%;right:25%;bottom:11px;border-bottom:1px solid var(--copper)}
+  .meal-times button {position:relative;display:grid;justify-items:center;gap:8px;padding:4px 14px 6px;background:none;border:none;color:var(--cream);font:1.1rem Georgia,serif;cursor:pointer}
+  .meal-times button::after {content:"";width:12px;height:12px;border-radius:50%;background:#809587;border:1px solid #efd1a2}
+  .meal-times [aria-pressed=true]::after {background:var(--copper);outline:1px solid var(--copper);outline-offset:3px}
+  .recipe header p {max-width:47rem}
+  .papers {display:grid;grid-template-columns:minmax(0,1.3fr) 44px minmax(0,1fr);align-items:center;margin:28px auto;max-width:54rem}
+  .sheet {padding:clamp(18px,3cqi,32px);color:#253e32;background:linear-gradient(125deg,#fffaeb,#f2e3c5);border:1px solid #cfba93;border-radius:3px 9px 4px 3px;box-shadow:2px 3px #bca988,4px 6px #6c6950,0 10px 20px #07191244;transform-origin:left center}
+  .sheet h2,.sheet h3 {display:block;text-align:left;margin:8px 0;font:normal clamp(24px,3cqi,34px)/1.08 Georgia,serif}
+  .sheet h2::before,.sheet h2::after {display:none}
+  .sheet h3 {font-size:1.15rem}
+  .kicker {margin:0;font:600 .88rem system-ui;color:#496150}
+  .recipe-art {display:block;width:100%;height:auto;margin:6px 0}
+  .sheet ul {padding-left:1.2rem;margin:8px 0 14px}.sheet li {margin:3px 0}
+  .sheet dl,.sheet dd {margin:0}.sheet dl div {display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #c9b99f}
+  .sheet dd {font-weight:600}.sheet .portion {border-top:1px solid #bda982;padding-top:11px;margin:0}
+  .connector {width:100%;height:32px}
+  @container(max-width:640px){.papers{grid-template-columns:1fr;max-width:30rem}.connector{width:34px;transform:rotate(90deg);justify-self:center}}
+  /* S3: ring-bound menu, loose recipe leaves, and the counter below them. */
+  .menu header p {max-width:44rem}
+  .menu .papers {max-width:59rem;grid-template-columns:minmax(0,1.35fr) 52px minmax(0,1fr);margin-bottom:0}
+  .menu-book {position:relative;background:linear-gradient(105deg,#f2e1bc,#fff7e3 9%,#f3e5c9);border-bottom:4px solid #7d6547}
+  .menu-book::before,.menu-book::after {content:"";position:absolute;top:-9px;width:11px;height:20px;border:3px solid #ab764a;border-radius:50%;box-shadow:inset 1px 0 #f2ca91,1px 1px #73604a}
+  .menu-book::before {left:14%}.menu-book::after {right:14%}
+  .recipe-leaves {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .menu-leaf {display:flex;flex-direction:column;padding:12px 10px;color:#2c493c;background:linear-gradient(115deg,#fffaf0,#f9eed6);border:1px solid #cabb9d;box-shadow:1px 3px 2px #6549252b}
+  .menu-leaf:nth-child(1){rotate:-1deg}.menu-leaf:nth-child(2){rotate:1deg}
+  .menu-leaf svg {width:100%;height:auto;display:block}
+  .menu-leaf h3 {margin:4px 0 10px;line-height:1.15}
+  .day-name {margin:0;border-bottom:1px solid #c8b592;padding-bottom:5px;font:italic 1rem Georgia,serif}
+  .serving-mark {margin:auto 0 0;padding-top:6px;border-top:1px dashed #b5936a;font-size:.83rem}
+  .menu .list-slip {padding-block:20px}
+  .list-slip dl div {padding:5px 0;font-size:.92rem}
+  .list-slip dd {white-space:nowrap}
+  .prep-surface {width:100%;display:block;max-width:61rem;margin:0 auto}
+  .review-note {margin:0 auto 20px;text-align:center;color:#f5dbb7;font:italic 1.05rem/1.45 Georgia,serif}
+  @container(max-width:680px){
+    .menu .papers {grid-template-columns:1fr;max-width:30rem;gap:4px}
+    .menu .connector {width:36px;height:32px;transform:rotate(90deg);justify-self:center}
+    .menu-leaf {padding:9px 7px}
+  }
+  @container(max-width:370px){.menu .sheet {padding-inline:12px}.recipe-leaves{gap:6px}}
+  /* S4: the meal plan and lunch bench meet in an open kitchen notebook. */
+  .pilot header p {max-width:46rem}
+  .pilot-folio {position:relative;max-width:54rem;margin:28px auto 0;padding:9px;border:1px solid #728c74;border-radius:6px 15px 10px 5px;background:linear-gradient(125deg,#41675c,#24473e);box-shadow:1px 5px 0 #152d26,0 12px 22px #061c1640}
+  .pilot-spread {display:grid;grid-template-columns:1.2fr 1fr;color:#293f32;background:#f8ecd4;border-radius:2px 9px 5px 2px;box-shadow:1px 3px #beab88}
+  .pilot-spread section {padding:clamp(16px,2.6cqi,28px);min-width:0}
+  .pilot-plan {background:linear-gradient(90deg,#fff7e5,#f9ecd2 92%,#dfceb0)}
+  .pilot-review {background:linear-gradient(90deg,#e4d6b8,#fff5df 8%,#f6e8cb);border-left:1px solid #bbab89;border-radius:0 8px 4px 0}
+  .pilot-folio h2 {display:block;text-align:left;font-size:clamp(24px,3cqi,32px);margin:6px 0 12px}
+  .pilot-folio h2::before,.pilot-folio h2::after {display:none}
+  .pilot-table {display:block;width:100%;margin:8px 0}
+  .pilot-folio .recipe-leaves {margin-top:8px}
+  .pilot-review p {margin:10px 0}
+  .pilot-review .kicker {margin:0}
+  .pilot-folio details {margin-top:16px;border-block:1px solid #ccba98;padding:9px 0}
+  .pilot-folio summary {cursor:pointer;color:#285342;font-weight:600}
+  .pilot-folio summary:focus-visible {outline:3px solid #84582d;outline-offset:3px}
+  .pilot-folio details .sheet {padding:12px;margin:12px 0;box-shadow:none}
+  .pilot-folio details .connector {display:none}
+  .pilot-boundary {margin:0 auto 18px;max-width:52rem;padding:10px 16px;border-inline-start:2px solid var(--copper);color:var(--cream);background:#173b31}
+  .pilot-boundary a {color:#f8d79e;text-underline-offset:3px}
+  .pilot .prep-surface {max-width:57rem}
+  @container(max-width:640px){.pilot-spread{grid-template-columns:1fr}.pilot-review{border-left:0;border-top:1px solid #bbab89}.pilot-folio{margin-top:18px}}
+  /* H1 uses the pilot's paper, stoneware and oak worktop. */
+  .hosting header p {max-width:47rem}
+  .setup-arrival {display:block;width:min(360px,92%);margin:12px auto 4px}
+  .hosting .choices {--columns:2;max-width:54rem;margin:auto}
+  .hosting .choice {display:block;min-width:0;padding:15px 18px}
+  .hosting .choice .label,.hosting .choice .desc {display:block}
+  .hosting .choice .label {font-size:clamp(20px,2.5cqi,26px)}
+  .hosting .choice .arrow {float:right}
+  .hosting .choice:focus-visible {outline-color:#ffd38b}
+  .setup-materials {max-width:54rem;margin:16px auto}
+  .setup-materials a {color:#f8d79e;text-underline-offset:3px}
+  .setup-materials a:focus-visible {outline:3px solid #e8a650;outline-offset:4px}
+  .setup-materials .sheet a {color:#285642}
+  .license-note {line-height:1.5;margin:12px 0}
+  .hosting .pilot-boundary {max-width:none;margin:12px 0 18px}
+  .host-page {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(16px,3cqi,32px);align-items:center}
+  .host-figure {margin:0}
+  .host-figure svg {width:100%;display:block}
+  .host-captions {display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center;font:1.1rem Georgia,serif}
+  .host-captions small {display:block;font:.84rem/1.4 system-ui;margin-top:5px}
+  .host-page p {margin:10px 0 14px}
+  .setup-materials .sheet .guide-link {display:inline-block;background:#274e40;color:#fff6de;padding:11px 15px;border-radius:5px;text-decoration:none}
+  .setup-materials .guide-link:hover {text-decoration:underline}
+  @container(max-width:640px){.host-page{grid-template-columns:1fr}.hosting .choice{min-height:0}.hosting .choices{grid-template-columns:1fr}.host-figure{max-width:26rem;margin:auto}}
+  .school h1 { max-width:18em; margin-inline:auto; }
+  .school header p { max-width:42rem; }
+  .times {
+    display:grid; grid-template-columns:repeat(3,1fr); text-align:center;
+    margin:clamp(18px,3cqi,36px) 0 0; padding:0;
+    list-style:none; font-size:clamp(.9rem,1.9cqi,1.2rem); color:#d4ddce;
+  }
+  .times li:nth-child(2) { color:#ffdaa4; font-style:italic; }
+  .closing { margin:0 auto 17px; max-width:44rem; text-align:center; text-wrap:balance; color:#e6e7d6; }
+  .next {
+    display:flex; justify-content:center; align-items:center; gap:22px;
+    margin:0 auto; min-height:48px; padding:11px 22px; border:1px solid #cdb68a;
+    border-radius:6px; background:linear-gradient(140deg,#fff8e6,#efe2c6);
+    color:#223b30; cursor:pointer; font:1.17rem Georgia,serif;
+  }
+  .next:hover { background:#fff7df; }
+  .school .scene-content { max-width:var(--lunchWidth); margin:auto; }
+  [hidden] { display:none !important; }
+  @container(max-width:640px) {
+    .page { padding-inline:14px; }
+    header p { max-width:30em; font-size:.94rem; }
+    .stage { width:calc(100% + 16px); margin-inline:-8px; }
+    .school .stage { width:100%; margin:0; }
+    h2 { margin-bottom:12px; gap:8px; }
+    .choices { grid-template-columns:1fr; gap:8px; }
+    .choice,.branches .choice {
+      grid-template-columns:64px 1fr 16px; column-gap:12px; align-content:center;
+      padding:12px; min-height:84px;
+    }
+    .portrait { grid-column:1; grid-row:1/3; align-self:center; width:64px; height:54px; }
+    .label,.desc { grid-column:2; }
+    .label { grid-row:1; margin:0 0 3px; }
+    .desc { grid-row:2; font-size:.85rem; }
+    .arrow { grid-column:3; grid-row:1/3; }
+    .controls { gap:0; }
+    .closing { font-size:.94rem; margin-top:8px; }
+  }
+  @media(forced-colors:active) {
+    .choice[aria-pressed=true] { border:3px solid Highlight; }
+  }
+</style>
+<section class="book" aria-labelledby="headline">
+<div class="page">
+  <div class="mast">
+    <span class="brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30" aria-hidden="true">
+        <rect x="3" y="1" width="20" height="15" rx="0.8" fill="#F0DFC0" stroke="#3C2415" stroke-width="0.5"/>
+        <rect x="5" y="5.5" width="16" height="2.5" rx="0.3" fill="#5B8C8E" opacity="0.4"/>
+        <line x1="5" y1="10" x2="21" y2="10" stroke="#3C2415" stroke-width="0.3" opacity="0.3"/>
+        <line x1="5" y1="12.5" x2="21" y2="12.5" stroke="#3C2415" stroke-width="0.3" opacity="0.3"/>
+        <line x1="5" y1="15" x2="16" y2="15" stroke="#3C2415" stroke-width="0.3" opacity="0.3"/>
+        <rect x="7" y="8" width="20" height="19" rx="0.8" fill="#F8ECD0" stroke="#3C2415" stroke-width="0.7"/>
+        <rect x="13.5" y="5.5" width="7" height="4.5" rx="1.2" fill="#F8ECD0"/>
+        <rect x="14" y="5.8" width="6" height="3.8" rx="1" fill="#F8ECD0" stroke="#3C2415" stroke-width="0.7"/>
+        <line x1="14.2" y1="8" x2="19.8" y2="8" stroke="#F8ECD0" stroke-width="1.5"/>
+        <rect x="9" y="11.5" width="16" height="2.5" rx="0.3" fill="#5B8C8E"/>
+        <line x1="9" y1="17" x2="25" y2="17" stroke="#3C2415" stroke-width="0.8"/>
+        <line x1="9" y1="19.5" x2="25" y2="19.5" stroke="#3C2415" stroke-width="0.35" opacity="0.45"/>
+        <line x1="9" y1="21.8" x2="25" y2="21.8" stroke="#3C2415" stroke-width="0.35" opacity="0.45"/>
+        <line x1="9" y1="24" x2="20" y2="24" stroke="#3C2415" stroke-width="0.35" opacity="0.45"/>
+      </svg>
+      DietLedger
+    </span><span class="rule" aria-hidden="true"></span>
+  </div>
+  <header><h1 id="headline" tabindex="-1"></h1></header>
+  <div class="scene-content">
+    <div class="meal-times" role="group" aria-label="School meal" hidden>
+      <button type="button" data-meal="breakfast" aria-pressed="false">Breakfast</button>
+      <button type="button" data-meal="lunch" aria-pressed="true">Lunch</button>
+    </div>
+    <svg class="stage" aria-hidden="true" focusable="false"></svg>
+    <h2 id="question"></h2>
+    <div class="choices" role="group" aria-labelledby="question"></div>
+    <div class="school-ending" hidden>
+      <p class="closing">Thoughtful school lunches are a future worth working toward. Start by giving the people planning them better tools to work with.</p>
+      <button type="button" class="next">Start behind the meal <span aria-hidden="true">→</span></button>
+    </div>
+  </div>
+  <footer>
+    <p class="status" role="status" aria-atomic="true"></p>
+    <div class="controls">
+      <button type="button" data-action="back">← Back</button>
+      <button type="button" data-action="replay">↺ Replay</button>
+      <button type="button" data-action="skip">Skip intro</button>
+      <button type="button" data-action="restart">Restart</button>
+      <button type="button" data-action="setup" class="setup">Set up DietLedger</button>
+    </div>
+  </footer>
+</div>
+</section>
+</template>
+
+<!-- EDITABLE ILLUSTRATION DETAILS. IDs are shared within a scene's shadow root.
+     The table, stoneware, school lunch tray, and food are each drawn once. -->
+<template id="ledger-art">
+<svg class="defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<defs>
+  <linearGradient id="oak" x2=".16" y2="1"><stop stop-color="#c68a56"/><stop offset=".52" stop-color="#dea573"/><stop offset="1" stop-color="#b9774a"/></linearGradient>
+  <linearGradient id="edge" x2="0" y2="1"><stop stop-color="#a3633d"/><stop offset=".55" stop-color="#804a32"/><stop offset="1" stop-color="#653b2a"/></linearGradient>
+  <linearGradient id="linen" x2=".85" y2="1"><stop stop-color="#456f64"/><stop offset="1" stop-color="#254a42"/></linearGradient>
+  <radialGradient id="china" cx=".36" cy=".25" r=".86">
+    <stop stop-color="#fffbed"/><stop offset=".78" stop-color="#f4ead0"/><stop offset=".88" stop-color="#d6c9a9"/>
+    <stop offset=".94" stop-color="#fff4d8"/><stop offset="1" stop-color="#d7c8a4"/>
+  </radialGradient>
+  <linearGradient id="fish" x2=".6" y2="1"><stop stop-color="#ffb277"/><stop offset=".55" stop-color="#e78151"/><stop offset="1" stop-color="#bc5638"/></linearGradient>
+  <radialGradient id="meat" cx=".32" cy=".25" r=".85"><stop stop-color="#be7344"/><stop offset=".6" stop-color="#965033"/><stop offset="1" stop-color="#613123"/></radialGradient>
+  <radialGradient id="butter" cx=".35" cy=".28" r=".8"><stop stop-color="#fff1bd"/><stop offset=".7" stop-color="#ead69b"/><stop offset="1" stop-color="#c5aa71"/></radialGradient>
+  <radialGradient id="light"><stop stop-color="#ffe1a0" stop-opacity=".78"/><stop offset=".54" stop-color="#ffd085" stop-opacity=".44"/><stop offset="1" stop-color="#ffd085" stop-opacity="0"/></radialGradient>
+  <linearGradient id="tray" x2=".18" y2="1"><stop stop-color="#b7d4ba"/><stop offset="1" stop-color="#719c86"/></linearGradient>
+  <linearGradient id="bread" x2=".16" y2="1"><stop stop-color="#ffe5a8"/><stop offset="1" stop-color="#d99d5d"/></linearGradient>
+  <radialGradient id="apple" cx=".3" cy=".24" r=".86"><stop stop-color="#f69465"/><stop offset=".48" stop-color="#cf5845"/><stop offset="1" stop-color="#933d35"/></radialGradient>
+  <linearGradient id="windowlight" x2=".8" y2="1"><stop stop-color="#f8dea0"/><stop offset="1" stop-color="#9fb79c"/></linearGradient>
+  <clipPath id="topClip"><ellipse cx="450" cy="123" rx="405" ry="86"/></clipPath>
+
+  <g id="plate">
+    <ellipse cx="1" cy="6" rx="61" ry="59" fill="#49321e" opacity=".33"/>
+    <circle cy="2.5" r="60" fill="#a89b7c"/><circle r="60" fill="url(#china)" stroke="#8d8067"/>
+    <circle r="55" fill="none" stroke="#587b70" stroke-width="1.8"/><circle r="52.3" fill="none" stroke="#81a094" stroke-width=".8"/>
+    <circle r="43" fill="#fff5dd" stroke="#cfbf9c" stroke-width="1.3"/>
+  </g>
+  <g id="spear" stroke-linecap="round">
+    <path d="M0 20Q-1 2 0-19" fill="none" stroke="#375334" stroke-width="4.8"/>
+    <path d="M-.7 18Q-1 5-.4-14" fill="none" stroke="#94ac56" stroke-width="1.7"/>
+    <path d="M0-24q-5 6-2 10l2-2 2 2q3-4-2-10" fill="#526742"/><path d="m-1-19 2 2-2 2" fill="none" stroke="#b2b16b"/>
+  </g>
+  <g id="salmon">
+    <path d="M-16-21q9-6 21-3l13 39q-1 7-10 9l-21-2q-5-1-6-9Z" fill="#844e39"/>
+    <path d="M-16-23q12-6 22-2l10 36q0 6-9 8l-21-1q-4-1-5-7Z" fill="url(#fish)" stroke="#ab633d" stroke-width="1.2"/>
+    <path d="M-15-16q11 6 19-4m-19 13q12 6 22-6m-21 15q14 5 23-6m-21 15q14 4 22-6" fill="none" stroke="#ffce99" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="m-7-14 5 1m1 13 5-2m-15 9 5 1" stroke="#925638" stroke-width="2"/>
+  </g>
+  <g id="dish-personal">
+    <use href="#plate"/>
+    <g transform="translate(20 5) rotate(29)"><use href="#spear" x="-5" y="-2"/><use href="#spear"/><use href="#spear" x="5" y="3"/><use href="#spear" x="10" y="-1"/></g>
+    <use href="#salmon" transform="translate(-10 6) rotate(-26)"/>
+    <g transform="translate(-7 -24) rotate(-16)">
+      <path d="M-16 0a16 16 0 0 1 32 0Z" fill="#ffdc69" stroke="#b89435"/>
+      <path d="M-12-1a12 12 0 0 1 24 0ZM0-1l-8-7m8 7v-11m0 11 8-7" fill="none" stroke="#fff3bb" stroke-width="1.7"/>
+    </g>
+  </g>
+  <g id="ball">
+    <path d="M-11 1q-2-10 8-13 10-3 15 5 5 9-3 15-11 7-20-2Z" fill="url(#meat)" stroke="#7c4130"/>
+    <path d="m-6-6 3-2m4 2 2 1m-7 7 2 1m6-2 2-1" stroke="#d39465" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+  <path id="noodles" d="M-32 0c-5-17 29-28 47-19s14 28-9 28-35-13-18-23 42-8 41 11-20 34-39 23-19-28 2-32 42 16 22 29-45 6-46-10 20-26 35-18 19 23 1 30-35-1-33-14 14-19 25-18"/>
+  <g id="dish-family">
+    <use href="#plate"/><path d="M-37-4q2-24 32-27 33-3 43 24 8 28-23 40-31 9-48-12Z" fill="#b97032"/>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <use href="#noodles" stroke="#955726" stroke-width="6"/><use href="#noodles" stroke="#f2c26a" stroke-width="3.8"/>
+      <use href="#noodles" transform="rotate(31) scale(.88)" stroke="#ffe0a0" stroke-width="3"/>
+    </g>
+    <path d="M-24-8q2-13 16-10 9-10 18 0 17-2 18 11 4 8-7 13-3 8-15 4-9 7-16-2-16 1-14-10Z" fill="#bc482e"/>
+    <use href="#ball" x="-14" y="-9"/><use href="#ball" x="13" y="-7"/><use href="#ball" x="1" y="12"/>
+    <path d="M-1-16q-15-2-14-14 13-1 14 14ZM-1-16q1-16 13-15 1 13-13 15Z" fill="#53854d" stroke="#365f38"/>
+    <path d="m-23 9 7 2m30 4 6-2m-9-29 5 1m-17 34 6 2" stroke="#ffe8b0" stroke-width="2.3"/>
+  </g>
+  <g id="pea"><circle r="4.4" fill="#648644" stroke="#4b6a39"/><circle cx="-1.2" cy="-1.4" r="1.4" fill="#a5b663"/></g>
+  <g id="dish-care">
+    <use href="#plate"/>
+    <path d="M-34-5q-6-10 4-16 0-12 13-11 12-8 20 3 15 0 16 13 5 12-10 16-22 10-43-5Z" fill="url(#butter)" stroke="#c6ae79"/>
+    <path d="M-28-14q5-10 16-6m-5 7q7-9 18-5m-24 13q10-5 15-3" fill="none" stroke="#ffedbd" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="m-16-24 11-2 3 6-11 3Z" fill="#efba53"/>
+    <g transform="translate(21 -10)">
+      <use href="#pea" x="-5" y="-15"/><use href="#pea" x="2" y="-13"/><use href="#pea" x="-8" y="-8"/>
+      <use href="#pea" y="-6"/><use href="#pea" x="8" y="-6"/><use href="#pea" x="-5" y="1"/>
+      <use href="#pea" x="4" y="2"/><use href="#pea" x="12" y="1"/><use href="#pea" x="8" y="8"/>
+    </g>
+    <g transform="translate(-2 16) rotate(-17)"><g id="sliced-chicken">
+      <path d="M-31 0q7-16 26-16 19-1 34 12 6 6-2 13-16 13-42 9-17-2-16-11Z" fill="#b7804f" stroke="#92643f"/>
+      <path d="M-28-2q8-11 19-12 5 1 5 5-3 10-13 18-14 1-11-11Z" fill="#eecda2"/>
+      <path d="M-12 12q11-8 15-23 8-1 13 5-2 13-13 21Z" fill="#f4d8ae"/>
+      <path d="M9 14q9-9 12-19 7 3 9 8-5 9-14 12Z" fill="#eac89e"/>
+      <path d="M-26-4q7-9 16-10m13 3q7-1 12 4m6 2 6 4" fill="none" stroke="#bd8044" stroke-width="3" stroke-linecap="round"/>
+      <path d="m-16-3 3 1m15 3 3-1m14 5 2-1" stroke="#827044" stroke-width="1.5"/></g>
+    </g>
+  </g>
+  <g id="cutlery" stroke-linecap="round" stroke-linejoin="round">
+    <g fill="none" stroke="#514a38" stroke-width="3.7">
+      <path d="M-72-19v10q0 7 5 7t5-7v-10m-5 0v18l-1 31"/><path d="M69-21q-9 9-7 25h7v26Z"/>
+    </g>
+    <g fill="none" stroke="#f5ddb0" stroke-width="2.2">
+      <path d="M-72-20v10q0 7 5 7t5-7v-10m-5 0v18l-1 31"/><path d="M69-22q-9 9-7 25h7v26Z" fill="#ded4b5"/>
+    </g>
+  </g>
+  <g id="oak-table">
+    <ellipse cx="451" cy="254" rx="330" ry="16" fill="#081a15" opacity=".34"/>
+    <g fill="#805038" stroke="#573b2c" stroke-width="2">
+      <path d="m190 119 21 2-14 93-9 2Z"/><path d="m699 121 19-2 1 96-9-2Z"/>
+    </g>
+    <g fill="url(#edge)" stroke="#5a3b2a" stroke-width="2">
+      <path d="m128 152 27 5-10 94-11 3Z"/><path d="m746 157 27-5-6 102-11-3Z"/>
+    </g>
+    <path d="m137 180 3 65m620-67 2 65" stroke="#d0945e" stroke-width="2.5" opacity=".75"/>
+    <path d="M45 123a405 86 0 0 0 810 0v16a405 86 0 0 1-810 0Z" fill="url(#edge)" stroke="#65442f" stroke-width="2"/>
+    <path d="M49 139c47 101 756 112 802 0" fill="none" stroke="#d19158" stroke-width="2"/>
+    <ellipse cx="450" cy="123" rx="405" ry="86" fill="url(#oak)"/>
+    <g clip-path="url(#topClip)">
+      <g fill="none" stroke="#875136" stroke-linecap="round">
+        <path d="M20 75q182 10 346-1t326 0 210 3M0 112q190-5 380 1t350-1 200 1 M0 154q205 8 400 1t510 3m-770 31q217-4 390 1t264-1" stroke-width="1.8" opacity=".63"/>
+        <path d="M74 86q82 7 143 1t108 1m-206 7q45 3 74 0m365-34q65 4 128 0 M89 133q50-6 101 0t89 1m-82 39q89 6 158-1m172 9q77-6 130-2 m22-84q37 4 76 1m-120 39q46-6 93-2t64 0" stroke-width="1.25" opacity=".52"/>
+        <path d="M111 128q28-9 52-2-21 7-52 2Zm557 35q34-8 55-1-29 6-55 1Z" opacity=".43"/>
+      </g>
+      <path d="M29 97q409 15 844-3l8 42q-406 27-852 6Z" fill="url(#linen)"/>
+      <path d="M30 101q413 17 843-3m-843 40q440 20 851-6" fill="none" stroke="#d2bb89" stroke-width="1.8" stroke-dasharray="4 3"/>
+    </g>
+  </g>
+
+  <!-- G1 artwork. S1 reuses the tray and carton at their own place setting. -->
+  <g id="school-window">
+    <rect width="21" height="23" rx="1" fill="#425c57" stroke="#e4c499" stroke-width="2"/>
+    <path d="M3 4h15v7H3Z" fill="#b8ccc0"/><path d="M10.5 1v21M1 12h19" stroke="#d6b997" stroke-width="2"/>
+  </g>
+  <g id="tray-base" stroke-linejoin="round">
+    <path d="M22 9Q24 3 33 3h135q8 0 10 7l12 58q1 9-9 11H10Q0 77 4 67Z" fill="#426657"/>
+    <path d="M22 5Q24 0 33 0h135q8 0 10 7l12 57q2 9-9 11H10Q0 74 4 64Z" fill="url(#tray)" stroke="#d2dec0" stroke-width="2"/>
+    <g fill="#8caf96" stroke="#638b77" stroke-width="2">
+      <path d="M27 12q1-4 7-4h63l-4 55H16Z"/><path d="M106 8h57l6 21h-65Z"/><path d="M104 36h67l6 26h-75Z"/>
+    </g>
+  </g>
+  <g id="lunch-tray" stroke-linejoin="round"><use href="#tray-base"/>
+    <g transform="translate(19 15) rotate(-5 38 22)">
+      <path d="m5 40 31-37 39 31-1 5-65 7Z" fill="#ac753e"/><path d="m6 35 30-33 40 30-5 6-60 5Z" fill="#f3d58b"/>
+      <path d="m6 33 8-3 6 2 6-6 9 2 8-7 8 2 7-4 15 10-3 5-8-1-9 4-11-2-8 4-8-2-13 3Z" fill="#648746"/>
+      <path d="m12 30 24-28 35 26-4 4-55 5Z" fill="#cc6350"/>
+      <path d="M6 31 34 0q2-2 5 0l37 27q3 3-1 5L10 37Z" fill="#ba8046"/>
+      <path d="m11 30 25-27 34 24-1 2-56 4Z" fill="url(#bread)"/>
+      <path d="m29 20 2-1m9-6 2 1m9 11 2-1m-30 4 2-1" stroke="#b78850" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(136 13)">
+      <path d="M0-7q-10-6-16 2-6 9 2 19 6 7 13 4 7 3 12-4 8-10 2-18Q8-11 0-7Z" fill="url(#apple)" stroke="#924737"/>
+      <path d="M0-6q0-7 3-10" stroke="#664a32" stroke-width="2.6" fill="none"/>
+      <path d="M2-12q6-9 14-6-2 8-14 6Z" fill="#779759"/>
+      <path d="M-11-2q2-4 6-4" fill="none" stroke="#ffc19b" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g stroke-linecap="round">
+      <path d="m114 47 25 6m-16-12 25 5m-13 10 22-6" stroke="#bd6538" stroke-width="7"/>
+      <path d="m114 45 25 6m-16-12 25 5m-13 10 22-6" stroke="#efa25b" stroke-width="6"/>
+      <path d="m116 44 10 2m-1-7 9 2" stroke="#ffd29a" stroke-width="1.5"/>
+    </g>
+  </g>
+  <!-- Shared S1/S2 food illustrations. -->
+  <g id="basil"><path d="M0 0Q-19-2-17-17Q-1-18 0 0Z" fill="#60905a" stroke="#385d3e"/><path d="m-2-2-12-12m6 6-5-1" fill="none" stroke="#afbb78"/></g>
+  <g id="slice"><ellipse rx="9" ry="7" fill="#b74731" stroke="#9f462e"/><ellipse rx="7" ry="5.5" fill="#ed8052"/><path d="M-5-2q5-2 5 2t5 2m-10 0 3 1m5-6-2 2" fill="none" stroke="#ffd197" stroke-linecap="round"/></g>
+  <g id="pizza">
+    <ellipse cy="5" rx="35" ry="23" fill="#a76b3f" stroke="#825635"/>
+    <ellipse rx="35" ry="23" fill="url(#bread)" stroke="#b87b43"/>
+    <path d="M-31-2q3-15 29-17 25-1 32 14 6 13-16 22-25 6-39-6-8-6-6-13Z" fill="#bd5136"/>
+    <path d="M-27-4q6-10 16-9 5 4 13-2 12-4 16 4 0 5 8 6 7 5-3 13-9-2-12 3-6 7-14 2-9 2-12-4-11-1-12-8Z" fill="url(#butter)"/>
+    <use href="#slice" x="-14" y="-4"/><use href="#slice" transform="translate(13 4) rotate(-18)"/>
+    <use href="#basil" transform="translate(5 1) rotate(22) scale(.66)"/>
+    <path d="m-21 16 3 1m12 3 4 1m21-7 3-2m-47-20 2-1m32-9 4 1" stroke="#af7440" fill="none" stroke-linecap="round"/>
+  </g>
+  <!-- Lunch sides. Each group fits the two small tray compartments. -->
+  <g id="purple-grape">
+    <ellipse rx="4.8" ry="4.2" fill="#765475" stroke="#563e56" stroke-width=".8"/>
+    <path d="M-2.7-.8q.3-1.4 2-1.6" fill="none" stroke="#c3a2ba" stroke-linecap="round"/>
+  </g>
+  <g id="broccoli-floret">
+    <path d="m-5-4 5 4 5-5 2 2-5 7 1 5-5 1 1-7-7-6Z" fill="#94b472" stroke="#647e4c"/>
+    <path d="M-9-3q-4-5 1-7 0-4 5-4 4-5 8-1 6-1 6 4 5 3 1 7-4 3-8 0-4 4-7 1Z" fill="#527946" stroke="#405f3d"/>
+    <path d="M-7-8q1-3 4-2m2-3q2-2 4 0m2 4q2-2 4 0" fill="none" stroke="#93b076" stroke-linecap="round"/>
+  </g>
+  <g id="pizza-sides">
+    <path d="m129 20 12-7 7-6" fill="none" stroke="#817655" stroke-width="1.6"/>
+    <use href="#purple-grape" x="128" y="16"/><use href="#purple-grape" x="137" y="14"/>
+    <use href="#purple-grape" x="145" y="16"/><use href="#purple-grape" x="133" y="21"/>
+    <use href="#purple-grape" x="141" y="21"/><use href="#purple-grape" x="137" y="25"/>
+    <use href="#broccoli-floret" transform="translate(126 51) rotate(-24) scale(.82)"/>
+    <use href="#broccoli-floret" transform="translate(148 51) rotate(22) scale(.92)"/>
+  </g>
+  <g id="chicken-sides">
+    <path d="M118 19q14-12 34-8-8 14-23 14-7 0-11-6Z" fill="#9da653" stroke="#778644"/>
+    <path d="M119 18q16-11 32-8-15 17-32 8Z" fill="#ffebbb"/>
+    <path d="M128 19q12-13 26-13-4 12-17 17-5 1-9-4Z" fill="#f8dfaa" stroke="#acac69"/>
+    <path d="m140 16 2-2" stroke="#987047" stroke-width="1.4"/>
+    <g transform="translate(138 50) rotate(-9)">
+      <path d="M-20-2q1-6 8-6h23q8 1 8 7t-8 8h-24q-8-1-7-9Z" fill="#edbc55" stroke="#b48837"/>
+      <path d="M-17-3q16-3 33 0m-33 4q16-2 33 0m-29-6-1 10m6-11-1 11m6-11v11m6-11v11m5-10 1 9" fill="none" stroke="#cb963b" stroke-width="1.2"/>
+      <path d="m-12-5 3-.4m3-.4h4m4 0h4" stroke="#ffdf83" stroke-linecap="round"/>
+    </g>
+  </g>
+  <g id="chicken-rice">
+    <ellipse cx="1" cy="9" rx="39" ry="14" fill="#476958" opacity=".32"/>
+    <use href="#rice-mound" transform="translate(2 4) scale(.91 .72)"/>
+    <use href="#cucumber" transform="translate(27 -7) rotate(-20)"/>
+    <use href="#cucumber" transform="translate(30 1) rotate(-17)"/>
+    <use href="#sliced-chicken" transform="translate(-6 7) rotate(-15) scale(.97 .88)"/>
+  </g>
+  <g id="egg-sandwich" stroke-linejoin="round">
+    <ellipse cx="1" cy="15" rx="33" ry="10" fill="#476958" opacity=".3"/>
+    <path d="M-31 6q31-12 62-2l-1 10q-7 11-33 10-25-1-28-10Z" fill="url(#bread)" stroke="#9d6c41"/>
+    <path d="M-32 7q5-7 12-4l9-7 9 3 12-3 9 5 11 1-1 6-11 1-9 5-15-2-10 3-10-4-8 1Z" fill="#739055" stroke="#4a7649"/>
+    <path d="m-33 0 11-8 40 1 14 5-1 8-17 3-10 6-13-6-20-2Z" fill="#edba54" stroke="#b58445"/>
+    <path d="m-30-1 13-7 40 3 4 3-16 4-9 5-13-4Z" fill="#ffe194"/>
+    <path d="M-31-6q2-16 29-19 24-2 32 12 6 9-8 15-23 9-46 0-9-3-7-8Z" fill="url(#bread)" stroke="#a47749"/>
+    <path d="m-21-12 4-2m9-5 4 1m9-1 3 1m8 6 4 1m-32 4 4-1m12 4 3-1" fill="none" stroke="#b48450" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <!-- Breakfast sides are drawn in the two right-hand tray compartments. -->
+  <g id="banana-coin">
+    <ellipse cy="1.7" rx="8" ry="5.3" fill="#d2a258"/>
+    <ellipse rx="8" ry="5" fill="#fff0bc" stroke="#e0bd79"/>
+    <path d="m-2-1 2 1 2-1m-2 1v2" fill="none" stroke="#c9a46d" stroke-linecap="round"/>
+  </g>
+  <g id="strawberry">
+    <path d="M-8-2q-1-7 7-6 7-3 9 3 1 7-6 13-6-1-10-10Z" fill="#d95d49" stroke="#a34534"/>
+    <path d="m-5-8 5 1 3-4 1 4 4-1-4 4-4-1-3 2Z" fill="#65844c"/>
+    <path d="m-4-3 1 1m6-2-1 2m-3 1 1 2m2 1 1 1" stroke="#ffde9b" stroke-linecap="round"/>
+  </g>
+  <g id="pancake-sides">
+    <use href="#strawberry" transform="translate(127 18) rotate(-22)"/>
+    <use href="#strawberry" transform="translate(144 19) rotate(20)"/>
+    <use href="#banana-coin" x="125" y="48"/><use href="#banana-coin" x="137" y="50"/><use href="#banana-coin" x="149" y="48"/>
+  </g>
+  <g id="sandwich-sides">
+    <use href="#mandarin" transform="translate(133 13) scale(.82)"/>
+    <g fill="url(#bread)" stroke="#ad7748" stroke-linejoin="round">
+      <path d="m115 48 9-8 9 4-1 9-11 2Z"/><path d="m134 51 8-8 9 3 2 9-12 3Z"/>
+      <path d="m146 45 7-7 8 3 1 8-10 1Z"/>
+    </g>
+    <path d="m119 47 5-4m14 7 5-4m6-3 4-3" stroke="#fbe4aa" stroke-linecap="round"/>
+  </g>
+  <g id="oatmeal-sides">
+    <path d="M116 15q17 6 34-4-4 15-18 16-12 0-16-12Z" fill="#cb5742" stroke="#a1523c"/>
+    <path d="M117 14q14 4 33-4-7 12-20 13-9 0-13-9Z" fill="#ffedbf"/>
+    <path d="M127 14q15 1 24-7-3 10-14 13Z" fill="#f6dbab" stroke="#c47150"/>
+    <path d="M119 46q2 14 17 15 15-1 18-15Z" fill="url(#bowl-glaze)" stroke="#56796b"/>
+    <ellipse cx="136" cy="46" rx="17.5" ry="7" fill="#fff5de" stroke="#809883"/>
+    <path d="M126 46q6-5 14-3 7 3-2 5-6 1-5-1" fill="none" stroke="#dbcdaa" stroke-width="1.4"/>
+  </g>
+  <g id="oatmeal">
+    <ellipse cx="2" cy="20" rx="25" ry="6" fill="#476958" opacity=".33"/>
+    <path d="M-33-6q3 29 31 30 29 1 35-30Z" fill="url(#bowl-glaze)" stroke="#496e60"/>
+    <path d="M-26 8q24 14 52 0" fill="none" stroke="#c4d6be" stroke-width="2"/>
+    <ellipse cy="-6" rx="33" ry="15" fill="#fff3d6" stroke="#658372"/>
+    <ellipse cy="-6" rx="29" ry="11.5" fill="#ddba87"/>
+    <path d="m-23-6 4 1m3-5 4-1m-6 9 3 1m7 0 4 1m15-1 3-1m6-5 3 1m-22-8 4 1m10 1 3 1" stroke="#fff0c1" stroke-width="2.2" stroke-linecap="round"/>
+    <g fill="#56507a" stroke="#48435c"><circle cx="-5" cy="-9" r="4.2"/><circle cx="4" cy="-11" r="4.5"/><circle cx="1" cy="-4" r="4"/></g>
+    <path d="m-7-11 2-1m7-1 2-1m-5 9 2-1" stroke="#b2a1bf" stroke-linecap="round"/>
+  </g>
+  <g id="pancakes"><ellipse cy="4" rx="30" ry="17" fill="#ae7444"/><ellipse rx="30" ry="16" fill="url(#bread)" stroke="#bb874f"/><ellipse cy="-6" rx="27" ry="15" fill="url(#bread)" stroke="#ba844e"/><path d="m-8-7 9-4 9 4-9 4Z" fill="#fff0a3"/></g>
+  <!-- S3 meal portraits reuse the pizza, stoneware, and sliced vegetables. -->
+  <g id="menu-pizzas">
+    <use href="#plate" transform="translate(0 4) scale(.98 .59)"/>
+    <use href="#pizza" transform="translate(-18 0) rotate(-12) scale(.81)"/>
+    <use href="#pizza" transform="translate(19 8) rotate(13) scale(.8)"/>
+  </g>
+  <g id="menu-salad">
+    <ellipse cy="26" rx="42" ry="7" fill="#87683d" opacity=".23"/>
+    <path d="M-51-7q5 35 48 38 46-1 54-38Z" fill="url(#bowl-glaze)" stroke="#546d5e" stroke-width="1.6"/>
+    <path d="M-41 9q39 23 81 0m-73 10q31 13 63 0" stroke="#ccd5bc" stroke-width="1.6" fill="none"/>
+    <ellipse cy="-7" rx="51" ry="20" fill="url(#china)" stroke="#749383"/>
+    <ellipse cy="-7" rx="46" ry="16" fill="#99a76d"/>
+    <use href="#cucumber" transform="translate(-29 -11) rotate(-18) scale(1.2)"/>
+    <use href="#slice" x="-10" y="-17"/><use href="#slice" transform="translate(26 -10) rotate(15) scale(1.2)"/>
+    <use href="#cucumber" transform="translate(6 -13) rotate(20)"/><use href="#basil" transform="translate(21 -6) rotate(18) scale(.71)"/>
+    <use href="#slice" transform="translate(-18 -2) rotate(-17) scale(1.18)"/>
+    <use href="#cucumber" transform="translate(4 -1) rotate(-14) scale(1.3)"/><use href="#slice" x="26" y="-1"/>
+    <use href="#basil" transform="translate(-1 -7) scale(.63)"/>
+  </g>
+  <g id="counter-surface" stroke-linejoin="round">
+    <ellipse cx="461" cy="73" rx="434" ry="7" fill="#0a211a" opacity=".6"/>
+    <path d="m52 27 820-1 37 29-896 1Z" fill="url(#oak)" stroke="#986943"/>
+    <path d="m13 56 896-1-3 12-890 2Z" fill="url(#edge)" stroke="#815336"/>
+    <path d="M48 48q140-5 255-2t206-1m31 6q131-6 320-4M80 34q113 1 176-2m78 6q88-2 153 0m135-5q106-2 181 0" stroke="#ab754c" fill="none" opacity=".74"/>
+    <path d="m110 28 93-1 25 27-2 15-93 1 2-15Z" fill="url(#linen)" stroke="#527265"/>
+    <path d="m119 29 25 25-2 15m5-40 26 25-2 15m17-40 25 25-2 15m-83-27 90-1m-84 8 90-1" stroke="#c4c7a6" fill="none" opacity=".7"/>
+  </g>
+  <g id="menu-counter" stroke-linejoin="round">
+    <use href="#counter-surface"/>
+    <g transform="translate(658 36) rotate(-5)">
+      <path d="M-69-4q1-4 8-5h95q6 0 8 4l2 4h25q6 0 5 5t-6 4H45l-3 5q-1 3-7 3H-62q-7 0-7-5Z" fill="url(#bread)" stroke="#946641" stroke-width="1.4"/>
+      <path d="M-61 10h66m12-15h16" stroke="#c7985f" fill="none"/><circle cx="65" cy="4" r="2" fill="#946641"/>
+      <use href="#slice" x="-31" y="0"/><use href="#slice" x="-17" y="4"/><use href="#basil" transform="translate(14 3) rotate(36) scale(.82)"/>
+    </g>
+  </g>
+  <!-- H1: folded notebook, cutaway host and browser on the same worktop. -->
+  <g id="setup-notebook" stroke-linejoin="round">
+    <path d="m-72-20 63-6 12 4 56-3 12 40-64 7-9-3-60 5Z" fill="url(#linen)" stroke="#2f5145" stroke-width="2"/>
+    <path d="m-67-22 53-5q11-1 16 4 9-5 20-5l34-2 12 40-52 7q-6 0-10-2-6-2-12 0l-51 4Z" fill="url(#china)" stroke="#b6a489"/>
+    <path d="m2-22 9 38m-68-29 28-3m36 5 24-3m-21 9 22-3" fill="none" stroke="#bea887"/>
+    <use href="#menu-pizzas" transform="translate(-29 -2) scale(.44)"/>
+    <use href="#menu-salad" transform="translate(38 -4) scale(.35)"/>
+    <path d="m1 12 7 1 3 12-5-2-3 2Z" fill="#173e43"/>
+  </g>
+  <g id="hosting-machine" stroke-linejoin="round">
+    <ellipse cx="81" cy="139" rx="74" ry="7" fill="#b09a78" opacity=".35"/>
+    <path d="m14 31 20-14 112 2-16 15Z" fill="#a1b8a3" stroke="#547366"/>
+    <path d="m130 34 16-15 1 103-17 14Z" fill="url(#linen)" stroke="#365b4e"/>
+    <path d="m14 31 116 3v102l-116-4Z" fill="url(#bowl-glaze)" stroke="#486958" stroke-width="2"/>
+    <path d="m23 41 96 2v79l-96-2Z" fill="#274b40" stroke="#cccead"/>
+    <path d="m29 48 84 2v32l-84-1Z" fill="#f5ead1" stroke="#c7b597"/>
+    <use href="#setup-notebook" transform="translate(70 65) scale(.52)"/>
+    <path d="m32 93 39 1m-39 5 32 1m-32 5 38 1m-38 5 29 1" stroke="#7b9b80" stroke-linecap="round"/>
+    <path d="M79 91v16c0 7 28 7 28 0V91Z" fill="#c5a578" stroke="#99774e"/>
+    <ellipse cx="93" cy="91" rx="14" ry="5" fill="#ebd7ab" stroke="#99774e"/>
+    <path d="M80 98q13 7 26 0m-26 5q13 7 26 0" fill="none" stroke="#96744d"/>
+    <g fill="#d3d5ba"><circle cx="19" cy="36" r="1.8"/><circle cx="125" cy="39" r="1.8"/><circle cx="19" cy="126" r="1.8"/><circle cx="125" cy="130" r="1.8"/></g>
+  </g>
+  <g id="hosting-browser" stroke-linejoin="round">
+    <ellipse cx="315" cy="139" rx="83" ry="7" fill="#ae9a79" opacity=".35"/>
+    <path d="m237 37 144-4q5 0 5 6l-2 76-145 4Z" fill="url(#linen)" stroke="#385d50" stroke-width="2"/>
+    <path d="m244 44 135-3-1 65-133 4Z" fill="url(#china)" stroke="#91a28a"/>
+    <path d="m245 54 134-3" stroke="#b4b399"/>
+    <g fill="#a68763"><circle cx="250" cy="49" r="1.5"/><circle cx="256" cy="49" r="1.5"/><circle cx="262" cy="49" r="1.5"/></g>
+    <use href="#setup-notebook" transform="translate(312 80) scale(.78)"/>
+    <path d="m239 119 145-4 18 16-177 5Z" fill="#a3b5a0" stroke="#657e70"/>
+    <path d="m225 136 177-5-4 5-171 5Z" fill="#58766a"/>
+    <path d="m249 122 126-4m-129 7 135-4m-141 8 147-4" stroke="#728b7b" fill="none"/>
+  </g>
+  <g id="carton">
+    <path d="m1 7 9-10h15l7 12v32H1Z" fill="#f7ead3" stroke="#8f947b"/>
+    <path d="m10-3 14 1 8 11-14-2Z" fill="#729b97"/><path d="m17 7 15 2v32l-15-2Z" fill="#a4bfb0"/>
+    <path d="M2 18h14v12H2Z" fill="#598b86"/><path d="m22 0 3-13 8-4" fill="none" stroke="#f3d0a0" stroke-width="2.5"/>
+  </g>
+  <g id="schoolhouse">
+    <path d="M35 89V54h79v-7l37-25 37 25v7h76v38Z" fill="#b57759" stroke="#754b3a" stroke-width="2"/>
+    <path d="M31 54h83l37-28 37 28h80" fill="none" stroke="#dbac7c" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M111 54l40-29 39 29v40h-79Z" fill="#d49b70"/>
+    <circle cx="151" cy="47" r="8" fill="#f7e7be" stroke="#805840" stroke-width="2"/>
+    <path d="M151 42v5l4 2" fill="none" stroke="#536455" stroke-width="1.6"/>
+    <use href="#school-window" x="46" y="61"/><use href="#school-window" x="77" y="61"/>
+    <use href="#school-window" x="199" y="61"/><use href="#school-window" x="230" y="61"/>
+    <path d="M137 92V71q14-17 28 0v21Z" fill="#53756a" stroke="#edd0a0" stroke-width="2"/><path d="M151 69v23" stroke="#a6b19a"/>
+  </g>
+  <g id="school-setting">
+    <ellipse cx="150" cy="170" rx="139" ry="9" fill="#061e19" opacity=".5"/>
+    <use href="#schoolhouse"/>
+    <path d="M17 103h264l14 45H4Z" fill="url(#oak)" stroke="#845437" stroke-width="2"/>
+    <path d="M4 148h291v8H4Z" fill="url(#edge)"/>
+    <path d="M24 156h10l-2 15h-7Zm244 0h10l-1 15h-7Z" fill="#946342"/>
+    <use href="#lunch-tray" transform="translate(44 81) scale(1.08 .82)"/>
+    <use href="#carton" transform="translate(232 76) rotate(5)"/>
+  </g>
+  <g id="loaf">
+    <path d="M-22 2q0-12 19-15 20-3 27 9 4 8-13 13-24 5-33-1Z" fill="url(#bread)" stroke="#a06b40" stroke-width="1.5"/>
+    <path d="m-12-5 5 6m3-10 5 7m4-9 5 7" fill="none" stroke="#fff0bb" stroke-width="2.7" stroke-linecap="round"/>
+  </g>
+  <g id="bread-basket">
+    <path d="M-29 0q29-10 58 0l-5 12q-23 10-48-1Z" fill="#bb8450" stroke="#845935" stroke-width="1.5"/>
+    <path d="m-21 3 5 10m5-10 3 12m9-12v12m10-13-2 12m12-13-5 10M-24 6q23 7 48 0" fill="none" stroke="#e5b87b" stroke-width="1.5"/>
+    <use href="#loaf" transform="translate(0 -2) scale(.92 .82)"/>
+  </g>
+  <g id="dining-setting">
+    <ellipse cx="150" cy="170" rx="137" ry="9" fill="#061e19" opacity=".5"/>
+    <path d="M94 90V46a56 43 0 0 1 112 0v44Z" fill="url(#windowlight)" stroke="#a97f58" stroke-width="5"/>
+    <path d="M96 65q32-19 55-6t53-8v36H96Z" fill="#95a783"/><path d="M96 77q39-23 72-8t36-2v21H96Z" fill="#738c73"/>
+    <path d="M150 5v84M96 44h108" stroke="#ebcca0" stroke-width="4"/>
+    <path d="M31 125V91q0-10 11-10h45v47Z" fill="#906140" stroke="#bc9164" stroke-width="3"/>
+    <path d="M37 121q1-31 11-43 5-7 18-10h13q23 8 29 49Z" fill="#c79158" stroke="#885d41" stroke-width="1.8"/>
+    <path d="M60 71l13 36 13-36-10-4Z" fill="#efe0bd"/><path d="m57 74 7 8-4 5 10 17m19-31-8 12 3 5-7 12" fill="none" stroke="#9e6945" stroke-width="2"/>
+    <path d="m46 94 3 4 3-4m-9 11 3 4 3-4m42-14 3 4 3-4" fill="none" stroke="#edd0a0" stroke-width="1.6"/>
+    <path d="M65 59v11q6 8 14 1v-12Z" fill="#dfb58e"/>
+    <path d="M52 44q1-20 19-21 16-1 19 17l1 8 4 6-5 2q-2 14-13 13-18-2-22-14Z" fill="#f1d3b2" stroke="#795740" stroke-width="1.5"/>
+    <path d="M51 53q-9-8-6-18 2-8 9-10 1-10 15-10 18-1 21 13l-1 10q-8-3-12-11-4 13-17 14l-2 12Z" fill="#d0cbb8" stroke="#8b9383" stroke-width="1.6"/>
+    <path d="M49 35q3-9 12-10m-4-1q7-7 16-5" fill="none" stroke="#eee8d4" stroke-width="2"/>
+    <g fill="none" stroke="#544e40" stroke-width="1.5">
+      <path d="m58 45 13 1m10-1 4-1"/><ellipse cx="76" cy="46" rx="5.5" ry="4"/><ellipse cx="88" cy="44" rx="3.8" ry="3.7"/><path d="M81 59q4 2 7-1"/>
+    </g>
+    <path d="M213 127V85h39q11 0 11 12v32Z" fill="#906140" stroke="#bc9164" stroke-width="3"/>
+    <path d="M196 120q3-34 22-47l13-5 13 3q17 13 20 46Z" fill="#698e91" stroke="#466c70" stroke-width="1.8"/>
+    <path d="m219 73 9 11 10-12m-10 12 1 21" fill="none" stroke="#b4c6b6" stroke-width="2"/>
+    <path d="m222 58 1 14q6 7 13-1l1-15Z" fill="#754632"/>
+    <path d="M244 42q1-20-16-22-17-1-20 18l-1 8-5 7 5 1q1 14 13 14 18-1 23-17Z" fill="#865039" stroke="#734e39" stroke-width="1.5"/>
+    <path d="M206 39q-3-11 3-17 2-8 12-9 7-5 17 0 13 0 14 12 10 11-1 21 2 9-8 13l-5-8 1-11q-12-2-17-13-5 10-16 12Z" fill="#493c35"/>
+    <path d="M212 23q7-8 16-5m3-1q11 2 13 11" fill="none" stroke="#837564" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M207 44q4-3 8 0m-6 12q3 3 7 1" fill="none" stroke="#694736" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M43 128h12l-4 40h-8Zm203 0h12l-1 40h-8Z" fill="url(#edge)"/>
+    <ellipse cx="150" cy="125" rx="142" ry="29" fill="url(#edge)"/>
+    <ellipse cx="150" cy="120" rx="142" ry="28" fill="url(#oak)" stroke="#c39766" stroke-width="1.5"/>
+    <path d="M13 116q128 13 274-1l2 9q-137 18-278-1Z" fill="url(#linen)"/>
+    <use href="#dish-care" transform="translate(80 125) scale(.46 .22)"/><use href="#dish-personal" transform="translate(225 125) scale(.46 .22)"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M54 91q6 17 20 18l30-3" stroke="#f1d3b2" stroke-width="14"/>
+      <path d="m99 106 22-5q6-1 12 2" stroke="#452d27" stroke-width="11"/>
+      <path d="m99 106 22-5q6-1 12 2" stroke="#f1d3b2" stroke-width="8"/>
+      <path d="M246 94q-6 14-22 14l-26-4" stroke="#73989b" stroke-width="14"/>
+      <path d="m198 104-18-3q-7-1-13 3" stroke="#452d27" stroke-width="11"/>
+      <path d="m198 104-18-3q-7-1-13 3" stroke="#865039" stroke-width="8"/>
+    </g>
+    <use href="#bread-basket" transform="translate(149 101) scale(.87)"/>
+    <g fill="#c2d0b0" stroke="#748d78" stroke-width="1.3">
+      <path d="m39 110 2 13q5 3 10 0l2-13Z"/><ellipse cx="46" cy="110" rx="7" ry="2.5"/>
+      <path d="m248 112 2 13q5 3 10 0l2-13Z"/><ellipse cx="255" cy="112" rx="7" ry="2.5"/>
+    </g>
+  </g>
+
+  <!-- S1 details: glazed bowls, rice grains, cucumber seeds, noodles,
+       toasted sesame, sliced scallions and mandarin segments. -->
+  <linearGradient id="bowl-glaze" x2=".18" y2="1">
+    <stop stop-color="#a5c0af"/><stop offset=".5" stop-color="#799b88"/><stop offset="1" stop-color="#456e64"/>
+  </linearGradient>
+  <radialGradient id="broth" cx=".38" cy=".3" r=".85">
+    <stop stop-color="#e9b766"/><stop offset=".74" stop-color="#bb793d"/><stop offset="1" stop-color="#915832"/>
+  </radialGradient>
+  <g id="cucumber">
+    <ellipse rx="10" ry="7" fill="#54794b" stroke="#436343"/>
+    <ellipse cy="-1" rx="8.3" ry="5.9" fill="#a9c781"/>
+    <path d="m-4-2 2 1m4-3-1 2m4 2-2 1m-5 1 2-1" stroke="#e6ecc1" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+  <g id="rice-lunch">
+    <use href="#plate"/>
+    <g id="rice-mound"><path d="M-37-6q-5-9 1-15 0-8 9-10 3-8 13-7 8-6 15 1 12-3 15 7 10 2 9 11 7 8 0 16-8 10-26 8-26 3-36-11Z"
+          fill="#f7edcf" stroke="#d6c49b" stroke-width="1.4"/>
+    <g fill="none" stroke="#d1ba91" stroke-width="1.5" stroke-linecap="round">
+      <path d="m-29-19 3-2m3-6 3 1m5-6 2 2m4 6 3-1m4-4 2 2m8 4 2-1m5 8 3-1m-10-4 2 2m-20-3 2 1m-13 4 2 2m5 4 3-1m16-3 3 1"/>
+    </g>
+    </g><use href="#salmon" transform="translate(-6 9) rotate(62) scale(1.04)"/>
+    <use href="#cucumber" transform="translate(22 -15) rotate(-24)"/>
+    <use href="#cucumber" transform="translate(27 -5) rotate(-17)"/>
+    <use href="#cucumber" transform="translate(29 6) rotate(-8)"/>
+    <g fill="#f7daa0"><ellipse cx="-18" cy="7" rx="2.1" ry=".9"/><ellipse cx="-6" cy="11" rx="1" ry="2"/><ellipse cx="1" cy="3" rx="2" ry=".9"/></g>
+  </g>
+  <g id="soup-bowl">
+    <ellipse cy="29" rx="44" ry="9" fill="#543a29" opacity=".32"/>
+    <path d="M-57-5q5 34 40 40 17 4 35-1Q49 28 57-5Z" fill="url(#bowl-glaze)" stroke="#506e60" stroke-width="1.7"/>
+    <path d="M-47 10q45 24 94 0m-86 10q36 16 72 0" fill="none" stroke="#c2cbb0" stroke-width="1.8"/>
+    <ellipse cy="-6" rx="57" ry="27" fill="url(#china)" stroke="#7b806b" stroke-width="1.5"/>
+    <ellipse cy="-6" rx="50" ry="21" fill="url(#broth)"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M-40-8q8-13 23-3t28 5q16-9 25-1M-39-2q12-12 27-3t30 3q11-7 21-5M-30 5q10-8 24-1t23 1"
+        stroke="#a26b38" stroke-width="4.5"/>
+      <path d="M-40-9q8-13 23-3t28 5q16-9 25-1M-39-3q12-12 27-3t30 3q11-7 21-5M-30 4q10-8 24-1t23 1"
+        stroke="#f7da96" stroke-width="2.8"/>
+    </g>
+    <g fill="#e78e4c" stroke="#b77440"><path d="m-19-18 12 3-5 8-12-3Z"/><path d="m14-1 13 1-4 8-12-2Z"/></g>
+    <g fill="#71985d" stroke="#537e50"><path d="M3-14q1-10 15-9-2 11-15 9Z"/><path d="M0-12q-10-1-11-10 11 0 11 10Z"/></g>
+    <g fill="none" stroke="#b2c67e" stroke-width="2.1"><ellipse cx="-29" cy="2" rx="4" ry="2"/><ellipse cx="27" cy="-12" rx="3.7" ry="1.9"/><ellipse cx="4" cy="4" rx="3" ry="1.6"/></g>
+    <path d="M-45-16q14-8 24-7m50 2 8 4" stroke="#ffe4ab" stroke-width="1.3" fill="none"/>
+  </g>
+  <g id="mandarin">
+    <path d="M-18-2q18 13 37-2-3 20-21 18Q-16 12-18-2Z" fill="#e49b42" stroke="#b7783b"/>
+    <path d="M-15 0q16 10 30-1-4 13-17 12Q-12 10-15 0Z" fill="#ffc56b" stroke="#ffe3a3" stroke-width="1.3"/>
+    <path d="m-9 4 5 6m4-5 1 6m6-7-3 6" fill="none" stroke="#ffe5b2" stroke-width="1.2"/>
+  </g>
+  <g id="side-fruit">
+    <ellipse cy="4" rx="32" ry="14" fill="#644d38" opacity=".27"/>
+    <ellipse rx="32" ry="14" fill="url(#china)" stroke="#9c977c"/>
+    <use href="#mandarin" transform="translate(-7 -4) rotate(-12) scale(.85)"/>
+    <use href="#mandarin" transform="translate(9 -3) rotate(12) scale(.78)"/>
+  </g>
+  <g id="school-spoon" transform="rotate(16)">
+    <path d="M0 0v41" fill="none" stroke="#6e6d58" stroke-width="4.6" stroke-linecap="round"/>
+    <path d="M-.6 0v40" fill="none" stroke="#e1d6b5" stroke-width="2.7" stroke-linecap="round"/>
+    <ellipse cy="-5" rx="5.3" ry="8" fill="#d5d4bb" stroke="#858574"/>
+    <path d="M-3-6q0-4 3-5" fill="none" stroke="#fff1cd"/>
+  </g>
+</defs>
+</svg>
+</template>
+
+<script>
+// ── EDITABLE COLORS, TIMING, LAYOUT, AND NEXT-SCENE KEY ─────────────
+const SETTINGS = {
+  emerald:"#102e28", cream:"#fff2d9", copper:"#efb982",
+  width:"68rem", heading:"clamp(2.35rem, 5.3cqi, 4.1rem)",
+  lunchWidth:"56rem",
+  beatMs:800, branchBeatMs:600, schoolBeatMs:700,
+  plateScale:1.15, branchTableScale:.47, destinationScale:1.08,
+  nextSchoolPath:"s2"
+};
+
+const MEALS = [
+  {key:"personal", x:181, y:115, title:"For myself",
+   text:"Make room for the way you need to eat.", meal:"Lemon salmon with asparagus"},
+  {key:"family", x:450, y:143, title:"For my family",
+   text:"Build tomorrow around the meals you share.", meal:"Spaghetti and meatballs"},
+  {key:"care", x:719, y:115, title:"For people in my care",
+   text:"Put thoughtful meals at the heart of what you do.", meal:"Chicken, mashed potatoes, and peas"}
+];
+const DESTINATIONS = [
+  {key:"schools", title:"Nourish the next generation",
+   text:"Explore a more thoughtful school lunch.", art:"lunch-tray", view:"-4 -8 199 92"},
+  {key:"care", title:"Bring care to the table",
+   text:"Support older people and people living with illness.", art:"bread-basket", view:"-35 -25 70 50"}
+];
+
+function sharedTable(scale) {
+  const settings = MEALS.map(({key,x,y}) => `
+    <g transform="translate(${x} ${y})">
+      <ellipse class="glow" rx="121" ry="49" fill="url(#light)"/>
+      <g transform="scale(${scale} ${scale*.72})">
+        <g class="utensils"><use href="#cutlery"/></g>
+        <g class="served"><use href="#dish-${key}"/></g>
+      </g>
+    </g>`).join("");
+  return `<g class="furniture"><use href="#oak-table"/></g>
+    <ellipse class="trace" cx="450" cy="123" rx="405" ry="86" pathLength="1"/>${settings}`;
+}
+
+function branchStage(config) {
+  const scale = config.branchTableScale;
+  const start = 209*scale;
+  const fork = start+23;
+  const size = config.destinationScale;
+  const ends = [
+    {x:225,art:"school-setting",top:22},
+    {x:675,art:"dining-setting",top:3}
+  ];
+  const arms = ends.map(({x,art,top},i) => {
+    const y = fork+34;
+    return `<path class="wire arm" pathLength="1" d="M450 ${fork} C${i ? 510 : 390} ${fork},${x} ${fork-19},${x} ${y}"/>
+      <g transform="translate(${x-150*size} ${y-top*size}) scale(${size})">
+        <g class="destination"><use href="#${art}"/></g>
+      </g><circle class="terminal" cx="${x}" cy="${y}" r="2.8"/>`;
+  }).join("");
+  return `<g transform="translate(${450-450*scale} 0) scale(${scale})">${sharedTable(config.plateScale)}</g>
+    <path class="wire trunk" pathLength="1" d="M450 ${start}V${fork}"/>${arms}`;
+}
+
+// The lunch labels are outside SVG and selectable. The three place settings
+// occupy the same left/center/right positions as the O1 dishes.
+function schoolStage(meal="lunch") {
+  const mains = meal==="lunch" ? ["pizza","sandwich","chicken-rice"] : ["pancakes","egg-sandwich","oatmeal"];
+  const sides = {
+    pizza:"pizza-sides", "chicken-rice":"chicken-sides",
+    pancakes:"pancake-sides", "egg-sandwich":"sandwich-sides", oatmeal:"oatmeal-sides"
+  };
+  const trays = mains.map((food,i) => {
+    // The sandwich illustration already includes its apple and carrot sticks.
+    const filling = food==="sandwich" ? '<use href="#lunch-tray"/>' :
+      `<use href="#tray-base"/><use href="#${food}" transform="translate(55 35) scale(.96)"/>
+       <use href="#${sides[food]}"/>`;
+    return `<g transform="translate(${105+i*254} 62)"><g class="lunch-serving">${filling}<use href="#carton" transform="translate(179 -7) scale(.66)"/></g></g>`;
+  }).join("");
+  const x = meal==="lunch" ? 590 : 310;
+  return `<path class="wire drop" pathLength="1" d="M${x} 0q0 17 -12 38"/>
+    <g class="unfold" stroke-linejoin="round">
+      <ellipse cx="450" cy="234" rx="404" ry="15" fill="#09261f"/>
+      <path d="m122 70-23 148h13l25-145m632-3 31 149h13L783 69" fill="#70897a" stroke="#354e43" stroke-width="3"/>
+      <path d="M105 37h682l-6 9H100ZM80 163h742l-7 13H73Z" fill="url(#edge)"/>
+      <path d="M115 26h660l12 11H105ZM65 57h765l42 90H24Z" fill="url(#oak)" stroke="#9a6845" stroke-width="2"/>
+      <path d="M24 147h848v9H24Z" fill="url(#edge)"/>
+      <path d="m101 155-12 81h13l13-81m666 0 14 81h13l-12-81" fill="#819589" stroke="#40584c" stroke-width="2"/>
+      <path d="M53 185h792l13 17H40Z" fill="url(#oak)" stroke="#a06d47"/><path d="M40 202h818v8H40Z" fill="url(#edge)"/>
+      <path d="M59 195q250-4 493 0t272-1M50 137q185-3 372 0m146 0 270-2" fill="none" stroke="#a97043" opacity=".65"/>
+    </g>${trays}`;
+}
+
+// S2 recipe text and illustration. Nutrients apply to the two-pizza serving.
+function recipePages() {
+  return `<article class="sheet leaf"><p class="kicker">Recipe Example - 100 Servings</p>
+    <h2>English muffin mini pizzas</h2>
+    <svg class="recipe-art" viewBox="0 0 360 115" role="img" aria-label="Two English muffin mini pizzas on a wooden peel beside sliced tomato and basil">
+      <ellipse cx="175" cy="90" rx="137" ry="13" fill="#b29464" opacity=".24"/>
+      <path d="M77 44q5-9 17-10l116-10q16 0 21 12l5 13 56-4q13-1 14 7t-11 10l-57 6-4 10q-2 8-15 10L96 99q-17 0-18-10Z" fill="url(#oak)" stroke="#9b6744" stroke-width="2"/>
+      <path d="m93 91 56-5m70-7 10-2m24-19 36-4" stroke="#b17c50" fill="none"/>
+      <use href="#pizza" transform="translate(122 59) rotate(-8) scale(1.15)"/><use href="#pizza" transform="translate(192 56) rotate(12) scale(1.12)"/>
+      <g class="ingredient"><use href="#slice" transform="translate(58 82) scale(1.3)"/><use href="#slice" transform="translate(45 91) rotate(15)"/></g>
+      <g class="ingredient"><use href="#basil" transform="translate(249 87) rotate(28)"/><use href="#basil" transform="translate(248 90) rotate(100)"/></g>
+    </svg><h3>Ingredients</h3><ul>
+    <li>100 whole-grain English muffins, split</li><li>400 tbsp tomato sauce</li>
+    <li>400 tbsp grated mozzarella</li><li>300 cherry tomatoes, sliced</li><li>100 basil leaves, torn</li></ul>
+    <p class="portion"><strong>Yield</strong> · 200 mini pizzas<br><strong>Serving size</strong> · 2 mini pizzas</p></article>
+    <svg class="connector" viewBox="0 0 44 32" aria-hidden="true"><path class="wire" pathLength="1" d="M1 17q12-4 22-1t19-1m-6-4 6 4-5 5"/></svg>
+    <article class="sheet nutrition"><p class="kicker">Per serving · 2 mini pizzas</p><h2>Nutrition facts</h2>
+    <dl><div><dt>Energy</dt><dd>438 calories</dd></div><div><dt>Protein</dt><dd>27.6 g</dd></div>
+    <div><dt>Fiber</dt><dd>10.2 g</dd></div><div><dt>Sodium</dt><dd>794 mg</dd></div></dl></article>`;
+}
+
+// Public components. All three preserve the same selection and control API.
+function restartAdventure() { window.location.reload(); }
+function mountThreeLights(container,options={}) { return mountScene(container,"opening",options); }
+function mountCareBranches(container,options={}) { return mountScene(container,"branches",options); }
+function mountSchoolDay(container,options={}) { return mountScene(container,"school",options); }
+
+// S3 sample meal plan: two small recipe cards for review.
+function sampleMenuCards() {
+  const recipes = [
+    {day:"Monday",title:"English muffin mini pizzas",dish:"menu-pizzas"},
+    {day:"Tuesday",title:"Tomato, cucumber &amp; basil salad",dish:"menu-salad"}
+  ];
+  return recipes.map(({day,title,dish}) => `<article class="menu-leaf">
+    <p class="day-name">${day}</p><svg viewBox="-78 -43 156 91" aria-hidden="true"><use href="#${dish}"/></svg>
+    <h3>${title}</h3><p class="serving-mark">100 planned servings</p></article>`).join("");
+}
+function menuToCounterPages() {
+  // The pizzas use 300 tomatoes and 100 basil leaves. The salad adds 500 and 100.
+  const ingredients = [
+    ["Whole-grain English muffins","100"],["Tomato sauce","400 tbsp"],
+    ["Grated mozzarella","400 tbsp"],["Cherry tomatoes","800"],
+    ["Basil leaves","200"],["Cucumbers","50"]
+  ];
+  const cards = sampleMenuCards();
+  return `<div class="papers">
+    <section class="sheet menu-book"><p class="kicker">Planning example</p>
+    <h2>Lunch menu</h2><div class="recipe-leaves">${cards}</div></section>
+    <svg class="connector" viewBox="0 0 52 32" aria-hidden="true">
+    <path class="wire" pathLength="1" d="M1 4c9 0 10 11 19 12m-19 11c9 0 10-10 19-11"/>
+    <path class="wire" pathLength="1" d="M20 16q12 1 29 0m-6-5 6 5-6 5"/></svg>
+    <section class="sheet list-slip"><h2>Combined ingredients</h2><dl>
+    ${ingredients.map(([name,amount])=>`<div><dt>${name}</dt><dd>${amount}</dd></div>`).join("")}</dl></section></div>
+    <svg class="prep-surface" viewBox="0 0 920 86" aria-hidden="true"><use href="#menu-counter"/></svg>
+    `;
+}
+function schoolPilotPages() {
+  return `<div class="pilot-folio"><div class="pilot-spread">
+    <section class="pilot-plan"><p class="kicker">Sample workspace</p><h2>School lunch pilot</h2>
+      <svg class="pilot-table" viewBox="0 24 900 230" aria-label="The school lunch bench with its three lunch trays" role="img">${schoolStage("lunch")}</svg>
+      <div class="recipe-leaves">${sampleMenuCards()}</div>
+    </section>
+    <section class="pilot-review"><p class="kicker">Team review</p><h2>Bring your kitchen team</h2>
+      <p>Invite the people responsible for nutrition, food safety, kitchen operations, and IT to review the pilot together.</p>
+      <svg viewBox="0 0 200 60" width="145" aria-hidden="true">
+        <use href="#menu-pizzas" transform="translate(72 30) scale(.84)"/>
+        <use href="#slice" transform="translate(147 38) rotate(-18)"/>
+        <use href="#basil" transform="translate(157 32) rotate(12)"/>
+      </svg>
+      <details><summary>View the mini pizza recipe</summary>${recipePages()}</details>
+    </section></div></div>
+    <svg class="prep-surface" viewBox="0 0 920 86" aria-hidden="true"><use href="#menu-counter"/></svg>
+    <p class="pilot-boundary" id="pilot-boundary">Beta software. Not a school-meal compliance system. Your team must independently verify nutrition standards, food safety, allergies, quantities, and operational suitability. After beta, we intend to seek USDA evaluation and approval for school-lunch meal pattern assessment, and pursue ongoing annual review if approved. <a href="https://github.com/DietLedger/DietLedger/blob/main/docs/usda-school-meal-roadmap.md">Read our USDA school-meal roadmap</a>.</p>`;
+}
+// H1 arrival text is plain text, customizable per mount with options.arrival.
+const SCHOOL_SETUP_COPY = {
+  headline:"Begin with a small, thoughtful pilot.",
+  introduction:"Use demonstration data to explore the workflow. Include the people responsible for nutrition, kitchen operations, and IT before considering live use.",
+  hosting:"DietLedger is a self-hosted beta. You provide the hosting and must assess its suitability for your setting.",
+  prompt:"How would you like to begin?"
+};
+const REPOSITORY_URL = "https://github.com/DietLedger/DietLedger";
+const GUIDE_URL = REPOSITORY_URL + "/blob/main/ReadMe.md";
+
+function setupMaterials() {
+  return `<div class="setup-materials">
+    <p class="license-note">DietLedger is source-available under the Community Care License 1.0. Eligible uses and restrictions are defined in the full license; review it before deployment. <a href="${REPOSITORY_URL}/blob/main/LICENSE.md">Read the full license</a></p>
+    <p class="pilot-boundary">Beta software. Not a school-meal compliance system. Your team must independently verify nutrition standards, food safety, allergies, quantities, and operational suitability. After beta, we intend to seek USDA evaluation and approval for school-lunch meal pattern assessment, and pursue ongoing annual review if approved. <a href="https://github.com/DietLedger/DietLedger/blob/main/docs/usda-school-meal-roadmap.md">Read our USDA school-meal roadmap</a>.</p>
+    <section class="sheet host-page" id="beginner-guide">
+      <figure class="host-figure">
+        <svg viewBox="0 0 410 158" aria-hidden="true">
+          <use href="#hosting-machine" class="machine-art"/>
+          <path class="wire host-wire" pathLength="1" style="stroke:#ab7144" d="M152 93c19 1 23-23 45-22l24 1m-6-5 7 5-7 5"/>
+          <g class="browser-art"><use href="#hosting-browser"/></g>
+        </svg><figcaption class="host-captions"><span>Your machine<small>DietLedger application<br>PostgreSQL database</small></span><span>Your web browser<small>Access to DietLedger</small></span></figcaption>
+      </figure>
+      <div><h2>Hosting DietLedger</h2><p>Self-hosted means you choose where DietLedger runs. A machine you administer runs the application and its database; you access the app in a web browser. You’re responsible for maintaining the machine, controlling access, installing updates, and protecting and backing up the data.</p>
+      <a class="guide-link" href="${GUIDE_URL}">Check requirements and start setup</a></div>
+    </section>
+    <section class="sheet" id="technical-guide" hidden><h2>Technical setup</h2>
+      <p>Review installation requirements and commands with your technical team.</p>
+      <a class="guide-link" href="${GUIDE_URL}">Open the installation guide</a></section>
+    <p><a href="${REPOSITORY_URL}">Inspect the repository</a></p></div>`;
+}
+function mountChooseSetup(container,options={}) { return mountScene(container,"hosting",options); }
+function mountSchoolPilot(container,options={}) { return mountScene(container,"pilot",options); }
+function mountMenuToCounter(container,options={}) { return mountScene(container,"menu",options); }
+function mountRecipeConversation(container,options={}) { return mountScene(container,"recipe",options); }
+
+function mountScene(container,kind,options) {
+  const config = {...SETTINGS,...options};
+  const host = document.createElement("div");
+  const root = host.attachShadow({mode:"open"});
+  root.append(document.querySelector("#ledger-art").content.cloneNode(true));
+  root.append(document.querySelector("#ledger-shell").content.cloneNode(true));
+  const find = selector => root.querySelector(selector);
+  const all = selector => [...root.querySelectorAll(selector)];
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  const animations = new Set();
+  const branches = kind === "branches";
+  const hosting = kind==="hosting";
+  const arrival = hosting ? {...SCHOOL_SETUP_COPY,...options.arrival} : null;
+  const pilot = kind === "pilot";
+  const menu = kind === "menu";
+  const recipe = kind === "recipe";
+  const school = kind === "school";
+  const beat = Math.max(0,Number((hosting || pilot || menu || recipe || school) ? config.schoolBeatMs : branches ? config.branchBeatMs : config.beatMs)||0);
+  const stage = find(".stage");
+
+  for (const key of ["emerald","cream","copper","width","heading","lunchWidth"]) {
+    host.style.setProperty("--"+key,config[key]);
+  }
+  find(".book").classList.add(kind);
+  const headlines = {
+    pilot:"Tomorrow’s lunch starts with <em>what we try today.</em>",
+    menu:"Connect the menu to <em>what needs preparing.</em>",
+    recipe:"Put the recipe and the nutrition <em>in the same conversation.</em>",
+    opening:"The next chapter starts <em>at your table.</em>",
+    branches:"A good meal is an <em>everyday act of care.</em>",
+    school:"What if lunch were something <em>to look forward to?</em>"
+  };
+  if (hosting) find("h1").textContent = arrival.headline;
+  else find("h1").innerHTML = headlines[kind];
+  if (!branches) {
+    const p = document.createElement("p");
+    p.textContent = hosting ? arrival.introduction : pilot ? "Start small. Explore a few recipes. Build a sample week. Invite the people who understand your kitchen to put the workflow to the test." : menu ? "Arrange recipes across a meal plan. Set planned servings and generate a combined ingredient list." : recipe ? "Build a collection of recipes. Review their ingredients, servings, and available nutrition. Keep the details visible while you consider what belongs on the menu." : school
+      ? "Not just a pause between lessons. A filling meal. Food worth tasting. A chance to discover something good."
+      : "Small decisions. Everyday meals. A future worth taking care of.";
+    find("header").append(p);
+    if (hosting) {
+      const second = document.createElement("p");
+      second.textContent = arrival.hosting;
+      find("header").append(second);
+    }
+  }
+
+  function skip() {
+    for (const animation of animations) animation.cancel();
+    animations.clear();
+  }
+
+  // One selection mechanism shared by O1, G1 and the S1 → S2 action.
+  function choose(path,message) {
+    skip();
+    find(".status").textContent = message;
+    container.dispatchEvent(new CustomEvent("dietledger:choose",{
+      bubbles:true, composed:true, detail:{path}
+    }));
+    options.onChoose?.(path);
+  }
+
+  let meal = options.meal==="breakfast" ? "breakfast" : "lunch";
+  if (hosting) {
+    stage.classList.add("setup-arrival");
+    stage.setAttribute("viewBox","0 0 400 119");
+    // The cookbook rests on the counter. The small prep board sits to its right.
+    stage.innerHTML = `<g stroke-linejoin="round" stroke-linecap="round">
+      <use href="#counter-surface" transform="translate(0 70) scale(.435 .53)"/>
+      <ellipse cx="159" cy="90" rx="78" ry="3" fill="#64432f" opacity=".27"/>
+      <use href="#setup-notebook" transform="translate(153 63) skewX(-8) scale(1.15 1.32)"/>
+      <g transform="translate(248 88) rotate(-2)">
+        <ellipse cx="53" cy="10" rx="57" ry="3" fill="#64432f" opacity=".25"/>
+        <path d="M0 0q0-3 5-3h77q4 0 6 3l3 2 17-1q5 0 5 3t-5 3H91l-4 4q-1 2-6 2H7q-6 0-6-4Z" fill="url(#edge)" stroke="#835936"/>
+        <path d="M0-2q0-3 5-3h77q4 0 6 3l3 2 17-1q5 0 5 3t-5 3H91l-4 4q-1 2-6 2H7q-6 0-6-4Z" fill="url(#bread)" stroke="#a7794e"/>
+        <ellipse cx="107" cy="2" rx="2.3" ry="1.2" fill="#916740"/>
+        <path d="m7 7 16 .2m40 .4 18-.2" stroke="#c79a6b" fill="none"/>
+        <use href="#slice" transform="translate(15 0) rotate(-8) scale(.82)"/>
+        <use href="#slice" transform="translate(25 3) rotate(12) scale(.76)"/>
+        <use href="#cucumber" transform="translate(45 0) rotate(-12) scale(.8)"/>
+        <use href="#cucumber" transform="translate(54 3) rotate(10) scale(.78)"/>
+        <use href="#basil" transform="translate(72 6) rotate(45) scale(.64)"/>
+        <use href="#basil" transform="translate(72 6) rotate(-18) scale(.58)"/>
+      </g>
+    </g>`;
+    find("#question").textContent = arrival.prompt;
+    find(".choices").insertAdjacentHTML("afterend",setupMaterials());
+    const routes = [
+      ["beginner-guide","Help us understand the setup","Hosting requirements, responsibilities, and license eligibility."],
+      ["technical-guide","Show our technical team the guide","Installation requirements and commands."]
+    ];
+    for (const [id,title,description] of routes) {
+      const button = document.createElement("button");
+      button.className = "choice";
+      button.type = "button";
+      button.setAttribute("aria-controls",id);
+      button.setAttribute("aria-pressed",String(id==="beginner-guide"));
+      button.innerHTML = `<span class="arrow" aria-hidden="true">↘</span><span class="label">${title}</span><span class="desc">${description}</span>`;
+      find(".choices").append(button);
+      button.addEventListener("click",() => {
+        skip();
+        for (const other of all(".choice")) {
+          const active = other===button;
+          other.setAttribute("aria-pressed",String(active));
+          root.getElementById(other.getAttribute("aria-controls")).hidden = !active;
+        }
+        find(".status").textContent = title + " selected.";
+      });
+    }
+    if (!options.hideChangePath) {
+      const change = document.createElement("button");
+      change.type = "button";
+      change.textContent = "Change path";
+      find(".setup").before(change);
+      change.addEventListener("click",() => choose("opening","Change path selected."));
+    }
+  } else if (school || recipe || menu || pilot) {
+    find(".school-ending").hidden = false;
+    find("#question").hidden = true;
+    find(".choices").hidden = true;
+    if (menu || pilot) {
+      stage.style.display = "none";
+      stage.insertAdjacentHTML("afterend",pilot ? schoolPilotPages() : menuToCounterPages());
+      find(".closing").textContent = pilot ? "You bring the experience and the care. DietLedger gives you a workspace to explore what’s possible." : "Explore how a connected workflow could support your team's preparation—then evaluate it against the realities of your kitchen, staffing, and service.";
+      find(".next").innerHTML = (pilot ? "Plan a school-meal pilot" : "Begin with a pilot") + ' <span aria-hidden="true">→</span>';
+      if (pilot) {
+        for (const button of [find(".next"),find(".setup")]) button.setAttribute("aria-describedby","pilot-boundary");
+        find(".next").addEventListener("click",requestSetup);
+      } else {
+        find(".next").addEventListener("click",() => choose("s4","Next scene requested · S4"));
+      }
+      const change = document.createElement("button");
+      change.type = "button";
+      change.textContent = "Change path";
+      find(".setup").before(change);
+      change.addEventListener("click",() => choose("opening","Change path selected."));
+    } else if (recipe) {
+      stage.style.display = "none";
+      const papers = document.createElement("div");
+      papers.className = "papers";
+      papers.innerHTML = recipePages();
+      stage.after(papers);
+      find(".closing").textContent = "Give the idea of a better lunch something practical to stand on.";
+      find(".next").innerHTML = 'Give the menu some shape <span aria-hidden="true">→</span>';
+      find(".next").addEventListener("click",() => choose("s3","Next scene requested · S3"));
+    } else {
+      find(".meal-times").hidden = false;
+      stage.setAttribute("viewBox","0 0 900 255");
+      stage.removeAttribute("aria-hidden");
+      stage.setAttribute("role","img");
+      const renderMeal = () => {
+        stage.setAttribute("aria-label",meal==="lunch" ? "Lunch trays with mini pizza, grapes and broccoli; a sandwich, an apple and carrot sticks; and chicken with rice and cucumber, pear slices and sweet corn." : "Breakfast trays with pancakes, strawberries and banana slices; an egg sandwich, mandarin and roasted potatoes; and blueberry oatmeal, apple wedges and yogurt.");
+        stage.innerHTML = schoolStage(meal);
+        all("[data-meal]").forEach(button => button.setAttribute("aria-pressed",String(button.dataset.meal===meal)));
+      };
+      renderMeal();
+      all("[data-meal]").forEach(button => button.addEventListener("click",() => {
+        if (meal===button.dataset.meal) return;
+        skip();
+        meal = button.dataset.meal;
+        renderMeal();
+        replay();
+      }));
+      find(".next").addEventListener("click",() => choose(config.nextSchoolPath,"Selected · Start behind the meal"));
+    }
+  } else {
+    const items = branches ? DESTINATIONS : MEALS;
+    host.style.setProperty("--columns",items.length);
+    find("h2").textContent = branches ? "Where does your care take shape?" : "Who are you planning for?";
+    const height = branches ? Math.ceil(209*config.branchTableScale+57+176*config.destinationScale+14) : 290;
+    stage.setAttribute("viewBox",`0 0 900 ${height}`);
+    stage.innerHTML = branches ? branchStage(config) : sharedTable(config.plateScale);
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice";
+      button.dataset.path = item.key;
+      button.setAttribute("aria-pressed","false");
+      const portrait = branches
+        ? `<svg class="portrait" viewBox="${item.view}" aria-hidden="true"><g class="mini"><use href="#${item.art}"/></g></svg>`
+        : `<svg class="portrait" viewBox="-65 -53 130 106" role="img" aria-label="${item.meal}">
+             <g class="mini"><use href="#dish-${item.key}" transform="scale(1 .72)"/></g></svg>`;
+      button.innerHTML = `${portrait}<span class="arrow" aria-hidden="true">↗</span>
+        <span class="label">${item.title}</span><span class="desc">${item.text}</span>`;
+      button.addEventListener("click",() => {
+        all(".choice").forEach(other => other.setAttribute("aria-pressed",String(other===button)));
+        choose(item.key,`Path chosen · ${item.title}`);
+      });
+      find(".choices").append(button);
+    }
+  }
+
+  // Final artwork is the base DOM. Animation uses backwards fill during
+  // delays, so Skip, a motion-preference change, or teardown finishes at once.
+  function play(element,frames,start,length) {
+    const animation = element.animate(frames,{
+      delay:start*beat, duration:length*beat, fill:"backwards",
+      easing:"cubic-bezier(.24,.65,.26,1)"
+    });
+    animations.add(animation);
+    animation.onfinish = () => animations.delete(animation);
+  }
+  const fade = [{opacity:0},{opacity:1}];
+  const draw = [{strokeDashoffset:"1"},{strokeDashoffset:"0"}];
+
+  function replaySchool() {
+    play(find(".drop"),draw,0,.6);
+    const table = find(".unfold");
+    table.style.transformBox = "fill-box";
+    table.style.transformOrigin = "50% 0%";
+    play(table,[
+      {opacity:0,transform:"scale(.93,.74)"},
+      {opacity:1,transform:"scale(.99,.97)",offset:.74},
+      {opacity:1,transform:"scale(1)"}
+    ],.45,.95);
+    all(".lunch-serving").forEach((meal,index) => {
+      play(meal,[
+        {opacity:0,transform:"translateY(-8px)"},
+        {opacity:1,transform:"translateY(-1px)",offset:.78},
+        {opacity:1,transform:"none"}
+      ],1.25+index*.22,.68);
+    });
+  }
+  function replayBranches() {
+    play(find(".trunk"),draw,.12,.48);
+    const arms = all(".arm"), settings = all(".destination");
+    const dots = all(".terminal"), minis = all(".mini");
+    arms.forEach((arm,index) => {
+      const start = .58+index*.97;
+      play(arm,draw,start,1.02);
+      play(settings[index],fade,start+.77,.78);
+      play(dots[index],fade,start+.91,.32);
+      play(minis[index],fade,2.98+index*.12,.46);
+    });
+  }
+  function replayOpening() {
+    play(find(".brand"),fade,0,.55);
+    play(find("header"),[{opacity:0,transform:"translateY(5px)"},{opacity:1,transform:"none"}],.08,.72);
+    play(find(".trace"),draw,.65,1.05);
+    play(find(".furniture"),[{opacity:0,transform:"translateY(5px)"},{opacity:1,transform:"none"}],.99,.92);
+    all(".utensils").forEach(item => play(item,fade,1.55,.46));
+    const lights = all(".glow");
+    all(".served").forEach((plate,index) => {
+      const start = 1.85+index*.34;
+      const dx = [-23,0,23][index];
+      play(lights[index],fade,start-.12,.75);
+      play(plate,[
+        {opacity:0,transform:`translate(${dx}px,-17px) rotate(${dx*.18}deg)`},
+        {opacity:1,transform:"translate(0,-2px) rotate(0deg)",offset:.78},
+        {opacity:1,transform:"none"}
+      ],start,.78);
+    });
+    all(".mini").forEach((mini,index) => play(mini,[
+      {opacity:0,transform:"translateY(-13px) scale(.88)"},
+      {opacity:1,transform:"translateY(-1px) scale(1)",offset:.8},
+      {opacity:1,transform:"none"}
+    ],3.35+index*.16,.66));
+  }
+  function replay() {
+    skip();
+    if (motion.matches || !beat || !host.animate) return;
+    if (hosting) {
+      const settle = [{opacity:.7,transform:"translateY(4px)"},{opacity:1,transform:"none"}];
+      play(stage,settle,0,.65);
+      all(".choice").forEach((card,i)=>play(card,settle,.52+i*.16,.58));
+      if (!find("#beginner-guide").hidden) {
+        play(find(".machine-art"),settle,1.12,.7);
+        play(find(".host-wire"),draw,1.75,.75);
+        play(find(".browser-art"),settle,2.25,.65);
+      }
+    } else if (pilot) {
+      const settle = [{opacity:.65,transform:"translateY(6px)"},{opacity:1,transform:"none"}];
+      play(find(".pilot-table"),settle,0,.85);
+      all(".pilot-plan .menu-leaf").forEach((card,i)=>play(card,settle,.7+i*.2,.7));
+      play(find(".pilot-review"),settle,1.65,.7);
+      play(find(".pilot-folio"),[{transform:"scale(.991)"},{transform:"none"}],2.45,.75);
+    } else if (menu) {
+      const settle = [{transform:"translateY(-7px)",opacity:.78},{transform:"none",opacity:1}];
+      all(".menu-leaf").forEach((leaf,i) => play(leaf,settle,i*.25,.85));
+      all(".serving-mark").forEach((mark,i) => play(mark,fade,.9+i*.18,.5));
+      all(".connector .wire").forEach((wire,i) => play(wire,draw,1.55+i*.45,.55));
+      all(".list-slip dl div").forEach((row,i) => play(row,settle,2.22+i*.09,.52));
+      play(find(".prep-surface"),[{transform:"translateY(4px)",opacity:.3},{transform:"none",opacity:1}],2.88,.78);
+    } else if (recipe) {
+      all(".ingredient").forEach((item,i) => play(item,[
+        {transform:`translate(${i ? 10 : -10}px,-5px)`,opacity:.4},{transform:"none",opacity:1}
+      ],i*.12,.8));
+      play(find(".leaf"),[{transform:"perspective(800px) rotateY(-6deg)"},{transform:"none"}],.6,.9);
+      play(find(".connector .wire"),draw,1.35,.65);
+      play(find(".nutrition"),[{transform:"translateX(-7px)",opacity:.82},{transform:"none",opacity:1}],1.85,.85);
+    } else if (school) replaySchool();
+    else if (branches) replayBranches();
+    else replayOpening();
+  }
+  function onMotionChange() { if (motion.matches) skip(); }
+  find('[data-action="replay"]').addEventListener("click",replay);
+  find('[data-action="skip"]').addEventListener("click",requestSetup);
+  find('[data-action="restart"]').addEventListener("click",() => { skip(); restartAdventure(); });
+  find('[data-action="back"]').addEventListener("click",() => {
+    skip();
+    if (options.onBack) options.onBack();
+    else find(".status").textContent = kind==="opening" ? "You’re at the opening table." : "Back selected.";
+  });
+  function requestSetup() {
+    skip();
+    if (hosting && !options.onSetup) {
+      find(".choice[aria-pressed=true]").focus();
+      return;
+    }
+    if (pilot && !options.onSetup) {
+      choose("setup","Preview · Setup requested for the school-meal pilot.");
+      return;
+    }
+    find(".status").textContent = "Set up DietLedger selected.";
+    options.onSetup?.();
+  }
+  find('[data-action="setup"]').addEventListener("click",requestSetup);
+  motion.addEventListener("change",onMotionChange);
+  container.append(host);
+  replay();
+  return {
+    replay, skip,
+    getMeal() { return meal; },
+    focusNext() { find(".next").focus({preventScroll:true}); },
+    focusHeading() { find("h1").focus(); },
+    focusPath(key) { all(".choice").find(button => button.dataset.path===key)?.focus({preventScroll:true}); },
+    destroy() {
+      skip();
+      motion.removeEventListener("change",onMotionChange);
+      host.remove();
+    }
+  };
+}
+
+// Standalone routing. Returning restores focus to the originating button.
+// A host application can supply its own callbacks instead.
+const preview = document.getElementById("preview");
+let scene;
+
+function showOpening(returning=false) {
+  scene?.destroy();
+  scene = mountThreeLights(preview,{
+    onChoose(path) { if (path==="care") showBranches(); }
+  });
+  if (returning) { scene.skip(); scene.focusPath("care"); }
+}
+function showBranches(returning=false) {
+  scene?.destroy();
+  scene = mountCareBranches(preview,{
+    onBack:() => showOpening(true),
+    onChoose(path) { if (path==="schools") showSchool(); }
+  });
+  if (returning) { scene.skip(); scene.focusPath("schools"); }
+  else scene.focusHeading();
+}
+function showSchool(returning=false,meal="lunch") {
+  scene?.destroy();
+  scene = mountSchoolDay(preview,{
+    meal, onBack:() => showBranches(true),
+    onSetup:() => { const selected = scene.getMeal(); showSetup(selected, () => showSchool(true,selected)); },
+    onChoose(path) { if (path===SETTINGS.nextSchoolPath) showRecipe(scene.getMeal()); }
+  });
+  if (returning) { scene.skip(); scene.focusNext(); return; }
+  scene.focusHeading();
+}
+function showRecipe(meal,returning=false) {
+  scene?.destroy();
+  scene = mountRecipeConversation(preview,{
+    onBack:() => showSchool(true,meal),
+    onSetup:() => showSetup(meal, () => showRecipe(meal,true)),
+    onChoose(path) { if (path==="s3") showMenu(meal); }
+  });
+  if (returning) { scene.skip(); scene.focusNext(); return; }
+  scene.focusHeading();
+}
+function showMenu(meal,returning=false) {
+  scene?.destroy();
+  scene = mountMenuToCounter(preview,{
+    onBack:() => showRecipe(meal,true),
+    onSetup:() => showSetup(meal, () => showMenu(meal,true)),
+    onChoose(path) {
+      if (path==="s4") showPilot(meal);
+      else if (path==="opening") showOpening(true);
+    }
+  });
+  if (returning) { scene.skip(); scene.focusNext(); return; }
+  scene.focusHeading();
+}
+function showPilot(meal,returning=false) {
+  scene?.destroy();
+  scene = mountSchoolPilot(preview,{
+    onBack:() => showMenu(meal,true),
+    onSetup:() => showSetup(meal),
+    onChoose(path) {
+      if (path==="setup") showSetup(meal);
+      else if (path==="opening") showOpening(true);
+    }
+  });
+  if (returning) { scene.skip(); scene.focusNext(); return; }
+  scene.focusHeading();
+}
+function showSetup(meal, onBack = () => showPilot(meal,true)) {
+  scene?.destroy();
+  scene = mountChooseSetup(preview,{
+    onBack,
+    onChoose(path) { if (path==="opening") showOpening(true); }
+  });
+  scene.focusHeading();
+}
+showOpening();
+</script>
+<!-- BEGIN ADVENTURE EXTENSION -->
+<script>
+const PERSONAL_SCENES = {
+  p1: {
+    headline: "Your needs deserve a place in the plan.",
+    intro: "Maybe you're eating around a particular condition. Maybe you're paying closer attention to nutrition, or maybe you just want to lose weight.",
+    markup: `
+      <style>
+        .p-scene { max-width:58rem; margin:1.5rem auto; }
+        .p-scene svg { display:block; width:100%; height:auto; overflow:visible; }
+        .p-caption { max-width:38rem; margin:.35rem auto 0; color:#e9d4ac; text-align:center; font:italic 1rem/1.45 Georgia,serif; }
+      </style>
+      <figure class="p-scene">
+        <svg viewBox="0 0 900 340" aria-hidden="true" focusable="false">
+          <ellipse cx="455" cy="166" rx="385" ry="140" fill="url(#light)" opacity=".34"/>
+          <use href="#oak-table" y="67"/>
+          <path class="adventure-animate" d="M155 78 400 78 634 235 366 235Z" fill="#fff0b7" opacity=".22"/>
+          <g transform="translate(458 166) rotate(-5)" class="adventure-animate">
+            <rect x="-108" y="-74" width="216" height="153" rx="4" fill="#634b36" opacity=".3" transform="translate(5 8)"/>
+            <rect x="-108" y="-74" width="216" height="153" rx="4" fill="#fff5df" stroke="#bda47d" stroke-width="2"/>
+            <path d="M-96-59h192M-96-53h192" stroke="#c99566" fill="none"/>
+            <use href="#dish-personal" transform="translate(-46 5) scale(.68)"/>
+            <path d="M5-25h72M5-16h56M5 4h66M5 14h61M5 24h68M5 34h45" stroke="#a99a7c" stroke-width="2" stroke-linecap="round"/>
+            <path d="M-91 60h180" stroke="#d9c6a4"/>
+          </g>
+          <g class="adventure-animate" transform="translate(248 171) rotate(9)">
+            <path d="M0 0h118v76H0Z" fill="#f9edd1" stroke="#c5ad88"/>
+            <path d="M14 20h75M14 30h88M14 40h62M14 50h79" stroke="#a7987c" stroke-width="2" stroke-linecap="round"/>
+            <path d="M5 5h108" stroke="#d3a478"/>
+          </g>
+          <g class="adventure-animate" transform="translate(602 195) rotate(7)">
+            <path d="M0 0h102v67H0Z" fill="#f8e9c9" stroke="#bea681"/>
+            <path d="M13 17h69M13 28h76M13 39h53M13 50h71" stroke="#a7987c" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <path d="M647 113q28-17 49-3m-12-6q7-13 17-12-2 12-17 12Zm-19 6q-2-14-14-18-4 12 14 18Z" fill="#668558" stroke="#456443" stroke-width="2"/>
+          <path d="M286 250q154 23 313 1" stroke="#f4d4a2" opacity=".5" fill="none"/>
+        </svg>
+        <figcaption class="p-caption">A recipe, a few notes, and a little room to begin.</figcaption>
+      </figure>`,
+    closing: "Start there. Not with someone else's perfect day—with your own next step.",
+    next: "See what could fit"
+  },
+  p2: {
+    headline: "Find possibilities. Understand the details.",
+    intro: "Explore recipes against nutrition targets you can review and adjust. Open the nutrition behind a recipe, see what's reported, and notice what isn't.",
+    markup: `
+      <style>
+        .p-scene { max-width:58rem; margin:1.5rem auto; }
+        .p-scene svg { display:block; width:100%; height:auto; overflow:visible; }
+        .p-caption { text-align:center; color:#e9d4ac; font:italic 1rem/1.45 Georgia,serif; margin:.3rem 0; }
+      </style>
+      <figure class="p-scene">
+        <svg viewBox="0 0 900 330" aria-hidden="true" focusable="false">
+          <ellipse cx="450" cy="165" rx="390" ry="150" fill="url(#light)" opacity=".2"/>
+          <g class="adventure-animate" transform="translate(177 73) rotate(-10 90 102)">
+            <rect x="5" y="7" width="180" height="204" rx="4" fill="#081c15" opacity=".35"/>
+            <rect width="180" height="204" rx="4" fill="#e9ddc1" stroke="#bda985" stroke-width="2"/>
+            <path d="M12 15h156M12 19h156" stroke="#bc966b"/>
+            <use href="#dish-family" transform="translate(90 83) scale(.67)"/>
+            <path d="M22 150h130M22 161h114M22 173h125M22 185h86" stroke="#aa9e83" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <g class="adventure-animate" transform="translate(544 70) rotate(9 90 102)">
+            <rect x="5" y="7" width="180" height="204" rx="4" fill="#081c15" opacity=".35"/>
+            <rect width="180" height="204" rx="4" fill="#e9ddc1" stroke="#bda985" stroke-width="2"/>
+            <path d="M12 15h156M12 19h156" stroke="#bc966b"/>
+            <use href="#menu-salad" transform="translate(90 86) scale(.75)"/>
+            <path d="M22 150h130M22 161h114M22 173h125M22 185h86" stroke="#aa9e83" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <g class="adventure-animate" transform="translate(332 30)">
+            <rect x="8" y="10" width="236" height="264" rx="5" fill="#071c15" opacity=".42"/>
+            <rect width="236" height="264" rx="5" fill="#fff6e2" stroke="#c7ae86" stroke-width="2"/>
+            <path d="M14 18h208M14 23h208" stroke="#bc885e"/>
+            <use href="#dish-personal" transform="translate(118 98) scale(.93)"/>
+            <path d="M29 180h178M29 192h148" stroke="#7d846e" stroke-width="3" stroke-linecap="round"/>
+            <path d="M29 210h178M29 222h160M29 234h170M29 246h118" stroke="#c2b499" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="200" cy="181" r="11" fill="none" stroke="#b17d51" stroke-width="2"/><path d="m208 189 9 9" stroke="#b17d51" stroke-width="3" stroke-linecap="round"/>
+          </g>
+        </svg>
+        <figcaption class="p-caption">A closer look at one possibility; the others remain in view.</figcaption>
+      </figure>
+      `,
+    closing: "When you have specific dietary needs, let that information support the eating plan you choose with your care team.",
+    next: "Make it part of the day"
+  },
+  p3: {
+    headline: "Give tomorrow one less thing to figure out.",
+    intro: "Put a recipe on your meal plan. Choose the servings you intend to prepare. Turn the plan into a shopping list that brings the ingredients together.",
+    markup: `
+      <style>
+        .p-scene { max-width:60rem; margin:1.5rem auto; }
+        .p-scene svg { display:block; width:100%; height:auto; overflow:visible; }
+        .p-caption { max-width:40rem; margin:.35rem auto 0; color:#e9d4ac; text-align:center; font:italic 1rem/1.45 Georgia,serif; }
+      </style>
+      <figure class="p-scene">
+        <svg viewBox="0 0 900 360" aria-hidden="true" focusable="false">
+          <use href="#oak-table" y="92"/>
+          <g class="adventure-animate" transform="translate(87 65) rotate(-6 100 100)">
+            <rect x="5" y="7" width="200" height="210" rx="4" fill="#4c3525" opacity=".3"/>
+            <rect width="200" height="210" rx="4" fill="#fff4dc" stroke="#b99f7b" stroke-width="2"/>
+            <path d="M15 18h170M15 23h170" stroke="#c59364"/>
+            <use href="#dish-personal" transform="translate(100 87) scale(.75)"/>
+            <path d="M25 155h150M25 166h129M25 177h145M25 188h99" stroke="#a99b7e" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <g class="adventure-animate" transform="translate(320 42)">
+            <rect x="6" y="8" width="280" height="235" rx="5" fill="#4c3525" opacity=".3"/>
+            <rect width="280" height="235" rx="5" fill="#fff5df" stroke="#b69d78" stroke-width="2"/>
+            <path d="M0 40h280M93 40v195M186 40v195M0 137h280" fill="none" stroke="#c6b493" stroke-width="2"/>
+            <path d="M15 22h75M110 22h60M205 22h55" stroke="#8a8e76" stroke-width="3" stroke-linecap="round"/>
+            <path d="M36-8v19m208-19v19" stroke="#a47449" stroke-width="5" stroke-linecap="round"/>
+            <rect x="105" y="53" width="69" height="71" rx="3" fill="#e4ead4" stroke="#92a28a"/>
+            <use href="#dish-personal" transform="translate(139 82) scale(.32)"/>
+            <path d="M114 109h48M114 115h34" stroke="#8b9b86" stroke-width="2"/>
+            <path d="M15 59h55M15 69h36M205 152h51M205 162h38" stroke="#d2c4a8" stroke-width="2"/>
+          </g>
+          <path class="adventure-animate" d="M279 179C306 171 310 139 332 137M583 164C625 161 620 214 667 211" fill="none" stroke="#e8ae78" stroke-width="3" stroke-linecap="round"/>
+          <g class="adventure-animate" transform="translate(649 81) rotate(5 84 100)">
+            <path d="M5 7h168v213l-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-7-4Z" fill="#4c3525" opacity=".3"/>
+            <path d="M0 0h168v213l-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-7-4Z" fill="#fff8e8" stroke="#bea882" stroke-width="2"/>
+            <path d="M18 26h110M18 32h132" stroke="#bf9169"/>
+            <g fill="none" stroke="#8d9b80" stroke-width="2"><rect x="19" y="55" width="10" height="10"/><rect x="19" y="84" width="10" height="10"/><rect x="19" y="113" width="10" height="10"/><rect x="19" y="142" width="10" height="10"/></g>
+            <path d="M39 60h100M39 89h88M39 118h106M39 147h77M19 178h124" stroke="#b1a58a" stroke-width="2" stroke-linecap="round"/>
+          </g>
+        </svg>
+        <figcaption class="p-caption">A recipe in the plan, with a list to bring along.</figcaption>
+      </figure>`,
+    closing: "An intention becomes something you can actually bring home and cook.",
+    next: "See the bigger picture"
+  },
+  p4: {
+    headline: "One day is a beginning. Keep the story going.",
+    intro: "Log what you eat and review nutrition over time. Return to your recipes, revisit your goals, and make the next plan with more context than you had before.",
+    markup: `
+      <style>
+        .p-scene { max-width:58rem; margin:1.5rem auto; }
+        .p-scene svg { display:block; width:100%; height:auto; overflow:visible; }
+        .p-caption { max-width:40rem; margin:.35rem auto 0; color:#e9d4ac; text-align:center; font:italic 1rem/1.45 Georgia,serif; }
+      </style>
+      <figure class="p-scene">
+        <svg viewBox="0 0 900 350" aria-hidden="true" focusable="false">
+          <ellipse cx="450" cy="169" rx="380" ry="150" fill="url(#light)" opacity=".23"/>
+          <use href="#oak-table" y="87"/>
+          <g class="adventure-animate" transform="translate(165 152) rotate(-7)">
+            <rect x="-70" y="-46" width="140" height="94" rx="3" fill="#f4e7c9" stroke="#baa27f" stroke-width="2"/>
+            <path d="M-57-30h114M-57-23h114M-57-5h89M-57 7h103M-57 19h79M-57 31h97" fill="none" stroke="#b2a286" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <path class="adventure-animate" d="M119 250C227 290 274 256 306 212C326 184 323 112 388 93C445 76 504 111 503 157C502 205 442 228 403 201C377 183 384 150 409 145C436 139 443 166 427 174M502 157C544 153 559 170 588 170" fill="none" stroke="#e5ab75" stroke-width="3" stroke-linecap="round"/>
+          <g class="adventure-animate" transform="translate(419 154)">
+            <circle r="43" fill="#244a3e" stroke="#dfba87" stroke-width="2"/>
+            <rect x="-17" y="-24" width="27" height="25" rx="2" fill="#e8dabb" stroke="#513d2d"/>
+            <rect x="-10" y="-13" width="29" height="32" rx="2" fill="#f9edcf" stroke="#513d2d"/>
+            <rect x="-2" y="-17" width="10" height="7" rx="2" fill="#f9edcf" stroke="#513d2d"/>
+            <path d="M-7-6h23" stroke="#739b91" stroke-width="4"/><path d="M-7 2h23M-7 7h23M-7 12h17" stroke="#8c806c" stroke-width="1"/>
+          </g>
+          <g class="adventure-animate" transform="translate(575 65)">
+            <rect x="7" y="9" width="220" height="157" rx="7" fill="#091b16" opacity=".4"/>
+            <rect width="220" height="157" rx="7" fill="#345d4f" stroke="#c6ad82" stroke-width="2"/>
+            <rect x="9" y="10" width="202" height="137" rx="3" fill="#fbefd6"/>
+            <path d="M9 31h202" stroke="#c4b394"/><circle cx="19" cy="21" r="2.5" fill="#b77e5b"/><circle cx="28" cy="21" r="2.5" fill="#c5a474"/><circle cx="37" cy="21" r="2.5" fill="#86a18c"/>
+            <rect x="19" y="42" width="69" height="92" rx="2" fill="#dfe8d5" stroke="#9cae96"/>
+            <use href="#setup-notebook" transform="translate(54 80) scale(.38)"/>
+            <path d="M101 52h86M101 62h67M101 82h89M101 93h77M101 104h84M101 115h57M101 126h72" stroke="#adab92" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <use href="#bread-basket" transform="translate(739 240) scale(.65)"/>
+        </svg>
+        <figcaption class="p-caption">Your day leads back to a workspace you can make your own.</figcaption>
+      </figure>`,
+    closing: "Your life is bigger than a number. Give yourself a workspace that keeps the details together.",
+    next: "Build my nutrition workspace"
+  }
+};
+
+const FAMILY_SCENES = {
+  f1: {
+    headline: "The future doesn't always start with a grand plan.",
+    intro: "Sometimes it starts with a familiar question: what's for dinner?",
+    markup: `
+      <style>
+        .f-stage {display:block;width:min(100%,900px);height:auto;margin:12px auto 0;overflow:visible}
+        .f-caption {max-width:43rem;margin:4px auto 18px;text-align:center;color:#e5e8d9;line-height:1.55}
+        .f-caption p {margin:.5em 0}
+      </style>
+      <svg class="f-stage" viewBox="0 0 900 360" role="img" aria-label="A familiar recipe card and a place setting on a warmly lit table">
+        <ellipse class="adventure-animate" cx="451" cy="152" rx="390" ry="138" fill="url(#light)" opacity=".72"/>
+        <use href="#oak-table" y="80"/>
+        <g class="adventure-animate" transform="translate(267 119) rotate(-7)">
+          <rect x="5" y="7" width="177" height="112" rx="4" fill="#523e2d" opacity=".3"/>
+          <rect width="177" height="112" rx="4" fill="#fff5df" stroke="#b99d75" stroke-width="2"/>
+          <path d="M13 19H164M13 45H164M13 62H164M13 79H164M13 96H132" stroke="#d8c6a7" fill="none"/>
+          <path d="M16 31q24-8 53 0m7 0q18-6 39 0" stroke="#527163" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <path d="M147 28q-9-12-18-2 1 9 18 17 17-8 18-17-9-10-18 2Z" fill="#c18a61" opacity=".8"/>
+        </g>
+        <g class="adventure-animate" transform="translate(565 188) scale(.86)">
+          <ellipse cx="2" cy="7" rx="92" ry="72" fill="#1c3e34" opacity=".2"/>
+          <use href="#cutlery"/><use href="#dish-family"/>
+        </g>
+        <g class="adventure-animate" transform="translate(684 112)">
+          <ellipse cx="0" cy="31" rx="24" ry="8" fill="#61472e" opacity=".25"/>
+          <path d="M-17-10h34l-4 35q-13 7-26 0Z" fill="#e3eee0" fill-opacity=".4" stroke="#e7d8b5" stroke-width="2"/>
+          <path d="M-13 5q13 4 26 0" fill="none" stroke="#fff6dc" opacity=".8"/>
+        </g>
+        <path d="M111 76q51-28 102-28M705 63q46 8 79 30" fill="none" stroke="#edc68e" stroke-width="1.5" opacity=".55" stroke-linecap="round"/>
+      </svg>
+      <div class="f-caption"><p>A recipe someone loves. A little thought about what goes into it. A meal that fits the day you actually had.</p></div>`,
+    closing: "That is somewhere worth beginning.",
+    next: "Give the week some shape"
+  },
+  f2: {
+    headline: "A little planning can make room for a lot of living.",
+    intro: "Bring your recipes into a meal plan. Look at the days ahead, choose what you want to cook, and adjust the servings you plan to make.",
+    markup: `
+      <style>
+        .f-week {max-width:58rem;margin:24px auto 16px;position:relative}
+        .f-week-art {display:block;width:100%;height:auto;overflow:visible}
+        .f-week-note {max-width:39rem;margin:0 auto 18px;text-align:center;color:#e5e8d9;line-height:1.5}
+        .f-week svg text {font-family:Georgia,serif;fill:#345346}
+      </style>
+      <div class="f-week">
+        <svg class="f-week-art" viewBox="0 0 900 380" role="img" aria-label="A calendar with recipe cards across several days">
+          <ellipse cx="450" cy="170" rx="420" ry="160" fill="url(#light)" opacity=".48"/>
+          <use href="#oak-table" y="120"/>
+          <g class="adventure-animate" transform="translate(120 39)">
+            <rect x="7" y="9" width="660" height="226" rx="8" fill="#172e25" opacity=".28"/>
+            <rect width="660" height="226" rx="8" fill="#f6e9ce" stroke="#b79d76" stroke-width="2"/>
+            <rect x="0" y="0" width="660" height="43" rx="8" fill="#426b5d"/>
+            <path d="M0 35h660v9H0Z" fill="#426b5d"/>
+            <text x="20" y="29" style="fill:#fff3db;font-size:20px">A week at a glance</text>
+            <g stroke="#d1bfa0" stroke-width="1"><path d="M132 44v182M264 44v182M396 44v182M528 44v182"/></g>
+            <g font-size="15" font-style="italic"><text x="19" y="68">Monday</text><text x="151" y="68">Tuesday</text><text x="283" y="68">Wednesday</text><text x="415" y="68">Thursday</text><text x="547" y="68">Friday</text></g>
+            <g transform="translate(12 83) rotate(-2 52 57)"><rect x="3" y="4" width="104" height="112" fill="#a79372" opacity=".3"/><rect width="104" height="112" rx="2" fill="#fffbec" stroke="#d0bc98"/><circle cx="52" cy="39" r="23" fill="#d9e3d2" stroke="#94ad97"/><circle cx="52" cy="39" r="17" fill="#f3e6c9" stroke="#b4c2a9"/><path d="M14 78h76M14 87h58M14 96h68" stroke="#c7b79c"/></g>
+            <g transform="translate(278 83) rotate(2 52 57)"><rect x="3" y="4" width="104" height="112" fill="#a79372" opacity=".3"/><rect width="104" height="112" rx="2" fill="#fffbec" stroke="#d0bc98"/><circle cx="52" cy="39" r="23" fill="#d9e3d2" stroke="#94ad97"/><path d="M38 39q12-21 28 0-4 14-28 0Z" fill="#be7951"/><path d="M14 78h76M14 87h58M14 96h68" stroke="#c7b79c"/></g>
+            <g transform="translate(540 83) rotate(-1 52 57)"><rect x="3" y="4" width="104" height="112" fill="#a79372" opacity=".3"/><rect width="104" height="112" rx="2" fill="#fffbec" stroke="#d0bc98"/><circle cx="52" cy="39" r="23" fill="#d9e3d2" stroke="#94ad97"/><path d="M37 43q4-19 15-18 12 0 16 18-15 12-31 0Z" fill="#a7b67c"/><path d="M14 78h76M14 87h58M14 96h68" stroke="#c7b79c"/></g>
+            <path d="M157 110q29-18 66 0m-60 13h48m218-13q29-18 66 0m-60 13h48" fill="none" stroke="#d8c5a7" stroke-width="2" stroke-dasharray="3 5"/>
+          </g>
+        </svg>
+      </div>
+      <p class="f-week-note">Choose the meals and planned servings that work for the days ahead.</p>`,
+    closing: "A week with a plan: Less Time Cooking and More Time Living",
+    next: "Bring the plan home"
+  },
+  f3: {
+    headline: "Let the meals shape the shopping list.",
+    intro: "Turn your meal plan into a grocery list, with planned servings driving how much you buy. Food synergies highlight recipes that share ingredients, helping you build a shorter list and make the most of what you buy.",
+    markup: `
+      <style>
+        .f-shop {max-width:58rem;margin:18px auto 8px}
+        .f-shop svg {display:block;width:100%;height:auto;overflow:visible}
+        .f-shop-copy {max-width:43rem;margin:0 auto 18px;text-align:center;color:#e5e8d9;line-height:1.55}
+        .f-shop svg text {font-family:Georgia,serif;fill:#345346}
+      </style>
+      <div class="f-shop">
+        <svg viewBox="0 0 900 390" role="img" aria-label="Meal-plan cards connect by copper lines to a paper shopping list beside a table">
+          <ellipse cx="452" cy="180" rx="413" ry="168" fill="url(#light)" opacity=".48"/>
+          <use href="#oak-table" y="126"/>
+          <g class="adventure-animate" transform="translate(80 44) rotate(-3 175 120)">
+            <rect x="5" y="7" width="350" height="235" rx="5" fill="#172e25" opacity=".3"/>
+            <rect width="350" height="235" rx="5" fill="#f5e8cc" stroke="#bba47f" stroke-width="2"/>
+            <rect width="350" height="40" rx="5" fill="#426b5d"/><path d="M0 32h350v8H0Z" fill="#426b5d"/>
+            <text x="16" y="27" style="fill:#fff3db;font-size:19px">Meals for the week</text>
+            <g stroke="#d3c09f"><path d="M117 40v195M234 40v195"/></g>
+            <g font-size="14" font-style="italic"><text x="13" y="62">Monday</text><text x="130" y="62">Wednesday</text><text x="248" y="62">Friday</text></g>
+            <g fill="#fffaec" stroke="#cbb995"><rect x="11" y="74" width="94" height="127" rx="2"/><rect x="128" y="74" width="94" height="127" rx="2"/><rect x="245" y="74" width="94" height="127" rx="2"/></g>
+            <g fill="#b9cba8" stroke="#879f88"><circle cx="58" cy="109" r="21"/><circle cx="175" cy="109" r="21"/><circle cx="292" cy="109" r="21"/></g>
+            <g fill="none" stroke="#c6b495" stroke-linecap="round" stroke-width="2"><path d="M23 150h70m-70 10h54m-54 10h62M140 150h70m-70 10h54m-54 10h62M257 150h70m-70 10h54m-54 10h62"/></g>
+          </g>
+          <g class="adventure-animate" fill="none" stroke="#c98c5d" stroke-linecap="round">
+            <path d="M412 107C485 91 471 110 557 112" stroke-width="3"/><path d="M422 157C491 140 478 158 555 160" stroke-width="3"/><path d="M420 209C478 202 487 210 557 209" stroke-width="3"/>
+            <path d="M438 98h27m-23 51h24m-28 50h28" stroke="#f0c398" stroke-width="2"/>
+            <circle cx="554" cy="112" r="4" fill="#dca474"/><circle cx="554" cy="160" r="4" fill="#dca474"/><circle cx="554" cy="209" r="4" fill="#dca474"/>
+          </g>
+          <g class="adventure-animate" transform="translate(565 43) rotate(4 118 145)">
+            <rect x="6" y="8" width="236" height="282" rx="3" fill="#192e24" opacity=".3"/>
+            <path d="M0 0h236v269l-12 13-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8Z" fill="#fff7e3" stroke="#c3ae88" stroke-width="2"/>
+            <text x="22" y="38" style="font-size:24px">Shopping list</text>
+            <path d="M20 51h196" stroke="#c8b494"/>
+            <g fill="none" stroke="#9aaf96" stroke-width="2"><rect x="22" y="70" width="14" height="14" rx="2"/><rect x="22" y="115" width="14" height="14" rx="2"/><rect x="22" y="160" width="14" height="14" rx="2"/><rect x="22" y="205" width="14" height="14" rx="2"/></g>
+            <g stroke="#b9ab91" stroke-linecap="round" stroke-width="2"><path d="M49 76h116m-116 9h81M49 121h138m-138 9h94M49 166h109m-109 9h72M49 211h126m-126 9h88"/></g>
+            <path d="M175 17q11-14 24 0-1 9-12 16-11-7-12-16Z" fill="#a6bd94"/>
+          </g>
+        </svg>
+      </div>
+      <p class="f-shop-copy">Take the next step with a list connected to what you intend to cook—not another set of notes to assemble from scratch.</p>`,
+    closing: "Thoughtful meal planning can help lower your grocery bill and reduce waste while bringing nutritious meals to your family table.",
+    next: "Keep what matters"
+  },
+  f4: {
+    headline: "Some recipes become part of the family story.",
+    intro: "Create your own family recipe book, just like Grandma's recipe cards. Gather the dishes you love, make a printable cookbook, and start creating your family heirloom.",
+    markup: `
+      <style>
+        .f-book-stage {display:block;width:min(100%,900px);height:auto;margin:12px auto 0;overflow:visible}
+        .f-book-copy {max-width:42rem;margin:0 auto 18px;text-align:center;color:#e5e8d9;line-height:1.55}
+        .f-book-stage text {font-family:Georgia,serif}
+      </style>
+      <svg class="f-book-stage" viewBox="0 0 900 390" role="img" aria-label="An open cookbook and a closed cover framed like a personal workspace, resting on a warm table">
+        <ellipse cx="452" cy="176" rx="410" ry="163" fill="url(#light)" opacity=".5"/>
+        <use href="#oak-table" y="129"/>
+        <g class="adventure-animate" transform="translate(69 69) rotate(-5 195 120)">
+          <path d="M9 12q98-32 190 3 99-35 192-3v218q-94-29-192 5Q97 201 9 230Z" fill="#32594b" stroke="#17392f" stroke-width="4"/>
+          <path d="M18 10q93-26 181 9v207q-90-33-181-5Z" fill="#f8eed8" stroke="#c6b392" stroke-width="2"/>
+          <path d="M199 19q91-35 183-9v211q-92-28-183 5Z" fill="#fff7e5" stroke="#c6b392" stroke-width="2"/>
+          <path d="M199 20v204" stroke="#ac9878" stroke-width="3"/>
+          <path d="M31 26q79-18 153 7M31 33q80-18 153 7M214 40q77-25 154-9" fill="none" stroke="#e4d5b9"/>
+          <text x="42" y="70" font-size="18" fill="#3a5a4b">A favorite recipe</text>
+          <path d="M41 81h119M41 96h131M41 108h118M41 120h127M41 132h97M41 160h132M41 172h119M41 184h125" fill="none" stroke="#c7b69a" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="290" cy="99" r="42" fill="#dbe4d3" stroke="#94a994" stroke-width="2"/><circle cx="290" cy="99" r="34" fill="#f7ecd4" stroke="#c8b99c"/><path d="M265 100q5-25 25-26 19 2 26 26-6 17-26 19-20-2-25-19Z" fill="#c58258"/><path d="M282 91q-8-12-16-9 2 11 16 14m1-5q5-15 17-13-1 12-17 18" fill="#6d9160"/>
+          <path d="M225 159h135M225 171h124M225 183h130M225 195h93" stroke="#c7b69a" stroke-width="2" stroke-linecap="round"/>
+          <path d="M199 224v30l9-6 9 6v-33" fill="#173e43"/>
+        </g>
+        <g class="adventure-animate" transform="translate(529 53) rotate(5 132 129)">
+          <rect x="7" y="9" width="264" height="258" rx="8" fill="#142e26" opacity=".35"/>
+          <rect width="264" height="258" rx="8" fill="#315d4d" stroke="#d3b27a" stroke-width="2"/>
+          <path d="M12 7v244" stroke="#a9b996" stroke-width="2"/><rect x="25" y="21" width="219" height="216" rx="4" fill="none" stroke="#d6bb88"/>
+          <text x="135" y="58" text-anchor="middle" fill="#f5e6c4" font-size="23">Our recipes</text>
+          <path d="M69 72h132" stroke="#e0c997"/>
+          <rect x="51" y="89" width="168" height="117" rx="4" fill="#f6ead2" stroke="#d6bd92"/>
+          <path d="M52 111h166" stroke="#b9a882"/><circle cx="62" cy="100" r="2" fill="#bc7951"/><circle cx="71" cy="100" r="2" fill="#91a98e"/><circle cx="80" cy="100" r="2" fill="#d6b37a"/>
+          <rect x="65" y="126" width="55" height="62" rx="2" fill="#dce7d7"/><circle cx="92" cy="150" r="16" fill="#fff5df" stroke="#b4c1a5"/><path d="M133 132h69m-69 12h56m-56 12h65m-65 12h47m-47 12h61" stroke="#b7aa90" stroke-width="2" stroke-linecap="round"/>
+        </g>
+        <path class="adventure-animate" d="M457 328C512 348 562 342 600 322" fill="none" stroke="#ca8c5e" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <p class="f-book-copy">The recipes you return to can have a place of their own.</p>`,
+    closing: "A plan for this week. Something to build on for the years ahead.",
+    next: "Create our family's workspace"
+  }
+};
+
+const CARE_SCENES = {
+  c1: {
+    headline: "There's a person behind every meal.",
+    intro: "Someone with favorite flavors. Familiar routines. A history that doesn't disappear because their needs have changed.",
+    markup: `<style>
+      .c-setting {max-width:58rem;margin:24px auto 8px;position:relative}
+      .c-setting svg {display:block;width:100%;height:auto}
+      .c-setting .c-notes {display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin:-8px auto 16px;position:relative}
+      .c-setting .c-note {max-width:17rem;padding:12px 18px;transform:rotate(-2deg);font:italic 1.05rem/1.4 Georgia,serif}
+      .c-setting .c-note + .c-note {transform:rotate(2deg)}
+      .c-setting .c-note strong {display:block;font:600 .78rem system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+    </style>
+    <section class="c-setting" aria-label="A familiar place at the table">
+      <svg viewBox="0 0 900 270" aria-hidden="true">
+        <use href="#oak-table"/>
+        <g transform="translate(450 118) scale(1.2 .75)"><use href="#cutlery"/><use href="#dish-care"/></g>
+        <g class="adventure-animate" transform="translate(210 100) rotate(-15)"><use href="#bread-basket" transform="scale(1.1 .75)"/></g>
+        <g class="adventure-animate" transform="translate(685 100)"><use href="#basil" transform="rotate(-20) scale(1.3)"/><use href="#basil" transform="translate(15 5) rotate(55)"/></g>
+        <g class="adventure-animate" transform="translate(610 142) rotate(-8)"><rect x="-51" y="-21" width="102" height="43" rx="2" fill="#fff3d9" stroke="#b79770"/><path d="M-37-8h64M-37 0h72M-37 8h49" stroke="#aa8a6c" stroke-width="1.5"/></g>
+      </svg>
+      <div class="c-notes"><div class="sheet c-note adventure-animate"><strong>A familiar flavor</strong>Herbs at the table</div><div class="sheet c-note adventure-animate"><strong>A recipe note</strong>Keep the dishes worth returning to.</div></div>
+    </section>`,
+    closing: "Thoughtful food starts with seeing the person—not just the numbers.",
+    next: "c2"
+  },
+  c2: {
+    headline: "Give care more context.",
+    intro: "Review recipe ingredients and available nutrition, keeping sight of what's known and what still needs checking.",
+    markup: `<style>
+      .c-context {max-width:60rem;margin:28px auto}
+      .c-context .c-grid {display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:12px;align-items:center}
+      .c-context .sheet {min-width:0;padding:clamp(16px,2.3cqi,25px)}
+      .c-context h2,.c-context h3 {display:block;text-align:left;margin:5px 0 12px;font:normal 1.35rem/1.15 Georgia,serif}
+      .c-context h2::before,.c-context h2::after {display:none}
+      .c-context p {margin:8px 0}.c-context ul {padding-left:1.2rem}
+      .c-context .c-label {font:600 .75rem system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#526958}
+      .c-context svg {display:block;width:100%;height:auto;max-height:155px}
+      .c-context .c-limit {border-top:1px solid #b9a889;padding-top:10px;font-size:.9rem}
+      @container (max-width:700px) {.c-context .c-grid {grid-template-columns:1fr;max-width:32rem;margin:auto}}
+    </style>
+    <section class="c-context" aria-label="Recipe information">
+      <div class="c-grid">
+        <article class="sheet adventure-animate"><p class="c-label">Ingredients</p><h2>What goes into it</h2><ul><li>Chicken</li><li>Potatoes</li><li>Peas</li></ul></article>
+        <article class="sheet adventure-animate"><p class="c-label">Recipe</p><h2>A familiar plate</h2><svg viewBox="-100 -72 200 144" aria-hidden="true"><use href="#cutlery"/><use href="#dish-care"/><use href="#basil" transform="translate(83 -38) rotate(35)"/></svg><p>Recipe and serving details belong together.</p></article>
+        <article class="sheet adventure-animate"><p class="c-label">Nutrition context</p><h2>Look closer</h2><p>Review available per-serving nutrient details and their source.</p></article>
+      </div>
+    </section>`,
+    closing: "Use information alongside the person's care plan and the judgment of qualified professionals—not in place of them.",
+    next: "c3"
+  },
+  c3: {
+    headline: "Bring the next few meals into view.",
+    intro: "Organize recipes, place them on a meal plan, and bring ingredients together for review.",
+    markup: `<style>
+      .c-prep {max-width:59rem;margin:28px auto}
+      .c-prep .papers {grid-template-columns:minmax(0,1.4fr) 48px minmax(0,1fr);margin-bottom:0}
+      .c-prep .sheet {min-width:0}.c-prep h2,.c-prep h3 {display:block;text-align:left}
+      .c-prep h2::before,.c-prep h2::after {display:none}
+      .c-prep .c-cards {display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .c-prep .c-card {padding:12px;background:#fff9ea;border:1px solid #d2c0a0;box-shadow:1px 3px 3px #61492c28}
+      .c-prep .c-card h3 {font:normal 1.12rem Georgia,serif;margin:6px 0}
+      .c-prep .c-card svg {display:block;width:100%;height:80px}
+      .c-prep .c-small {font-size:.82rem;color:#536353;margin:0}
+      .c-prep .c-list {list-style:none;padding:0}.c-prep .c-list li {padding:8px 0;border-bottom:1px solid #d2c2a4}
+      .c-prep .c-link {width:100%;height:40px}
+      .c-prep .c-counter {display:block;width:100%;height:auto}
+      @container (max-width:680px) {.c-prep .papers {grid-template-columns:1fr;max-width:32rem;gap:8px}.c-prep .c-link {width:40px;justify-self:center;transform:rotate(90deg)}}
+      @container (max-width:360px) {.c-prep .c-cards {grid-template-columns:1fr}}
+    </style>
+    <section class="c-prep" aria-label="Short meal plan and ingredient list">
+      <div class="papers">
+        <div class="sheet adventure-animate"><p class="c-small">Meal planning</p><h2>A short meal plan</h2><div class="c-cards">
+          <article class="c-card"><p class="c-small">First meal</p><svg viewBox="-80 -65 160 130" aria-hidden="true"><use href="#dish-care"/></svg><h3>Chicken, potatoes &amp; peas</h3></article>
+          <article class="c-card"><p class="c-small">Next meal</p><svg viewBox="-80 -65 160 130" aria-hidden="true"><use href="#dish-personal"/></svg><h3>Salmon &amp; asparagus</h3></article>
+        </div></div>
+        <svg class="c-link adventure-animate" viewBox="0 0 48 40" aria-hidden="true"><path d="M2 8C17 8 13 20 26 20M2 32C17 32 13 20 26 20h17m-6-5 6 5-6 5" fill="none" stroke="#efb982" stroke-width="2"/></svg>
+        <div class="sheet adventure-animate"><p class="c-small">For review</p><h2>Ingredients</h2><ul class="c-list"><li>Chicken</li><li>Potatoes and peas</li><li>Salmon</li><li>Asparagus and lemon</li></ul></div>
+      </div>
+      <svg class="c-counter" viewBox="0 0 920 86" aria-hidden="true"><use href="#menu-counter"/></svg>
+      <p style="text-align:center">Review the plan and list together.</p>
+    </section>`,
+    closing: "Keep planning details connected, so you can review the plan as a whole.",
+    next: "c4"
+  },
+  c4: {
+    headline: "Make room for the human part of care.",
+    intro: "Start with a sample recipe collection and a small plan. Review it with the people responsible for nutrition, care, and preparation.",
+    markup: `<style>
+      .c-pilot {max-width:57rem;margin:28px auto 16px}
+      .c-pilot .c-folio {padding:9px;background:linear-gradient(125deg,#41675c,#24473e);border:1px solid #728c74;border-radius:6px 15px 10px 5px;box-shadow:1px 5px #152d26,0 12px 22px #061c1640}
+      .c-pilot .c-spread {display:grid;grid-template-columns:1fr 1fr;gap:0}
+      .c-pilot .sheet {box-shadow:none;border-radius:2px;min-width:0}
+      .c-pilot h2,.c-pilot h3 {display:block;text-align:left}.c-pilot h2::before,.c-pilot h2::after {display:none}
+      .c-pilot .c-label {font:600 .75rem system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#526958}
+      .c-pilot .c-scene {display:block;width:100%;height:auto;max-height:190px}
+      .c-pilot .c-slips {display:flex;gap:8px;flex-wrap:wrap}
+      .c-pilot .c-slip {background:#fff9ea;border:1px solid #cdbb9b;padding:9px;flex:1 1 9rem;font:1rem Georgia,serif}
+      .c-pilot details {border-block:1px solid #c9b99f;padding:10px 0;margin-top:14px}
+      .c-pilot summary {cursor:pointer;color:#285342;font-weight:600}.c-pilot summary:focus-visible {outline:3px solid #84582d;outline-offset:3px}
+      .c-pilot .c-boundary {margin:16px 0 0;padding:14px 18px;border-left:3px solid #efb982;background:#173b31;color:#fff2d9;line-height:1.5}
+      @container (max-width:640px) {.c-pilot .c-spread {grid-template-columns:1fr}}
+    </style>
+    <section class="c-pilot" aria-label="Care planning workspace">
+      <div class="c-folio"><div class="c-spread">
+        <div class="sheet adventure-animate"><p class="c-label">Care planning</p><h2>A welcoming table</h2><svg class="c-scene" viewBox="0 0 300 180" aria-hidden="true"><use href="#dining-setting"/></svg></div>
+        <div class="sheet adventure-animate"><p class="c-label">Care planning</p><h2>Recipes &amp; a plan</h2><div class="c-slips"><div class="c-slip">Familiar plate<br><small>Recipe</small></div><div class="c-slip">A short meal plan<br><small>Meals for the week</small></div></div><p>Explore the workflow with the people who understand your setting.</p><details><summary>What to consider before live use</summary><p>Invite nutrition, care, preparation, and IT perspectives. Evaluate the workflow and privacy obligations independently before introducing real information.</p></details></div>
+      </div></div>
+      <p class="c-boundary"><strong>Beta software, not a clinical system or a substitute for individualized care.</strong> Independently verify therapeutic diets, allergies, texture needs, and safety. Review organizational policy and privacy obligations before any deployment.</p>
+    </section>`,
+    closing: "Bring recipes and plans together to support thoughtful care.",
+    next: "h1"
+  }
+};
+
+// Additional journey scenes. The original preview above is deliberately unchanged.
+// All illustrations run locally using the same shadow-root artwork and native Web Animations.
+const ADDITIONAL_SCENES = {...PERSONAL_SCENES, ...FAMILY_SCENES, ...CARE_SCENES};
+const ADDITIONAL_ROUTES = {personal:['p1','p2','p3','p4'], family:['f1','f2','f3','f4'], care:['c1','c2','c3','c4']};
+let adventureRoute = null;
+
+function mountAdventureChapter(container, key, options = {}) {
+  const content = ADDITIONAL_SCENES[key];
+  const host = document.createElement('div');
+  const root = host.attachShadow({mode:'open'});
+  root.append(document.querySelector('#ledger-art').content.cloneNode(true));
+  root.append(document.querySelector('#ledger-shell').content.cloneNode(true));
+  for (const setting of ['emerald','cream','copper','width','heading','lunchWidth']) host.style.setProperty('--'+setting, SETTINGS[setting]);
+  const find = selector => root.querySelector(selector);
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const animations = new Set();
+  const book = find('.book');
+  book.classList.add('adventure-chapter');
+  const styles = document.createElement('style');
+  styles.textContent = `
+    .adventure-chapter header p {max-width:48rem;line-height:1.65}
+    .adventure-chapter .scene-content {max-width:57rem;margin:auto}
+    .adventure-chapter .stage {display:none}
+    .adventure-chapter .story-art {margin:clamp(18px,3cqi,32px) auto;max-width:57rem}
+    .adventure-chapter .story-art svg {display:block;width:100%;height:auto}
+    .adventure-chapter .story-art svg.c-link {width:40px;height:40px}
+    .adventure-chapter .story-art .wire {stroke:#ab7144}
+    .adventure-chapter .story-art .sheet {height:auto}
+    .adventure-chapter .story-art p {line-height:1.55}
+    .adventure-chapter .scene-content .choices,.adventure-chapter #question {display:none}
+    .adventure-chapter .school-ending {display:block}
+    .adventure-chapter .closing {max-width:48rem;line-height:1.6}
+    .adventure-chapter .story-art a {color:#285642}
+    @container(max-width:640px) {.adventure-chapter .story-art {margin-block:14px}.adventure-chapter .story-art .papers {grid-template-columns:1fr}}
+  `;
+  root.append(styles);
+  find('h1').innerHTML = content.headline;
+  const intro = document.createElement('p');
+  intro.textContent = content.intro;
+  find('header').append(intro);
+  const art = document.createElement('div');
+  art.className = 'story-art';
+  art.innerHTML = content.markup;
+  find('.stage').after(art);
+  find('#question').hidden = true;
+  find('.choices').hidden = true;
+  find('.school-ending').hidden = false;
+  find('.closing').textContent = content.closing;
+  const careLabels = {c1:'Give the details room', c2:'Turn attention into a plan', c3:'Create room for thoughtful care', c4:'Explore a care-planning pilot'};
+  find('.next').textContent = (careLabels[key] || content.next) + ' →';
+  find('.status').textContent = '';
+  find('.next').addEventListener('click', () => { skip(); options.onNext(); });
+  const change = document.createElement('button');
+  change.type = 'button'; change.textContent = 'Change path';
+  find('.setup').before(change);
+  change.addEventListener('click', () => { skip(); showOpening(true, adventureRoute === 'care' ? 'care' : adventureRoute); });
+  find('[data-action="back"]').addEventListener('click', () => { skip(); options.onBack(); });
+  find('[data-action="setup"]').addEventListener('click', () => { skip(); options.onSetup(); });
+  find('[data-action="replay"]').addEventListener('click', replay);
+  find('[data-action="skip"]').addEventListener('click', () => { skip(); options.onSetup(); });
+  find('[data-action="restart"]').addEventListener('click', () => { skip(); restartAdventure(); });
+  function skip() { for (const animation of animations) animation.cancel(); animations.clear(); }
+  function replay() {
+    skip();
+    if (motion.matches || typeof host.animate !== 'function') return;
+    // Each scene's layers tell its own sequence; SVG wrappers retain original art transforms.
+    const entries = {
+      p1:['translateX(-35px)','translateY(12px)','translateX(-30px)','translateX(30px)'],
+      p2:['translateX(-35px)','translateX(35px)','translateY(28px) scale(.95)'],
+      p3:['translateX(-35px)','scale(.95)','translateX(-15px)','translateX(30px)'],
+      p4:['translateY(15px)','scaleX(.5)','scale(.88)','translateX(32px)'],
+      f1:['scale(.92)','translateX(-30px)','translateX(30px)','translateY(-15px)'],
+      f2:['translateX(-18px)','translateX(18px)','scale(.94)'],
+      f3:['translateX(-30px)','scaleX(.55)','translateX(28px)'],
+      f4:['rotate(-3deg)','rotate(4deg) scale(.96)','scaleX(.6)'],
+      c1:['translateX(-30px)','translateX(30px)','translateY(12px)'],
+      c2:['translateX(-18px)','translateY(10px)','translateX(18px)'],
+      c3:['translateX(-18px)','scaleX(.6)','translateX(18px)'],
+      c4:['translateX(-16px)','translateX(16px)']
+    };
+    root.querySelectorAll('.adventure-animate').forEach((el, i) => {
+      const effect = (entries[key] || [])[i] || 'translateY(8px)';
+      const svgLayer = el.namespaceURI === 'http://www.w3.org/2000/svg' && el.localName !== 'svg';
+      const frames = svgLayer
+        ? [{opacity:.05, transform:effect},{opacity:1, transform:'none'}]
+        : [{opacity:.05},{opacity:1}];
+      const animation = el.animate(frames, {delay:Math.min(i,5)*180, duration:700, fill:'backwards', easing:'cubic-bezier(.24,.65,.26,1)'});
+      animations.add(animation);
+      animation.onfinish = () => animations.delete(animation);
+    });
+  }
+  const onMotionChange = () => { if (motion.matches) skip(); };
+  motion.addEventListener('change', onMotionChange);
+  // Wrap SVG targets so WAAPI transforms cannot replace an illustration's own
+  // SVG transform attribute. Underlying artwork remains at its settled position.
+  art.querySelectorAll('.adventure-animate').forEach(el => {
+    if (el.namespaceURI !== 'http://www.w3.org/2000/svg' || el.localName === 'svg') return;
+    const wrapper = document.createElementNS('http://www.w3.org/2000/svg','g');
+    el.before(wrapper);
+    wrapper.append(el);
+    el.classList.remove('adventure-animate');
+    wrapper.classList.add('adventure-animate');
+  });
+  container.append(host);
+  replay();
+  return {
+    skip, replay,
+    focusHeading() {find('h1').focus();},
+    focusNext() {find('.next').focus();},
+    destroy() {skip(); motion.removeEventListener('change', onMotionChange); host.remove();}
+  };
+}
+
+function showAdventureChapter(route, index, returning = false) {
+  adventureRoute = route;
+  scene?.destroy();
+  scene = mountAdventureChapter(preview, ADDITIONAL_ROUTES[route][index], {
+    onBack() {
+      if (index > 0) showAdventureChapter(route,index-1,true);
+      else if (route === 'care') showBranches(true,'care');
+      else showOpening(true,route);
+    },
+    onNext() {
+      if (index < 3) showAdventureChapter(route,index+1);
+      else showAdventureSetup(route,index);
+    },
+    onSetup() {showAdventureSetup(route,index);}
+  });
+  if (returning) {scene.skip(); scene.focusNext();} else scene.focusHeading();
+}
+
+function showAdventureSetup(route, returnIndex, onBack = () => showAdventureChapter(route,returnIndex,true)) {
+  adventureRoute = route;
+  const isCare = route === 'care';
+  const arrival = isCare ? {
+    headline:'Begin with a small, thoughtful pilot.',
+    introduction:'Bring together the people responsible for nutrition, care, preparation, privacy, and IT to plan your workspace.',
+    hosting:'DietLedger is a self-hosted beta. You provide the hosting and must assess its suitability for your setting.',
+    prompt:'How would you like to begin?'
+  } : {
+    headline:'Now make it yours.',
+    introduction:'Your data is yours. Your recipes, plans, and food logs live on the machine where you choose to host DietLedger.',
+    hosting:'DietLedger does not sell your data to advertisers. You control your self-hosted beta instance, including access, security, and backups.',
+    prompt:'How would you like to begin?'
+  };
+  scene?.destroy();
+  scene = mountChooseSetup(preview, {
+    arrival,
+    hideChangePath: returnIndex === 3,
+    onBack,
+    onChoose(path) {if (path === 'opening') showOpening(true, route === 'care' ? 'care' : route);}
+  });
+  const root = preview.lastElementChild.shadowRoot;
+  const buttons = [...root.querySelectorAll('.choices .choice')];
+  if (!isCare) {
+    buttons[0].querySelector('.label').textContent = 'Guide me through self-hosting';
+    buttons[0].querySelector('.desc').textContent = 'Explain what I need and what I will be running.';
+    buttons[1].querySelector('.label').textContent = 'Show me the technical steps';
+    buttons[1].querySelector('.desc').textContent = 'See installation requirements and commands.';
+    root.querySelector('#technical-guide p').textContent = 'Review installation requirements and commands before building your instance.';
+  }
+  const boundary = root.querySelector('.setup-materials .pilot-boundary');
+  boundary.textContent = isCare
+    ? 'Beta software, not a clinical system or a substitute for individualized care. Independently verify therapeutic diets, allergies, texture needs, and safety. Review organizational policy and privacy obligations before deployment.'
+    : 'Beta software. Nutrition information depends on the data available and is not medical advice. Maintain access controls, updates, and tested backups for your own instance.';
+  root.querySelector('h1').focus();
+}
+
+// Preserve the existing opening and care-branch components, adding only the missing choices.
+showOpening = function(returning = false, returnPath = 'care') {
+  adventureRoute = null;
+  scene?.destroy();
+  scene = mountThreeLights(preview, {
+    onSetup:() => showAdventureSetup('personal',0,() => showOpening(true)),
+    onChoose(path) {
+      if (path === 'care') showBranches();
+      else if (path === 'personal' || path === 'family') showAdventureChapter(path,0);
+    }
+  });
+  if (returning) {scene.skip(); scene.focusPath(returnPath);}
+};
+showBranches = function(returning = false, returnPath = 'schools') {
+  scene?.destroy();
+  scene = mountCareBranches(preview, {
+    onBack:() => showOpening(true),
+    onSetup:() => showAdventureSetup('personal',0,() => showBranches(true)),
+    onChoose(path) {
+      if (path === 'schools') showSchool();
+      else if (path === 'care') showAdventureChapter('care',0);
+    }
+  });
+  if (returning) {scene.skip(); scene.focusPath(returnPath);} else scene.focusHeading();
+};
+showOpening();
+
+</script>
+<!-- END ADVENTURE EXTENSION -->
+</body>
+</html>

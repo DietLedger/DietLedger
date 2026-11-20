@@ -35,6 +35,9 @@ export interface FDASearchResponse {
   source: 'fda' | 'fallback' | 'local';
 }
 
+import { getAccessToken } from './auth-session';
+import { authenticatedFetch } from './api-auth';
+
 export function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
   if (f.nutrients && typeof f.nutrients === 'object') return f as FDASearchResult;
   return {
@@ -69,9 +72,9 @@ export function mapFoodItemToFDASearchResult(f: any): FDASearchResult {
 export async function searchFDAFoods(query: string): Promise<FDASearchResponse> {
   try {
     const headers: Record<string, string> = {};
-    const token = typeof window !== 'undefined' ? localStorage.getItem('dietledger_access_token') : null;
+    const token = getAccessToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `/api/foods/search?query=${encodeURIComponent(query)}`,
       { headers }
     );

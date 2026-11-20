@@ -3,11 +3,14 @@ import html2canvas from 'html2canvas';
 import { toCanvas } from 'html-to-image';
 import type { CookbookExportOptions, BrandKit, TemplateTheme, FoodPortion } from '@/lib/types';
 import { getApiClient } from '@/lib/api-client';
-import { parseInstructions } from '@/lib/recipe-types';
+import { parseInstructions, recipeNutrition, recipeMissingNutrients } from '@/lib/recipe-types';
 import { formatCookbookIngredient } from '@/lib/cookbook-unit-display';
 import { toBaseUnit } from '@/lib/unit-conversion';
 
 interface RecipeData {
+  missingNutrients?: string[];
+  description?: string;
+  customNutrition?: import('./types').CustomRecipeNutrition | null;
   id: string;
   name: string;
   servings: number;
@@ -58,11 +61,39 @@ function mmToPt(mm: number): number {
   return mm * PT_PER_MM;
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function safeColor(value: string | undefined, fallback: string): string {
+  return value && /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(value) ? value : fallback;
+}
+
+function safeFont(value?: string): string {
+  const fonts = [
+    'system-ui', 'Georgia', 'Palatino', 'Times New Roman', 'Arial', 'Helvetica', 'Verdana', 'Trebuchet MS', 'Courier New', 'monospace',
+    'Arial, sans-serif', 'Georgia, serif', '"Times New Roman", serif', '"Courier New", monospace', 'Verdana, sans-serif',
+  ];
+  // Only exact editor/brand choices, encoded for the HTML style attribute.
+  // inherit retains the export's existing system-ui default.
+  return value && fonts.includes(value) ? escapeHtml(value) : 'system-ui';
+}
+
+function logoHtml(value: string | undefined, style: string): string {
+  if (!value) return '';
+  // Remote raster URLs can track private export activity; SVG is active-capable
+  // content. Keep uploaded raster branding and make unsupported logos visible.
+  return /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z\d+/]+={0,2}$/i.test(value)
+    ? `<img src="${value}" style="${style}">`
+    : '<div role="note" style="font-size:10px;line-height:1.4;color:#333;background:#fff;padding:4px;margin-bottom:8px;max-width:400px">Logo omitted: PDF export supports uploaded PNG, JPEG, GIF or WebP images only. SVG and external image requests are blocked for safety and privacy.</div>';
+}
+
 function renderNutritionLabelHtml(recipe: RecipeData, theme?: TemplateTheme): string {
-  const d = recipe.nutrition;
-  const bg = theme?.backgroundColor ?? '#ffffff';
-  const text = theme?.textColor ?? '#000000';
-  const primary = theme?.primaryColor ?? '#000000';
+  const d = recipe.customNutrition ? recipeNutrition({ customNutrition: recipe.customNutrition }, 1 / (recipe.servings || 1)) : recipe.nutrition;
+  const missing = new Set(recipe.customNutrition?.missingNutrients ?? recipe.missingNutrients ?? []);
+  const keys = ['totalFat', 'saturatedFat', 'transFat', 'cholesterol', 'sodium', 'totalCarbs', 'dietaryFiber', 'totalSugars', 'protein', 'vitaminD', 'calcium', 'iron', 'potassium'];
+  const bg = safeColor(theme?.backgroundColor, '#ffffff');
+  const text = safeColor(theme?.textColor, '#000000');
 
   const dv = (val: number, ref: number) => ref > 0 ? Math.round((val / ref) * 100) : 0;
 
@@ -86,6 +117,7 @@ function renderNutritionLabelHtml(recipe: RecipeData, theme?: TemplateTheme): st
     const sep = i === 4 || i === 8 ? 'border-top:4px solid ' + text : i > 0 ? 'border-top:1px solid ' + text : '';
     const fw = r.bold ? 'font-weight:700' : 'font-weight:400';
     const pd = r.indent ? 'padding-left:16px' : '';
+    if (missing.has(keys[i])) return `<div style="padding:2px 0;${sep}">${r.name} Not reported</div>`;
     const dvCell = r.noDv ? '' : `<span style="float:right;font-weight:700;font-size:13px">${r.dv}%</span>`;
     return `<div style="overflow:hidden;padding:2px 0;${sep}"><span style="${fw};font-size:13px;${pd}">${r.name} ${Math.round(r.val * 100) / 100}${r.unit}</span>${dvCell}</div>`;
   }).join('');
@@ -93,14 +125,15 @@ function renderNutritionLabelHtml(recipe: RecipeData, theme?: TemplateTheme): st
   return `<div style="width:280px;border:3px solid ${text};padding:8px 8px 4px;font-family:Arial,Helvetica,sans-serif;color:${text};background:${bg};line-height:1.4;box-sizing:border-box">
 <div style="font-weight:900;font-size:28px;line-height:1.1">Nutrition Facts</div>
 <div style="height:4px;background:${text};margin:2px 0"></div>
-<div style="font-size:13px"><span style="font-weight:700">Serving Size:</span> ${recipe.servingName || '1 recipe'} (${recipe.servings} servings)</div>
+<div style="font-size:13px"><span style="font-weight:700">Serving Size:</span> ${escapeHtml(recipe.servingName || '1 recipe')} (${escapeHtml(String(recipe.servings))} servings)</div>
 <div style="height:4px;background:${text};margin:2px 0"></div>
 <div style="font-weight:700;font-size:13px">Amount Per Serving</div>
-<div style="display:flex;justify-content:space-between;align-items:baseline;margin:4px 0 2px"><span style="font-weight:700;font-size:13px">Calories</span><span style="font-weight:900;font-size:24px">${d.calories}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin:4px 0 2px"><span style="font-weight:700;font-size:13px">Calories</span><span style="font-weight:900;font-size:24px">${missing.has('calories') ? 'Not reported' : escapeHtml(String(d.calories))}</span></div>
 <div style="height:4px;background:${text};margin:2px 0"></div>
 <div style="overflow:hidden;font-size:13px;margin-bottom:0"><span style="float:right;font-weight:700">% Daily Value*</span></div>
 ${rowHtml}
 <div style="height:4px;background:${text};margin:2px 0"></div>
+${recipe.customNutrition ? `<div style="font-size:10px;white-space:pre-wrap">Custom recipe nutrition — source: ${escapeHtml(recipe.customNutrition.source)}. Replaces ingredient nutrition.${missing.size ? `<br>Not reported: ${escapeHtml([...missing].join(', '))}. Unknown, not measured zeros.` : ''}${recipe.customNutrition.sourceLabel ? `<br>${escapeHtml(recipe.customNutrition.sourceLabel)}` : ''}</div>` : missing.size ? `<div style="font-size:10px">Not reported: ${escapeHtml([...missing].join(', '))}. Unknown, not measured zeros.</div>` : ''}
 <div style="font-size:8px;line-height:1.4">* Percent Daily Values are based on a 2,000 calorie diet.</div>
 </div>`;
 }
@@ -113,11 +146,11 @@ function renderRecipePageHtml(
   totalPages?: number,
   measurementSystem?: CookbookExportOptions['measurementSystem'],
 ): string {
-  const bg = theme?.backgroundColor ?? '#ffffff';
-  const text = theme?.textColor ?? '#000000';
-  const primary = theme?.primaryColor ?? '#000000';
-  const accent = theme?.accentColor ?? '#666666';
-  const fontFamily = theme?.fontFamily === 'inherit' || !theme?.fontFamily ? 'system-ui' : theme.fontFamily;
+  const bg = safeColor(theme?.backgroundColor, '#ffffff');
+  const text = safeColor(theme?.textColor, '#000000');
+  const primary = safeColor(theme?.primaryColor, '#000000');
+  const accent = safeColor(theme?.accentColor, '#666666');
+  const fontFamily = safeFont(theme?.fontFamily);
 
   const formattedIngredients = recipe.ingredients.map((ingredient) => ({
     name: ingredient.name,
@@ -125,23 +158,24 @@ function renderRecipePageHtml(
       ? formatCookbookIngredient(ingredient.amount, ingredient.unit, measurementSystem, ingredient.portions)
       : { text: `${ingredient.amount ? Math.round(ingredient.amount * 100) / 100 : ''} ${ingredient.unit}`, retainedOriginal: false },
   }));
-  const ingredientList = formattedIngredients.map(({ name, quantity }) => `<li>${quantity.text} ${name}</li>`).join('');
+  const ingredientList = formattedIngredients.map(({ name, quantity }) => `<li>${escapeHtml(quantity.text)} ${escapeHtml(name)}</li>`).join('');
   const hasUnconvertedGrams = measurementSystem === 'grams' && formattedIngredients.some(({ quantity }) => quantity.retainedOriginal);
 
   const steps = (recipe.instructionSteps ?? []).map(s => s.text).filter(s => s.trim());
-  const stepList = steps.map((s, i) => `<li style="margin-bottom:8px"><span style="font-weight:700;color:${accent}">${i + 1}.</span> ${s}</li>`).join('');
+  const stepList = steps.map((s, i) => `<li style="margin-bottom:8px"><span style="font-weight:700;color:${accent}">${i + 1}.</span> ${escapeHtml(s)}</li>`).join('');
 
   const brandHeader = brandKit ? `<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;border-bottom:2px solid ${primary};padding-bottom:10px">
-${brandKit.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:36px;object-fit:contain">` : ''}
-<div><div style="font-weight:700;font-size:16px;color:${primary}">${brandKit.name}</div>${brandKit.tagline ? `<div style="font-size:11px;color:${accent}">${brandKit.tagline}</div>` : ''}</div>
+${logoHtml(brandKit.logoDataUrl, 'height:36px;object-fit:contain')}
+<div><div style="font-weight:700;font-size:16px;color:${primary}">${escapeHtml(brandKit.name)}</div>${brandKit.tagline ? `<div style="font-size:11px;color:${accent}">${escapeHtml(brandKit.tagline)}</div>` : ''}</div>
 </div>` : '';
 
   const pageFooter = pageNum !== undefined ? `<div style="position:absolute;bottom:30px;left:40px;right:40px;text-align:center;font-size:10px;color:${accent}">${pageNum}${totalPages ? ` / ${totalPages}` : ''}</div>` : '';
 
   return `<div style="width:100%;height:100%;background:${bg};color:${text};font-family:${fontFamily};padding:40px;box-sizing:border-box;position:relative">
 ${brandHeader}
-<h1 style="font-size:28px;font-weight:700;color:${primary};margin:0 0 8px">${recipe.name}</h1>
-<div style="font-size:13px;color:${accent};margin-bottom:20px">Serves ${recipe.servings}${recipe.servingName ? ` • ${recipe.servingName}` : ''}</div>
+<h1 style="font-size:28px;font-weight:700;color:${primary};margin:0 0 8px">${escapeHtml(recipe.name)}</h1>
+<div style="font-size:13px;color:${accent};margin-bottom:20px">Serves ${escapeHtml(String(recipe.servings))}${recipe.servingName ? ` • ${escapeHtml(recipe.servingName)}` : ''}</div>
+${recipe.description ? `<p style="font-size:13px;white-space:pre-wrap">${escapeHtml(recipe.description)}</p>` : ''}
 <div style="display:flex;gap:24px">
 <div style="flex:1">
 <h2 style="font-size:16px;font-weight:600;color:${primary};margin:0 0 12px;border-bottom:1px solid ${accent};padding-bottom:4px">Ingredients</h2>
@@ -153,6 +187,7 @@ ${steps.length > 0 ? `<div style="flex:1.5">
 <ol style="list-style:none;padding:0;margin:0;font-size:13px;line-height:1.6">${stepList}</ol>
 </div>` : ''}
 </div>
+${recipe.customNutrition || recipe.missingNutrients?.length ? `<div style="margin-top:16px">${renderNutritionLabelHtml(recipe, theme)}</div>` : ''}
 ${pageFooter}
 </div>`;
 }
@@ -163,12 +198,12 @@ function renderCoverHtml(
   color: string,
   brandKit?: BrandKit,
 ): string {
-  const brandHeader = brandKit ? `<div style="margin-bottom:40px">${brandKit.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:48px;object-fit:contain;margin-bottom:12px">` : ''}<div style="font-weight:700;font-size:14px;color:${brandKit.primaryColor}">${brandKit.name}</div>${brandKit.tagline ? `<div style="font-size:12px;color:${brandKit.secondaryColor}">${brandKit.tagline}</div>` : ''}</div>` : '';
+  const brandHeader = brandKit ? `<div style="margin-bottom:40px">${logoHtml(brandKit.logoDataUrl, 'height:48px;object-fit:contain;margin-bottom:12px')}<div style="font-weight:700;font-size:14px;color:${safeColor(brandKit.primaryColor, '#000')}">${escapeHtml(brandKit.name)}</div>${brandKit.tagline ? `<div style="font-size:12px;color:${safeColor(brandKit.secondaryColor, '#666')}">${escapeHtml(brandKit.tagline)}</div>` : ''}</div>` : '';
 
-  return `<div style="width:100%;height:100%;background:${color};display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px;box-sizing:border-box">
+  return `<div style="width:100%;height:100%;background:${safeColor(color, '#666666')};display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px;box-sizing:border-box">
 ${brandHeader}
-<h1 style="font-size:42px;font-weight:900;color:#ffffff;text-align:center;margin:0 0 16px;text-shadow:0 2px 4px rgba(0,0,0,0.2)">${title}</h1>
-<p style="font-size:16px;color:rgba(255,255,255,0.85);text-align:center;margin:0;max-width:400px">${description}</p>
+<h1 style="font-size:42px;font-weight:900;color:#ffffff;text-align:center;margin:0 0 16px;text-shadow:0 2px 4px rgba(0,0,0,0.2)">${escapeHtml(title)}</h1>
+<p style="font-size:16px;color:rgba(255,255,255,0.85);text-align:center;margin:0;max-width:400px">${escapeHtml(description)}</p>
 </div>`;
 }
 
@@ -176,11 +211,11 @@ function renderTocHtml(
   chapters: Array<{ title: string; recipes: string[] }>,
   brandKit?: BrandKit,
 ): string {
-  const brandHeader = brandKit ? `<div style="margin-bottom:24px;border-bottom:2px solid ${brandKit.primaryColor};padding-bottom:8px">${brandKit.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:28px;object-fit:contain;margin-bottom:8px">` : ''}<span style="font-weight:700;font-size:14px;color:${brandKit.primaryColor}">${brandKit.name}</span></div>` : '';
+  const brandHeader = brandKit ? `<div style="margin-bottom:24px;border-bottom:2px solid ${safeColor(brandKit.primaryColor, '#000')};padding-bottom:8px">${logoHtml(brandKit.logoDataUrl, 'height:28px;object-fit:contain;margin-bottom:8px')}<span style="font-weight:700;font-size:14px;color:${safeColor(brandKit.primaryColor, '#000')}">${escapeHtml(brandKit.name)}</span></div>` : '';
 
   const entries = chapters.map(ch => {
-    const recipes = ch.recipes.map(r => `<div style="padding:4px 0 4px 20px;font-size:13px">${r}</div>`).join('');
-    return `<div style="margin-bottom:16px"><div style="font-weight:700;font-size:15px">${ch.title}</div>${recipes}</div>`;
+    const recipes = ch.recipes.map(r => `<div style="padding:4px 0 4px 20px;font-size:13px">${escapeHtml(r)}</div>`).join('');
+    return `<div style="margin-bottom:16px"><div style="font-weight:700;font-size:15px">${escapeHtml(ch.title)}</div>${recipes}</div>`;
   }).join('');
 
   return `<div style="width:100%;height:100%;background:#ffffff;color:#000;padding:60px;box-sizing:border-box">
@@ -192,6 +227,7 @@ ${entries}
 
 async function htmlToCanvas(html: string, widthPx: number): Promise<HTMLCanvasElement> {
   const iframe = document.createElement('iframe');
+  iframe.setAttribute('sandbox', 'allow-same-origin');
   iframe.style.position = 'fixed';
   iframe.style.left = '0';
   iframe.style.top = '0';
@@ -277,11 +313,6 @@ export async function exportNutritionDashboard(
   const pxWidth = pageSizeToPx('letter');
   const marginPx = 20;
 
-  const tags = options.dietaryTags?.length
-    ? `<div style="font-size:11px;color:#666;margin-top:4px">Diets: ${options.dietaryTags.join(', ')}</div>` : '';
-  const allergens = options.allergens?.length
-    ? `<div style="font-size:11px;color:#666;margin-top:2px">Allergens: ${options.allergens.join(', ')}</div>` : '';
-
   const wrapper = document.createElement('div');
   wrapper.style.width = `${pxWidth}px`;
   wrapper.style.background = '#ffffff';
@@ -289,16 +320,19 @@ export async function exportNutritionDashboard(
   wrapper.style.boxSizing = 'border-box';
   wrapper.style.fontFamily = 'system-ui,-apple-system,sans-serif';
 
-  const headerHtml = `
-    <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0">
-      <div style="font-size:20px;font-weight:700;color:#000;margin-bottom:2px">Nutrition Information${options.profileName ? ` — User: ${options.profileName}` : ''}</div>
-      ${tags}${allergens}
-      <div style="font-size:10px;color:#aaa;margin-top:2px">Nutrition for ${options.periodLabel}${options.dateRange ? ` — ${options.dateRange}` : ''}</div>
-    </div>
-  `;
-  const headerSlot = document.createElement('div');
-  headerSlot.innerHTML = headerHtml;
-  wrapper.appendChild(headerSlot.firstElementChild!);
+  const header = document.createElement('div');
+  header.style.cssText = 'margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0';
+  const addLine = (text: string, style: string) => {
+    const line = document.createElement('div');
+    line.style.cssText = style;
+    line.textContent = text;
+    header.appendChild(line);
+  };
+  addLine(`Nutrition Information${options.profileName ? ` — User: ${options.profileName}` : ''}`, 'font-size:20px;font-weight:700;color:#000;margin-bottom:2px');
+  if (options.dietaryTags?.length) addLine(`Diets: ${options.dietaryTags.join(', ')}`, 'font-size:11px;color:#666;margin-top:4px');
+  if (options.allergens?.length) addLine(`Allergens: ${options.allergens.join(', ')}`, 'font-size:11px;color:#666;margin-top:2px');
+  addLine(`Nutrition for ${options.periodLabel}${options.dateRange ? ` — ${options.dateRange}` : ''}`, 'font-size:10px;color:#aaa;margin-top:2px');
+  wrapper.appendChild(header);
   wrapper.appendChild(element.cloneNode(true));
 
   const outer = document.createElement('div');
@@ -342,26 +376,7 @@ async function collectRecipes(bookId: string, measurementSystem: CookbookExportO
       recipeNames.push(recipe.name);
 
       const ingredients = recipe.ingredients || [];
-      const nutrition = ingredients.reduce(
-        (acc, ing) => ({
-          calories: acc.calories + ing.calories,
-          totalFat: acc.totalFat + ing.totalFat,
-          saturatedFat: acc.saturatedFat + ing.saturatedFat,
-          transFat: acc.transFat + ing.transFat,
-          cholesterol: acc.cholesterol + ing.cholesterol,
-          sodium: acc.sodium + ing.sodium,
-          totalCarbs: acc.totalCarbs + ing.totalCarbs,
-          dietaryFiber: acc.dietaryFiber + ing.dietaryFiber,
-          totalSugars: acc.totalSugars + ing.totalSugars,
-          addedSugars: acc.addedSugars + ing.addedSugars,
-          protein: acc.protein + ing.protein,
-          vitaminD: acc.vitaminD + ing.vitaminD,
-          calcium: acc.calcium + ing.calcium,
-          iron: acc.iron + ing.iron,
-          potassium: acc.potassium + ing.potassium,
-        }),
-        { calories: 0, totalFat: 0, saturatedFat: 0, transFat: 0, cholesterol: 0, sodium: 0, totalCarbs: 0, dietaryFiber: 0, totalSugars: 0, addedSugars: 0, protein: 0, vitaminD: 0, calcium: 0, iron: 0, potassium: 0 },
-      );
+      const nutrition = recipeNutrition(recipe, 1 / (recipe.servings || 1));
 
       const printableIngredients = ingredients.map((i) => {
         const printable = { name: i.name, amount: i.amount, unit: i.unit, portions: undefined as FoodPortion[] | undefined };
@@ -375,6 +390,9 @@ async function collectRecipes(bookId: string, measurementSystem: CookbookExportO
       allRecipes.push({
         id: recipe.id,
         name: recipe.name,
+        description: recipe.description,
+        customNutrition: recipe.customNutrition,
+        missingNutrients: recipeMissingNutrients(recipe),
         servings: recipe.servings,
         servingName: recipe.servingName,
         instructionSteps: parseInstructions(recipe.instructions ?? null).steps,
@@ -468,10 +486,10 @@ export async function exportCookbook(options: CookbookExportOptions): Promise<Bl
     progress(Math.round(((pageNum) / totalPages) * 100));
 
     const sorted = [...recipes].sort((a, b) => a.name.localeCompare(b.name));
-    const indexHtml = `<div style="width:100%;height:100%;background:${theme?.backgroundColor ?? '#fff'};color:${theme?.textColor ?? '#000'};padding:40px;box-sizing:border-box;font-family:${theme?.fontFamily === 'inherit' || !theme?.fontFamily ? 'system-ui' : theme.fontFamily}">
-${brandKit?.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:28px;object-fit:contain;margin-bottom:12px">` : ''}
-<h1 style="font-size:28px;font-weight:700;color:${theme?.primaryColor ?? '#000'};margin:0 0 20px">Index</h1>
-${sorted.map(r => `<div style="font-size:13px;padding:2px 0">${r.name}</div>`).join('')}
+    const indexHtml = `<div style="width:100%;height:100%;background:${safeColor(theme?.backgroundColor, '#fff')};color:${safeColor(theme?.textColor, '#000')};padding:40px;box-sizing:border-box;font-family:${safeFont(theme?.fontFamily)}">
+${logoHtml(brandKit?.logoDataUrl, 'height:28px;object-fit:contain;margin-bottom:12px')}
+<h1 style="font-size:28px;font-weight:700;color:${safeColor(theme?.primaryColor, '#000')};margin:0 0 20px">Index</h1>
+${sorted.map(r => `<div style="font-size:13px;padding:2px 0">${escapeHtml(r.name)}</div>`).join('')}
 </div>`;
     const canvas = await htmlToCanvas(indexHtml, pxWidth);
     doc.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, pageW, pageH);
@@ -517,10 +535,10 @@ export async function exportNutritionReport(
   const endDate = new Date(dateRange.end);
 
   const coverHtml = `<div style="width:100%;height:100%;background:#ffffff;padding:60px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center">
-${brandKit?.logoDataUrl ? `<img src="${brandKit.logoDataUrl}" style="height:40px;object-fit:contain;margin-bottom:16px">` : ''}
-${brandKit ? `<div style="font-weight:700;font-size:14px;color:${brandKit.primaryColor};margin-bottom:24px">${brandKit.name}</div>` : ''}
-<h1 style="font-size:32px;font-weight:700;color:${brandKit?.primaryColor ?? '#000'};margin:0 0 8px">Nutrition Report</h1>
-<h2 style="font-size:18px;font-weight:400;color:#666;margin:0 0 24px">${profileName}</h2>
+${logoHtml(brandKit?.logoDataUrl, 'height:40px;object-fit:contain;margin-bottom:16px')}
+${brandKit ? `<div style="font-weight:700;font-size:14px;color:${safeColor(brandKit.primaryColor, '#000')};margin-bottom:24px">${escapeHtml(brandKit.name)}</div>` : ''}
+<h1 style="font-size:32px;font-weight:700;color:${safeColor(brandKit?.primaryColor, '#000')};margin:0 0 8px">Nutrition Report</h1>
+<h2 style="font-size:18px;font-weight:400;color:#666;margin:0 0 24px">${escapeHtml(profileName)}</h2>
 <div style="font-size:14px;color:#666">Report Period</div>
 <div style="font-size:16px;font-weight:600;color:#000">${startDate.toLocaleDateString()} — ${endDate.toLocaleDateString()}</div>
 </div>`;
@@ -628,7 +646,7 @@ function renderNutritionFactsHtml(n: NutritionSummary, servingLabel?: string): s
   return `<div style="width:280px;border:3px solid #000;padding:10px 8px 8px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;line-height:1.4;box-sizing:border-box">
 <div style="font-weight:900;font-size:28px;line-height:1.1;margin-bottom:6px">Nutrition Facts</div>
 <div style="height:4px;background:#000;margin:5px 0"></div>
-<div style="font-size:13px;margin:5px 0">${servingLabel ?? 'Daily Total'}</div>
+<div style="font-size:13px;margin:5px 0">${escapeHtml(servingLabel ?? 'Daily Total')}</div>
 <div style="height:4px;background:#000;margin:5px 0"></div>
 <div style="display:flex;justify-content:space-between;align-items:baseline;margin:5px 0"><span style="font-weight:700;font-size:13px">Calories</span><span style="font-weight:900;font-size:24px">${Math.round(n.calories)}</span></div>
 <div style="height:4px;background:#000;margin:5px 0"></div>
@@ -645,10 +663,10 @@ function renderMealPlanDayHtml(day: MealPlanDayData): string {
     .map(s => {
       const entryHtml = s.entries.map(e => {
         const leftover = e.isLeftover ? ' <span style="font-size:10px;color:#888">(leftover)</span>' : '';
-        const servings = e.servings !== 1 ? ` <span style="font-size:10px;color:#888">(${e.servings} sv)</span>` : '';
-        return `<div style="padding:2px 0 2px 10px;font-size:12px;line-height:1.4">${e.name}${servings}${leftover}</div>`;
+        const servings = e.servings !== 1 ? ` <span style="font-size:10px;color:#888">(${escapeHtml(String(e.servings))} sv)</span>` : '';
+        return `<div style="padding:2px 0 2px 10px;font-size:12px;line-height:1.4">${escapeHtml(e.name)}${servings}${leftover}</div>`;
       }).join('');
-      return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:600;color:#555">${s.label}</div>${entryHtml}</div>`;
+      return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:600;color:#555">${escapeHtml(s.label)}</div>${entryHtml}</div>`;
     }).join('');
 
   const noMeals = day.slots.every(s => s.entries.length === 0)
@@ -660,7 +678,7 @@ function renderMealPlanDayHtml(day: MealPlanDayData): string {
     : '';
 
   return `<div style="width:100%;background:#ffffff;color:#000;padding:30px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
-    <div style="font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #333">${day.dayLabel}</div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #333">${escapeHtml(day.dayLabel)}</div>
     <div style="display:flex;gap:24px;align-items:flex-start">
       <div style="flex:1;min-width:0">${slotRows}${noMeals}</div>
       ${nutritionHtml}
@@ -679,7 +697,7 @@ export async function exportMealPlanPdf(
 
   const coverHtml = `<div style="width:100%;height:100vh;background:#ffffff;color:#000;display:flex;flex-direction:column;justify-content:center;padding:60px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
     <div style="font-size:36px;font-weight:700;margin-bottom:12px">Weekly Meal Plan</div>
-    <div style="font-size:18px;color:#555;margin-bottom:24px">${dateRange}</div>
+    <div style="font-size:18px;color:#555;margin-bottom:24px">${escapeHtml(dateRange)}</div>
     <div style="width:80px;height:4px;background:#333;border-radius:2px"></div>
   </div>`;
   const coverCanvas = await htmlToCanvas(coverHtml, pxWidth);
@@ -707,12 +725,12 @@ function renderGroceryListHtml(
 ): string {
   const rows = items.map(item => {
     const recipes = item.recipeNames?.length
-      ? `<span style="font-size:11px;color:#888;margin-left:8px">${item.recipeNames.join(', ')}</span>`
+      ? `<span style="font-size:11px;color:#888;margin-left:8px">${escapeHtml(item.recipeNames.join(', '))}</span>`
       : '';
     return `<div style="display:flex;align-items:baseline;padding:5px 0;border-bottom:1px solid #f0f0f0">
       <div style="width:18px;flex-shrink:0;text-align:center;font-size:14px;color:#ccc">&#9744;</div>
-      <div style="flex:1;font-size:13px">${item.name}${recipes}</div>
-      <div style="font-size:12px;color:#555;white-space:nowrap;margin-left:8px">${item.displayAmount}</div>
+      <div style="flex:1;font-size:13px">${escapeHtml(item.name)}${recipes}</div>
+      <div style="font-size:12px;color:#555;white-space:nowrap;margin-left:8px">${escapeHtml(item.displayAmount)}</div>
     </div>`;
   }).join('');
 
@@ -722,7 +740,7 @@ function renderGroceryListHtml(
 
   return `<div style="width:100%;background:#ffffff;color:#000;padding:40px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif">
     <h1 style="font-size:24px;font-weight:700;margin:0 0 4px">Grocery List</h1>
-    <div style="font-size:13px;color:#666;margin-bottom:20px">${dateRange}</div>
+    <div style="font-size:13px;color:#666;margin-bottom:20px">${escapeHtml(dateRange)}</div>
     ${rows}${empty}
   </div>`;
 }

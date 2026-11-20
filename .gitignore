@@ -24,6 +24,9 @@ node_modules
 # misc
 .DS_Store
 *.pem
+*.key
+*.p12
+*.pfx
 
 # debug
 npm-debug.log*
@@ -36,7 +39,6 @@ yarn-error.log*
 .env
 !.env.example
 
-package-lock.json
 sync-server/dietledger-api.exe
 
 # vercel
@@ -72,6 +74,30 @@ sync-server/dietledger-sync
 sync-server/dietledger-sync.exe
 sync-server/dist/
 sync-server/sync.db
+
+# Private unremediated security working papers: not public source/Pages artifacts
+/docs/security-public-release-audit.md
+/docs/security-dependency-advisories.md
+/docs/specs/application-security-remediation.md
+/docs/plans/public-history-scrub.md
+/docs/plans/security-release-and-github-install.md
+
+# Operator-only tooling: retain local copies, never publish in source/build contexts
+/build-all.bat
+/docker-build.bat
+/docker-build.sh
+/scripts/build-and-deploy.js
+/scripts/deploy-built-tar.js
+/deploy/deploy.sh
+/deploy/dietledger.service
+/ecosystem.config.cjs
+/.zscripts/
+/scripts/build-tauri.sh
+
+# Private source snapshots and local installer state (not release assets)
+/RecipeTool.zip
+/.dietledger-install.json
+/.pi/
 
 # Local runtime/safety artifacts
 /tmp/

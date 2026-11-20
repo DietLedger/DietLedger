@@ -158,7 +158,9 @@ func TestImportQuarantinePromotionPreservesBookAndQueueAcrossFiveImports(t *test
 	if w.Code != 200 {
 		t.Fatalf("stage cancellation case: %d %s", w.Code, w.Body.String())
 	}
-	batch := decodeJSON(t, w)["data"].(map[string]interface{})["pendingImportId"].(string)
+	choice := duplicateBookChoice(t, decodeJSON(t, w)["data"].(map[string]interface{}), "merge")
+	pending := duplicateBookResponse(t, env, duplicateChoiceBody(incoming, choice))
+	batch := pending["pendingImportId"].(string)
 	w = env.doRequest("POST", "/api/recipe-imports/"+batch+"/decision", map[string]string{"action": "cancel"})
 	if w.Code != 200 {
 		t.Fatalf("cancel new batch: %d %s", w.Code, w.Body.String())
@@ -411,7 +413,7 @@ func TestImportQuarantineBackupRetainsRowlessPendingDecisions(t *testing.T) {
 	}
 }
 
-func TestImportQuarantineBackupRetainsUnacceptedExistingBookAliases(t *testing.T) {
+func TestImportQuarantineBackupRetainsUnacceptedBookMergeTarget(t *testing.T) {
 	env := newTestEnv(t)
 	first := quarantineExportFixture()
 	first.Recipes = first.Recipes[:1]
@@ -428,6 +430,8 @@ func TestImportQuarantineBackupRetainsUnacceptedExistingBookAliases(t *testing.T
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
+	choice := duplicateBookChoice(t, decodeJSON(t, w)["data"].(map[string]interface{}), "merge")
+	duplicateBookResponse(t, env, duplicateChoiceBody(incoming, choice))
 	backup, err := env.store.(*PostgresStore).ExportOwnerRecipeBookBackup(env.userID)
 	if err != nil {
 		t.Fatal(err)
@@ -451,8 +455,8 @@ func TestImportQuarantineBackupRetainsUnacceptedExistingBookAliases(t *testing.T
 	if err := target.db.QueryRow(`SELECT count(*) FROM chapters ch JOIN recipe_books b ON b.id=ch.book_id WHERE b.user_id=$1`, owner.ID).Scan(&chapters); err != nil {
 		t.Fatal(err)
 	}
-	if books != 1 || chapters != 1 {
-		t.Fatalf("pending restore lost existing book aliases: books=%d chapters=%d", books, chapters)
+	if books != 1 || chapters != 2 {
+		t.Fatalf("pending restore lost merge target or distinct incoming chapter: books=%d chapters=%d", books, chapters)
 	}
 }
 

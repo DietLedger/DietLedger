@@ -17,20 +17,22 @@ type User struct {
 }
 
 type Recipe struct {
-	PortableID           string       `json:"portableId"`
-	ID                   string       `json:"id"`
-	UserID               string       `json:"userId"`
-	Name                 string       `json:"name"`
-	Servings             int          `json:"servings"`
-	ServingName          string       `json:"servingName"`
-	PrepTime             *string      `json:"prepTime,omitempty"`
-	CookTime             *string      `json:"cookTime,omitempty"`
-	Instructions         *string      `json:"instructions,omitempty"`
-	LeftoverStorage      *string      `json:"leftoverStorage,omitempty"`
-	IngredientGroupsJSON string       `json:"ingredientGroups,omitempty"`
-	CreatedAt            time.Time    `json:"createdAt"`
-	UpdatedAt            time.Time    `json:"updatedAt"`
-	Ingredients          []Ingredient `json:"ingredients,omitempty"`
+	Description          *string                `json:"description,omitempty"`
+	CustomNutrition      *CustomRecipeNutrition `json:"customNutrition,omitempty"`
+	PortableID           string                 `json:"portableId"`
+	ID                   string                 `json:"id"`
+	UserID               string                 `json:"userId"`
+	Name                 string                 `json:"name"`
+	Servings             int                    `json:"servings"`
+	ServingName          string                 `json:"servingName"`
+	PrepTime             *string                `json:"prepTime,omitempty"`
+	CookTime             *string                `json:"cookTime,omitempty"`
+	Instructions         *string                `json:"instructions,omitempty"`
+	LeftoverStorage      *string                `json:"leftoverStorage,omitempty"`
+	IngredientGroupsJSON string                 `json:"ingredientGroups,omitempty"`
+	CreatedAt            time.Time              `json:"createdAt"`
+	UpdatedAt            time.Time              `json:"updatedAt"`
+	Ingredients          []Ingredient           `json:"ingredients,omitempty"`
 }
 
 func (r *Recipe) ScanIngredientGroups(v string) {
@@ -57,6 +59,7 @@ type UnconfirmedIngredientNutrition struct {
 }
 
 type Ingredient struct {
+	MissingNutrients      []string                        `json:"missingNutrients,omitempty"`
 	ID                    string                          `json:"id"`
 	RecipeID              string                          `json:"recipeId"`
 	FdcID                 int                             `json:"fdcId"`
@@ -445,6 +448,7 @@ type CommunityCategory struct {
 }
 
 type RegisterRequest struct {
+	SetupClaim  string `json:"setupClaim"`
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
@@ -475,39 +479,47 @@ type UpdateRegistrationRequest struct {
 }
 
 type AuthResponse struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-	ExpiresIn    int64  `json:"expiresIn"`
-	User         User   `json:"user"`
+	AccessToken      string    `json:"accessToken"`
+	RefreshToken     string    `json:"-"`
+	RefreshExpiresAt time.Time `json:"-"`
+	CSRFToken        string    `json:"csrfToken"`
+	ExpiresIn        int64     `json:"expiresIn"`
+	User             User      `json:"user"`
 }
 
 type CreateRecipeRequest struct {
-	RequestKey       string                `json:"requestKey,omitempty"`
-	IngredientGroups string                `json:"ingredientGroups,omitempty"`
-	Name             string                `json:"name"`
-	Servings         int                   `json:"servings"`
-	ServingName      string                `json:"servingName"`
-	PrepTime         *string               `json:"prepTime,omitempty"`
-	CookTime         *string               `json:"cookTime,omitempty"`
-	Instructions     *string               `json:"instructions,omitempty"`
-	LeftoverStorage  *string               `json:"leftoverStorage,omitempty"`
-	Ingredients      []CreateIngredientReq `json:"ingredients"`
+	Description      *string                `json:"description,omitempty"`
+	CustomNutrition  *CustomRecipeNutrition `json:"customNutrition,omitempty"`
+	RequestKey       string                 `json:"requestKey,omitempty"`
+	IngredientGroups string                 `json:"ingredientGroups,omitempty"`
+	Name             string                 `json:"name"`
+	Servings         int                    `json:"servings"`
+	ServingName      string                 `json:"servingName"`
+	PrepTime         *string                `json:"prepTime,omitempty"`
+	CookTime         *string                `json:"cookTime,omitempty"`
+	Instructions     *string                `json:"instructions,omitempty"`
+	LeftoverStorage  *string                `json:"leftoverStorage,omitempty"`
+	Ingredients      []CreateIngredientReq  `json:"ingredients"`
 }
 
 type UpdateRecipeRequest struct {
-	PortableID       *string                `json:"portableId,omitempty"`
-	Name             *string                `json:"name,omitempty"`
-	Servings         *int                   `json:"servings,omitempty"`
-	ServingName      *string                `json:"servingName,omitempty"`
-	PrepTime         *string                `json:"prepTime"`
-	CookTime         *string                `json:"cookTime"`
-	Instructions     *string                `json:"instructions"`
-	LeftoverStorage  *string                `json:"leftoverStorage"`
-	Ingredients      *[]CreateIngredientReq `json:"ingredients,omitempty"`
-	IngredientGroups *string                `json:"ingredientGroups,omitempty"`
+	Description        *string                `json:"description,omitempty"`
+	CustomNutrition    *CustomRecipeNutrition `json:"customNutrition,omitempty"`
+	customNutritionSet bool
+	PortableID         *string                `json:"portableId,omitempty"`
+	Name               *string                `json:"name,omitempty"`
+	Servings           *int                   `json:"servings,omitempty"`
+	ServingName        *string                `json:"servingName,omitempty"`
+	PrepTime           *string                `json:"prepTime"`
+	CookTime           *string                `json:"cookTime"`
+	Instructions       *string                `json:"instructions"`
+	LeftoverStorage    *string                `json:"leftoverStorage"`
+	Ingredients        *[]CreateIngredientReq `json:"ingredients,omitempty"`
+	IngredientGroups   *string                `json:"ingredientGroups,omitempty"`
 }
 
 type CreateIngredientReq struct {
+	MissingNutrients      []string                        `json:"missingNutrients,omitempty"`
 	FdcID                 int                             `json:"fdcId"`
 	Name                  string                          `json:"name"`
 	Amount                float64                         `json:"amount"`

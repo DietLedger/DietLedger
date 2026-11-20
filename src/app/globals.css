@@ -53,93 +53,54 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Match Dark Luxury before the client applies a saved preference, in either
+   system mode. Keep these tokens aligned with DARK_LUXURY in themes.ts. */
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.975 0.012 85);
-  --foreground: oklch(0.20 0.035 55);
-  --card: oklch(0.985 0.008 85);
-  --card-foreground: oklch(0.20 0.035 55);
-  --popover: oklch(0.985 0.008 85);
-  --popover-foreground: oklch(0.20 0.035 55);
-  --primary: oklch(0.55 0.065 192);
-  --primary-foreground: oklch(0.98 0.008 85);
-  --secondary: oklch(0.94 0.015 80);
-  --secondary-foreground: oklch(0.25 0.03 55);
-  --muted: oklch(0.94 0.012 75);
-  --muted-foreground: oklch(0.50 0.025 60);
-  --accent: oklch(0.92 0.03 185);
-  --accent-foreground: oklch(0.25 0.03 55);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.90 0.015 70);
-  --input: oklch(0.90 0.015 70);
-  --ring: oklch(0.55 0.065 192);
-  --chart-1: oklch(0.55 0.065 192);
-  --chart-2: oklch(0.60 0.10 160);
-  --chart-3: oklch(0.50 0.08 220);
-  --chart-4: oklch(0.70 0.10 85);
-  --chart-5: oklch(0.45 0.06 50);
-  --sidebar: oklch(0.96 0.01 82);
-  --sidebar-foreground: oklch(0.20 0.035 55);
-  --sidebar-primary: oklch(0.55 0.065 192);
-  --sidebar-primary-foreground: oklch(0.98 0.008 85);
-  --sidebar-accent: oklch(0.92 0.025 185);
-  --sidebar-accent-foreground: oklch(0.25 0.03 55);
-  --sidebar-border: oklch(0.90 0.015 70);
-  --sidebar-ring: oklch(0.55 0.065 192);
-  --brand-50: oklch(0.95 0.016 192);
-  --brand-100: oklch(0.90 0.023 192);
-  --brand-200: oklch(0.83 0.033 192);
-  --brand-300: oklch(0.75 0.046 192);
-  --brand-400: oklch(0.67 0.055 192);
-  --brand-500: oklch(0.60 0.060 192);
-  --brand-600: oklch(0.55 0.065 192);
-  --brand-700: oklch(0.47 0.060 192);
-  --brand-800: oklch(0.38 0.052 192);
-  --brand-900: oklch(0.28 0.039 192);
 }
 
-.dark {
-  --background: oklch(0.16 0.025 55);
-  --foreground: oklch(0.93 0.012 80);
-  --card: oklch(0.20 0.03 55);
-  --card-foreground: oklch(0.93 0.012 80);
-  --popover: oklch(0.20 0.03 55);
-  --popover-foreground: oklch(0.93 0.012 80);
-  --primary: oklch(0.65 0.07 192);
-  --primary-foreground: oklch(0.14 0.02 55);
-  --secondary: oklch(0.25 0.03 55);
-  --secondary-foreground: oklch(0.93 0.012 80);
-  --muted: oklch(0.25 0.03 55);
-  --muted-foreground: oklch(0.65 0.025 70);
-  --accent: oklch(0.30 0.04 55);
-  --accent-foreground: oklch(0.93 0.012 80);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.65 0.07 192);
-  --chart-1: oklch(0.65 0.07 192);
-  --chart-2: oklch(0.60 0.10 160);
-  --chart-3: oklch(0.70 0.12 85);
-  --chart-4: oklch(0.55 0.12 300);
-  --chart-5: oklch(0.60 0.08 50);
-  --sidebar: oklch(0.18 0.025 55);
-  --sidebar-foreground: oklch(0.93 0.012 80);
-  --sidebar-primary: oklch(0.65 0.07 192);
-  --sidebar-primary-foreground: oklch(0.93 0.012 80);
-  --sidebar-accent: oklch(0.25 0.03 55);
-  --sidebar-accent-foreground: oklch(0.93 0.012 80);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.65 0.07 192);
-  --brand-50: oklch(0.95 0.018 192);
-  --brand-100: oklch(0.90 0.025 192);
-  --brand-200: oklch(0.83 0.035 192);
-  --brand-300: oklch(0.75 0.049 192);
-  --brand-400: oklch(0.67 0.060 192);
-  --brand-500: oklch(0.60 0.065 192);
-  --brand-600: oklch(0.65 0.07 192);
-  --brand-700: oklch(0.57 0.063 192);
-  --brand-800: oklch(0.48 0.053 192);
-  --brand-900: oklch(0.37 0.039 192);
+:root, .dark {
+  --background: oklch(0.17 0.025 55);
+  --foreground: oklch(0.93 0.025 85);
+  --card: oklch(0.225 0.032 55);
+  --card-foreground: oklch(0.93 0.025 85);
+  --popover: oklch(0.225 0.032 55);
+  --popover-foreground: oklch(0.93 0.025 85);
+  --primary: oklch(0.76 0.105 72);
+  --primary-foreground: oklch(0.18 0.025 55);
+  --secondary: oklch(0.29 0.065 165);
+  --secondary-foreground: oklch(0.94 0.02 85);
+  --muted: oklch(0.27 0.025 55);
+  --muted-foreground: oklch(0.78 0.025 75);
+  --accent: oklch(0.33 0.07 165);
+  --accent-foreground: oklch(0.95 0.02 85);
+  --destructive: oklch(0.74 0.17 25);
+  --border: oklch(0.48 0.065 68);
+  --input: oklch(0.48 0.055 68);
+  --ring: oklch(0.76 0.105 72);
+  --chart-1: oklch(0.76 0.105 72);
+  --chart-2: oklch(0.72 0.13 165);
+  --chart-3: oklch(0.7 0.13 48);
+  --chart-4: oklch(0.75 0.08 95);
+  --chart-5: oklch(0.66 0.08 185);
+  --sidebar: oklch(0.20 0.035 55);
+  --sidebar-foreground: oklch(0.93 0.025 85);
+  --sidebar-primary: oklch(0.76 0.105 72);
+  --sidebar-primary-foreground: oklch(0.18 0.025 55);
+  --sidebar-accent: oklch(0.31 0.065 165);
+  --sidebar-accent-foreground: oklch(0.95 0.02 85);
+  --sidebar-border: oklch(0.48 0.065 68);
+  --sidebar-ring: oklch(0.76 0.105 72);
+  --brand-50: oklch(0.29 0.065 165);
+  --brand-100: oklch(0.34 0.07 165);
+  --brand-200: oklch(0.48 0.075 70);
+  --brand-300: oklch(0.64 0.09 72);
+  --brand-400: oklch(0.75 0.11 75);
+  --brand-500: oklch(0.72 0.12 165);
+  --brand-600: oklch(0.76 0.105 72);
+  --brand-700: oklch(0.86 0.09 80);
+  --brand-800: oklch(0.9 0.07 85);
+  --brand-900: oklch(0.94 0.04 85);
 }
 
 @layer base {
@@ -148,6 +109,106 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Translate legacy neutrals on dark app surfaces. Pale status/selection
+   surfaces (including their nested light controls) retain their utility colors.
+   Paper is also used by screen-to-PDF, not just by the print media query. */
+@media screen {
+  @layer utilities {
+    /* Zero-specificity fallback for otherwise inherited light text, e.g. grocery
+       highlights. Explicit black/status text utilities still win. Brand-50/100
+       are deliberately absent: every dark palette makes those tokens dark. */
+    :where(html:is(.dark, [data-app-appearance="dark"])) :where(
+      .bg-amber-50, .bg-amber-100, .bg-amber-200,
+      .bg-red-50, .bg-red-100, .bg-red-200,
+      .bg-emerald-50, .bg-emerald-100, .bg-green-50, .bg-green-100,
+      .bg-blue-100, .bg-cyan-100, .bg-orange-100, .bg-purple-100, .bg-indigo-100, .bg-pink-100,
+      .hover\:bg-emerald-50:hover, .hover\:bg-amber-100:hover,
+      .hover\:bg-red-50:hover, .hover\:bg-red-100:hover
+    ):not(:where(.print-section, .print-section *)) {
+      color: var(--color-stone-800);
+
+      /* Kitchen play mode uses a Card with an explicit semantic foreground. */
+      &.text-card-foreground {
+        color: var(--color-stone-800);
+      }
+
+      /* Outline controls inside a pale notice still own a dark semantic surface. */
+      :where(.bg-background) {
+        color: var(--foreground);
+      }
+    }
+  }
+
+  html:is(.dark, [data-app-appearance="dark"]) :not(:where(
+    .print-section, .print-section *,
+    :is(
+      .bg-amber-50, .bg-amber-100, .bg-amber-200,
+      .bg-red-50, .bg-red-100, .bg-red-200,
+      .bg-emerald-50, .bg-emerald-100, .bg-green-50, .bg-green-100,
+      .bg-blue-100, .bg-cyan-100, .bg-orange-100, .bg-purple-100, .bg-indigo-100, .bg-pink-100,
+      .hover\:bg-emerald-50:hover, .hover\:bg-amber-100:hover,
+      .hover\:bg-red-50:hover, .hover\:bg-red-100:hover
+    ),
+    :is(
+      .bg-amber-50, .bg-amber-100, .bg-amber-200,
+      .bg-red-50, .bg-red-100, .bg-red-200,
+      .bg-emerald-50, .bg-emerald-100, .bg-green-50, .bg-green-100,
+      .bg-blue-100, .bg-cyan-100, .bg-orange-100, .bg-purple-100, .bg-indigo-100, .bg-pink-100,
+      .hover\:bg-emerald-50:hover, .hover\:bg-amber-100:hover,
+      .hover\:bg-red-50:hover, .hover\:bg-red-100:hover
+    ) *
+  )) {
+    &.bg-white, &.bg-stone-50, &.bg-stone-50\/50 {
+      background-color: var(--background);
+    }
+    &.bg-stone-100, &.bg-stone-200 {
+      background-color: var(--card);
+    }
+    &:is(.text-stone-900, .text-stone-800, .text-stone-700, .text-stone-600) {
+      color: var(--foreground);
+    }
+    &:is(.text-stone-500, .text-stone-400, .text-stone-300) {
+      color: var(--muted-foreground);
+    }
+    &:is(.border-stone-100, .border-stone-200, .border-stone-300) {
+      border-color: var(--border);
+    }
+    &.bg-brand-600 {
+      color: var(--primary-foreground);
+    }
+    &:is(.hover\:bg-stone-50, .hover\:bg-stone-100, .hover\:bg-stone-200):hover {
+      background-color: var(--accent);
+    }
+  }
+  html[data-app-theme="dark-luxury"][data-app-appearance="dark"] [data-app-nav] {
+    background: linear-gradient(110deg, oklch(0.23 0.045 55), oklch(0.22 0.055 165));
+    border-bottom: 2px solid var(--border);
+    box-shadow: inset 0 -3px 0 oklch(0.33 0.05 65);
+  }
+}
+
+/* Report preview is also captured on screen for PDF: semantic badge colors
+   must not inherit the active app palette, on screen or on printed paper. */
+@media screen, print {
+  .print-section [data-slot="badge"] {
+    color: #292524;
+    border-color: #a8a29e;
+    &.bg-secondary { background-color: #f5f5f4; }
+    &.bg-destructive { background-color: #fee2e2; color: #991b1b; }
+  }
+}
+
+/* Olive light-mode helper copy was too faint against its cream cards.
+   Limit this to textual utilities, leaving icons, paper and dark mode alone. */
+@media screen {
+  html[data-app-theme="olive-botanical"]:not(.dark, [data-app-appearance="dark"]) :is(p, span):is(.text-stone-300, .text-stone-400):not(:where(.print-section, .print-section *)) {
+    color: var(--color-stone-600);
+  }
+  html[data-app-theme="olive-botanical"]:not(.dark, [data-app-appearance="dark"]) p.text-xs.text-amber-600.mt-2:not(:where(.print-section, .print-section *)) {
+    color: var(--color-amber-700);
   }
 }
 

@@ -19,13 +19,15 @@ type Server struct {
 	maxBodyBytes int64
 }
 
-func NewServer(store Store, auth *AuthService, corsOrigin string, maxBodyMB int64, rl *RateLimiter) *Server {
+// The legacy body-size argument remains source-compatible for callers; route
+// policy is fixed centrally and cannot be widened/disabled by MAX_BODY_MB.
+func NewServer(store Store, auth *AuthService, corsOrigin string, _ int64, rl *RateLimiter) *Server {
 	return &Server{
 		store:        store,
 		auth:         auth,
 		rateLimiter:  rl,
 		corsOrigin:   corsOrigin,
-		maxBodyBytes: maxBodyMB * 1024 * 1024,
+		maxBodyBytes: ordinaryBodyBytes,
 	}
 }
 
@@ -38,6 +40,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/register", s.registerHandler)
 	mux.HandleFunc("/api/auth/login", s.loginHandler)
 	mux.HandleFunc("/api/auth/refresh", s.refreshHandler)
+	mux.HandleFunc("/api/auth/logout", s.logoutHandler)
 
 	// Instance metadata: state is public so first-run routing works pre-auth;
 	// the mutations are administrator-only.
@@ -82,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/chapters/", s.requireAuth(s.chapterRoutes))
 	mux.HandleFunc("/api/pages/", s.requireAuth(s.pageRoutes))
+	mux.HandleFunc("/api/book-pages/", s.requireAuth(s.bookPageRoutes))
 	mux.HandleFunc("/api/chapter-recipes/", s.requireAuth(s.chapterRecipeItemRoutes))
 
 	mux.HandleFunc("/api/categories/", s.requireAuth(s.categoryRoutes))
@@ -110,6 +114,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/templates/", s.requireAuth(s.templateRoutes))
 	mux.HandleFunc("/api/templates", s.requireAuth(s.templatesRouter))
 
+	mux.HandleFunc("/api/dietary-profiles/diabetes-aware-starter", s.requireAuth(s.restoreDiabetesAwareProfileHandler))
 	mux.HandleFunc("/api/dietary-profiles/", s.requireAuth(s.dietaryProfileRoutes))
 	mux.HandleFunc("/api/dietary-profiles", s.requireAuth(s.dietaryProfilesRouter))
 
@@ -125,9 +130,13 @@ func (s *Server) Routes() http.Handler {
 
 	var handler http.Handler = mux
 	if s.rateLimiter != nil {
+		handler = s.rateLimiter.AccountMiddleware(handler)
+	}
+	handler = resourceAdmission(handler)
+	if s.rateLimiter != nil {
 		handler = s.rateLimiter.Middleware(handler)
 	}
-	return s.corsMiddleware(handler)
+	return sensitiveCacheControl(s.corsMiddleware(handler))
 }
 
 func (s *Server) recipeRoutes(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +159,7 @@ func (s *Server) profileRoutes(w http.ResponseWriter, r *http.Request) {
 				entryID = parts[2]
 			}
 			if entryID != "" {
-				s.foodLogEntryRouter(w, r, entryID)
+				s.foodLogEntryRouter(w, r, profileID, entryID)
 			} else {
 				s.foodLogRouter(w, r, profileID)
 			}
@@ -162,7 +171,7 @@ func (s *Server) profileRoutes(w http.ResponseWriter, r *http.Request) {
 				entryID = parts[2]
 			}
 			if entryID != "" {
-				s.weightEntryRouter(w, r, entryID)
+				s.weightEntryRouter(w, r, profileID, entryID)
 			} else {
 				s.weightRouter(w, r, profileID)
 			}
@@ -219,7 +228,7 @@ func (s *Server) entryRoutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "entry id is required")
 		return
 	}
-	s.dayPlanEntryItemRouter(w, r, id)
+	s.dayPlanEntryItemRouter(w, r, "", id)
 }
 
 func (s *Server) mealPlanRoutes(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +247,7 @@ func (s *Server) mealPlanRoutes(w http.ResponseWriter, r *http.Request) {
 				entryID = parts[2]
 			}
 			if entryID != "" {
-				s.dayPlanEntryItemRouter(w, r, entryID)
+				s.dayPlanEntryItemRouter(w, r, planID, entryID)
 			} else {
 				s.dayPlanEntriesRouter(w, r, planID)
 			}
@@ -257,10 +266,9 @@ func (s *Server) bookRoutes(w http.ResponseWriter, r *http.Request) {
 	s.bookItemRouter(w, r, path)
 }
 
-// chapterRoutes dispatches the flat chapter routes addressed directly by
-// chapter ID. Chapters have globally unique IDs, so chapter-scoped operations
-// (recipes, pages, update, delete) do not require the parent book ID. These
-// mirror the nested /api/books/{bookID}/chapters/... routes.
+// chapterRoutes dispatches flat chapter routes addressed directly by chapter
+// ID. Authorization resolves the actual owning book before any child operation;
+// these mirror the nested /api/books/{bookID}/chapters/... routes.
 func (s *Server) chapterRoutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/chapters/")
 	path = strings.TrimSuffix(path, "/")
@@ -270,22 +278,24 @@ func (s *Server) chapterRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.SplitN(path, "/", 3)
 	chapterID := parts[0]
-	if len(parts) == 1 {
-		s.chapterItemRouter(w, r, chapterID)
-		return
-	}
-	switch parts[1] {
-	case "recipes":
-		s.chapterRecipesRouter(w, r, chapterID)
-		return
-	case "pages":
-		s.chapterPagesRouter(w, r, chapterID)
-		return
-	case "items":
-		s.chapterItemsReorderHandler(w, r, chapterID)
-		return
-	}
-	writeError(w, http.StatusNotFound, "not found")
+	user := getUserFromContext(r)
+	s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapter(user.ID, chapterID, "", fn) }, func(scoped *Server, response http.ResponseWriter) {
+		w := response
+		if len(parts) == 1 {
+			scoped.chapterItemRouter(w, r, chapterID)
+			return
+		}
+		switch parts[1] {
+		case "recipes":
+			scoped.chapterRecipesRouter(w, r, chapterID)
+		case "pages":
+			scoped.chapterPagesRouter(w, r, chapterID)
+		case "items":
+			scoped.chapterItemsReorderHandler(w, r, chapterID)
+		default:
+			writeError(w, http.StatusNotFound, "not found")
+		}
+	})
 }
 
 // pageRoutes dispatches the flat chapter-page routes addressed directly by
@@ -300,20 +310,73 @@ func (s *Server) pageRoutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "page id is required")
 		return
 	}
+	user := getUserFromContext(r)
 	if len(parts) >= 2 {
 		switch parts[1] {
 		case "to-book":
-			s.convertPageToBookHandler(w, r, pageID)
-			return
-		case "to-chapter":
-			s.convertPageToChapterHandler(w, r, pageID)
+			s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterPage(user.ID, pageID, "", fn) }, func(scoped *Server, response http.ResponseWriter) {
+				w := response
+				scoped.convertPageToBookHandler(w, r, pageID)
+			})
 			return
 		case "move":
-			s.movePageBetweenChaptersHandler(w, r, pageID)
+			s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterPage(user.ID, pageID, "", fn) }, func(scoped *Server, response http.ResponseWriter) {
+				w := response
+				scoped.movePageBetweenChaptersHandler(w, r, pageID)
+			})
+			return
+		case "to-chapter":
+			s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedBookPage(user.ID, pageID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+				w := response
+				scoped.convertPageToChapterHandler(w, r, pageID)
+			})
 			return
 		}
 	}
-	s.chapterPageItemRouter(w, r, pageID)
+	s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterPage(user.ID, pageID, "", fn) }, func(scoped *Server, response http.ResponseWriter) {
+		w := response
+		scoped.chapterPageItemRouter(w, r, pageID)
+	})
+}
+
+// bookPageRoutes updates or deletes a standalone page by ID after resolving
+// and authorizing its actual owning book.
+func (s *Server) bookPageRoutes(w http.ResponseWriter, r *http.Request) {
+	pageID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/book-pages/"), "/")
+	if pageID == "" {
+		writeError(w, http.StatusBadRequest, "book page id is required")
+		return
+	}
+	user := getUserFromContext(r)
+	s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedBookPage(user.ID, pageID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+		w := response
+		switch r.Method {
+		case http.MethodPut:
+			var req struct {
+				Title    string `json:"title"`
+				Content  string `json:"content"`
+				Position int    `json:"position"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid JSON")
+				return
+			}
+			page, err := scoped.store.UpdateBookPage(pageID, req.Title, req.Content, req.Position)
+			if err != nil {
+				writeBookOperationError(w, err, "failed to update book page")
+				return
+			}
+			writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: page})
+		case http.MethodDelete:
+			if err := scoped.store.DeleteBookPage(pageID); err != nil {
+				writeBookOperationError(w, err, "failed to delete book page")
+				return
+			}
+			writeJSON(w, http.StatusOK, APIResponse{OK: true})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	})
 }
 
 // chapterRecipeItemRoutes dispatches operations on a single chapter-recipe join
@@ -328,7 +391,11 @@ func (s *Server) chapterRecipeItemRoutes(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if len(parts) >= 2 && parts[1] == "move" {
-		s.moveChapterRecipeHandler(w, r, chapterRecipeID)
+		user := getUserFromContext(r)
+		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterRecipe(user.ID, chapterRecipeID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+			w := response
+			scoped.moveChapterRecipeHandler(w, r, chapterRecipeID)
+		})
 		return
 	}
 	writeError(w, http.StatusNotFound, "not found")
@@ -384,13 +451,17 @@ func (s *Server) dietaryProfileRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.SplitN(path, "/", 3)
 	profileID := parts[0]
+	if len(parts) == 2 && parts[1] == "recipe-assessments" {
+		s.recipeAssessmentsRouter(w, r, profileID)
+		return
+	}
 	if len(parts) >= 2 && parts[1] == "allergen-rules" {
 		ruleID := ""
 		if len(parts) >= 3 {
 			ruleID = parts[2]
 		}
 		if ruleID != "" {
-			s.allergenRuleItemRouter(w, r, ruleID)
+			s.allergenRuleItemRouter(w, r, profileID, ruleID)
 			return
 		}
 		user := getUserFromContext(r)
@@ -402,7 +473,7 @@ func (s *Server) dietaryProfileRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) allergenRuleRoutes(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/allergen-rules/")
-	s.allergenRuleItemRouter(w, r, id)
+	s.allergenRuleItemRouter(w, r, "", id)
 }
 
 func (s *Server) brandKitRoutes(w http.ResponseWriter, r *http.Request) {
@@ -429,13 +500,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 			userID, err := s.auth.ValidateAccessToken(token)
 			if err != nil {
-				user, err2 := s.store.GetUserByAPIKey(token)
-				if err2 != nil || user == nil {
-					writeError(w, http.StatusUnauthorized, "invalid token or API key")
-					return
-				}
-				ctx := context.WithValue(r.Context(), userContextKey, user)
-				h.ServeHTTP(w, r.WithContext(ctx))
+				writeError(w, http.StatusUnauthorized, "invalid session")
 				return
 			}
 			user, err := s.store.GetUserByID(userID)
@@ -471,12 +536,6 @@ func (s *Server) optionalAuth(h http.HandlerFunc) http.HandlerFunc {
 					ctx := context.WithValue(r.Context(), userContextKey, user)
 					r = r.WithContext(ctx)
 				}
-			} else {
-				user, err2 := s.store.GetUserByAPIKey(token)
-				if err2 == nil && user != nil {
-					ctx := context.WithValue(r.Context(), userContextKey, user)
-					r = r.WithContext(ctx)
-				}
 			}
 		}
 		h.ServeHTTP(w, r)
@@ -502,6 +561,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	allowedOrigins := parseAllowedOrigins(s.corsOrigin)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// API responses can contain private user data or credentials, including errors.
+		w.Header().Set("Cache-Control", "no-store")
 		origin := r.Header.Get("Origin")
 
 		if origin != "" {
@@ -516,7 +577,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == "OPTIONS" {

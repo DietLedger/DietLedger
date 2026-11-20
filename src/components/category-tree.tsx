@@ -4,16 +4,22 @@ import React, { useState, useCallback } from 'react';
 import type { CategoryNode } from '@/hooks/use-categories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, ChevronRight, Pencil, Trash2, Check, X, Plus } from 'lucide-react';
 
-interface CategoryTreeProps {
+interface CategorySelectionProps {
+  selectedIds?: ReadonlySet<string>;
+  onToggleSelection?: (id: string) => void;
+}
+
+interface CategoryTreeProps extends CategorySelectionProps {
   categories: CategoryNode[];
   onRename?: (id: string, name: string) => void;
   onDelete?: (id: string) => void;
   onCreateChild?: (parentId: string, name: string) => void;
 }
 
-export default function CategoryTree({ categories, onRename, onDelete, onCreateChild }: CategoryTreeProps) {
+export default function CategoryTree({ categories, onRename, onDelete, onCreateChild, selectedIds, onToggleSelection }: CategoryTreeProps) {
   return (
     <div className="space-y-1">
       {categories.map((cat) => (
@@ -24,13 +30,15 @@ export default function CategoryTree({ categories, onRename, onDelete, onCreateC
           onRename={onRename}
           onDelete={onDelete}
           onCreateChild={onCreateChild}
+          selectedIds={selectedIds}
+          onToggleSelection={onToggleSelection}
         />
       ))}
     </div>
   );
 }
 
-interface CategoryTreeNodeProps {
+interface CategoryTreeNodeProps extends CategorySelectionProps {
   node: CategoryNode;
   depth: number;
   onRename?: (id: string, name: string) => void;
@@ -38,7 +46,7 @@ interface CategoryTreeNodeProps {
   onCreateChild?: (parentId: string, name: string) => void;
 }
 
-function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: CategoryTreeNodeProps) {
+function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild, selectedIds, onToggleSelection }: CategoryTreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(node.name);
@@ -71,7 +79,18 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
         className="flex items-center gap-1 py-1.5 px-2 rounded-md hover:bg-stone-50 group"
         style={{ paddingLeft: `${depth * 20 + 8}px` }}
       >
+        {onToggleSelection && (
+          <Checkbox
+            aria-label={`Select ${node.name}`}
+            checked={selectedIds?.has(node.id) ?? false}
+            onCheckedChange={() => onToggleSelection(node.id)}
+          />
+        )}
         <button
+          type="button"
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
+          aria-expanded={hasChildren ? expanded : undefined}
+          disabled={!hasChildren}
           className="w-4 h-4 flex items-center justify-center text-stone-400 hover:text-stone-600 shrink-0"
           onClick={() => setExpanded(!expanded)}
         >
@@ -182,6 +201,8 @@ function CategoryTreeNode({ node, depth, onRename, onDelete, onCreateChild }: Ca
               onRename={onRename}
               onDelete={onDelete}
               onCreateChild={onCreateChild}
+              selectedIds={selectedIds}
+              onToggleSelection={onToggleSelection}
             />
           ))}
         </div>

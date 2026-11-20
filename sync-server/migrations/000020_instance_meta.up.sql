@@ -1,7 +1,7 @@
 -- Single-row instance-wide metadata. Owns first-run onboarding state and the
 -- admin-controlled registration toggle. The CHECK constraint guarantees there
 -- is ever only one row (id = 1), making this a single source of truth for the
--- whole instance (see ARCHITECTURE.md ownership model).
+-- whole instance (see docs/ARCHITECTURE.md ownership model).
 CREATE TABLE IF NOT EXISTS instance_meta (
     id                     INT PRIMARY KEY DEFAULT 1,
     onboarding_completed_at TIMESTAMPTZ,

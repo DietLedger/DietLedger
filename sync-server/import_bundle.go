@@ -83,6 +83,7 @@ type BundleIngredientGroup struct {
 }
 
 type BundleIngredient struct {
+	MissingNutrients      []string                        `json:"missingNutrients,omitempty"`
 	BundleIngredientID    string                          `json:"bundleIngredientId"`
 	Position              *int                            `json:"position,omitempty"`
 	SourceIngredientID    string                          `json:"sourceIngredientId,omitempty"`
@@ -100,6 +101,8 @@ type BundleIngredient struct {
 }
 
 type BundleRecipe struct {
+	Description      *string                 `json:"description,omitempty"`
+	CustomNutrition  *CustomRecipeNutrition  `json:"customNutrition,omitempty"`
 	PortableID       string                  `json:"portableId,omitempty"`
 	BundleRecipeID   string                  `json:"bundleRecipeId"`
 	SourceRecipeID   string                  `json:"sourceRecipeId,omitempty"`
@@ -202,16 +205,22 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 	if bundle.Format != RecipeBundleFormat {
 		return fmt.Errorf("unsupported recipe bundle format %q", bundle.Format)
 	}
-	if bundle.Version != 1 && bundle.Version != RecipeBundleVersion && bundle.Version != 3 {
+	if bundle.Version != 1 && bundle.Version != RecipeBundleVersion && bundle.Version != 3 && bundle.Version != 4 {
 		return fmt.Errorf("unsupported recipe bundle version %d", bundle.Version)
 	}
 
+	if bundle.Version < 4 && bundleHasV4Metadata(bundle) {
+		return errors.New("customNutrition and description require recipe bundle version 4")
+	}
 	if err := validatePendingRecipeImports(bundle); err != nil {
 		return err
 	}
 	recipes := map[string]bool{}
 	portableRecipes := map[string]bool{}
 	for _, r := range bundle.Recipes {
+		if err := validateRecipeMetadata(r.Description, r.CustomNutrition); err != nil {
+			return err
+		}
 		if recipes[r.BundleRecipeID] {
 			return fmt.Errorf("duplicate recipe bundleRecipeId %q", r.BundleRecipeID)
 		}
@@ -318,6 +327,9 @@ func ValidateRecipeBundle(bundle RecipeBundle) error {
 			}
 			if err := validateIngredientSource(ing.Source, recipes, foodItems, customFoods); err != nil {
 				return fmt.Errorf("recipe %q ingredient %q source: %w", r.BundleRecipeID, ing.BundleIngredientID, err)
+			}
+			if err := validateMissingNutrients(ing.MissingNutrients); err != nil {
+				return err
 			}
 			if field := validateNutritionNumbers(ing.Nutrients); field != "" {
 				return fmt.Errorf("recipe %q ingredient %q nutrients are invalid", r.BundleRecipeID, ing.BundleIngredientID)
@@ -710,15 +722,17 @@ func containsString(values []string, want string) bool {
 }
 
 type RecipeBundleImportSummary struct {
-	Created           map[string]int         `json:"created"`
-	Updated           map[string]int         `json:"updated"`
-	Reused            map[string]int         `json:"reused"`
-	Skipped           map[string]int         `json:"skipped"`
-	Conflicts         []RecipeBundleConflict `json:"conflicts"`
-	PendingImportID   string                 `json:"pendingImportId,omitempty"`
-	RequiresDecision  bool                   `json:"requiresDecision"`
-	Quarantined       int                    `json:"quarantined"`
-	PromotedRecipeIDs []string               `json:"promotedRecipeIds"`
+	Created              map[string]int         `json:"created"`
+	Updated              map[string]int         `json:"updated"`
+	Reused               map[string]int         `json:"reused"`
+	Skipped              map[string]int         `json:"skipped"`
+	Conflicts            []RecipeBundleConflict `json:"conflicts"`
+	PendingImportID      string                 `json:"pendingImportId,omitempty"`
+	RequiresDecision     bool                   `json:"requiresDecision"`
+	RequiresBookDecision bool                   `json:"requiresBookDecision"`
+	BookConflicts        []BookImportConflict   `json:"bookConflicts,omitempty"`
+	Quarantined          int                    `json:"quarantined"`
+	PromotedRecipeIDs    []string               `json:"promotedRecipeIds"`
 }
 
 type RecipeBundleConflict struct {
@@ -739,6 +753,15 @@ func incCount(m map[string]int, key string) { m[key] = m[key] + 1 }
 func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (*RecipeBundleImportSummary, error) {
 	if _, err := PlanRecipeBundleImport(bundle); err != nil {
 		return nil, err
+	}
+	// Offline packages retain unverified standard-food facts in the existing
+	// owner-scoped batch/quarantine context, never the shared food catalog.
+	missing, err := bundleNeedsFoodQuarantine(s.reader(), bundle)
+	if err != nil {
+		return nil, err
+	}
+	if missing {
+		return s.StageRecipeBundle(userID, bundle)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -774,6 +797,11 @@ func (s *PostgresStore) ImportRecipeBundle(userID string, bundle RecipeBundle) (
 // owner locking and commit. Staging uses append-only placement persistence;
 // the legacy low-level reader retains its existing book replacement semantics.
 func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle RecipeBundle, recipeMap, customFoodMap map[string]string, appendPlacement bool) (*RecipeBundleImportSummary, error) {
+	var err error
+	bundle, err = normalizeBundleCustomLinks(tx, userID, bundle, recipeMap)
+	if err != nil {
+		return nil, err
+	}
 	summary := newRecipeBundleImportSummary()
 	reusedRecipes := map[string]bool{}
 	categoryMap := map[string]string{}
@@ -791,18 +819,9 @@ func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle R
 		if err != sql.ErrNoRows {
 			return nil, err
 		}
-		_, err = tx.Exec(`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW())`, f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit, f.Nutrients.Calories, f.Nutrients.TotalFat, f.Nutrients.SaturatedFat, f.Nutrients.TransFat, f.Nutrients.Cholesterol, f.Nutrients.Sodium, f.Nutrients.TotalCarbs, f.Nutrients.DietaryFiber, f.Nutrients.TotalSugars, f.Nutrients.AddedSugars, f.Nutrients.Protein, f.Nutrients.VitaminD, f.Nutrients.Calcium, f.Nutrients.Iron, f.Nutrients.Potassium, emptyDefault(f.Source, "usda"))
-		if err != nil {
-			return nil, err
-		}
-		portions, err := foodPortionsJSON(f.Portions)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.Exec(`UPDATE food_items SET portions=$1 WHERE fdc_id=$2`, portions, f.FdcID); err != nil {
-			return nil, err
-		}
-		incCount(summary.Created, "foods")
+		// Absence is not permission to certify caller-supplied USDA facts.
+		// The owner batch context retains metadata, portions and provenance.
+		incCount(summary.Skipped, "foods")
 	}
 
 	for _, f := range bundle.CustomFoods {
@@ -855,7 +874,7 @@ func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle R
 		incCount(summary.Created, "customFoods")
 	}
 
-	if err := s.importBundleCategoriesTx(tx, bundle.Categories, categoryMap); err != nil {
+	if err := s.importBundleCategoriesTx(tx, userID, bundle.Categories, categoryMap); err != nil {
 		return nil, err
 	}
 
@@ -989,6 +1008,22 @@ func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle R
 				}
 			}
 		}
+		// Equal metadata is not identity for two independent books in one
+		// backup/package. Hash fallback must not collapse their structure.
+		if found {
+			for key, used := range bookMap {
+				if used == id && key != b.BundleBookID {
+					// Explicit origin aliases (selected merges) remain intentional.
+					origin, mapped, err := s.lookupImportMappingTx(tx, userID, "book", b.BundleBookID)
+					if err != nil {
+						return nil, err
+					}
+					if !mapped || origin != id {
+						found = false
+					}
+				}
+			}
+		}
 		if found && appendPlacement {
 			bookMap[b.BundleBookID] = id
 			incCount(summary.Reused, "books")
@@ -1094,7 +1129,13 @@ func (s *PostgresStore) importRecipeBundleTx(tx *sql.Tx, userID string, bundle R
 	for _, cr := range bundle.ChapterRecipes {
 		cid, rid := chapterMap[cr.BundleChapterID], recipeMap[cr.BundleRecipeID]
 		if cid != "" && rid != "" {
-			_, err := tx.Exec(`INSERT INTO chapter_recipes (id, chapter_id, recipe_id, position) VALUES ($1,$2,$3,$4) ON CONFLICT (chapter_id, recipe_id) DO UPDATE SET position=EXCLUDED.position`, uuid.New().String(), cid, rid, cr.Position)
+			conflict := `DO UPDATE SET position=EXCLUDED.position`
+			if appendPlacement {
+				// Existing placement order belongs to the user, not the retained
+				// source snapshot replayed during promotion or explicit reimport.
+				conflict = `DO NOTHING`
+			}
+			_, err := tx.Exec(`INSERT INTO chapter_recipes (id, chapter_id, recipe_id, position) VALUES ($1,$2,$3,$4) ON CONFLICT (chapter_id, recipe_id) `+conflict, uuid.New().String(), cid, rid, cr.Position)
 			if err != nil {
 				return nil, err
 			}
@@ -1128,6 +1169,9 @@ func orderedBundleIngredients(ingredients []BundleIngredient) []BundleIngredient
 }
 
 func (s *PostgresStore) hydrateRecipeTx(tx *sql.Tx, recipeID string, r BundleRecipe, recipeMap, customFoodMap map[string]string) error {
+	if err := writeRecipeMetadataTx(tx, recipeID, r.Description, r.CustomNutrition, true); err != nil {
+		return err
+	}
 	groupsJSON, _ := json.Marshal(bundleGroupsToIngredientGroups(r.IngredientGroups))
 	_, err := tx.Exec(`UPDATE recipes SET name=$1, servings=$2, serving_name=$3, prep_time=$4, cook_time=$5, instructions=$6, leftover_storage=$7, ingredient_groups=$8, updated_at=NOW() WHERE id=$9`, r.Name, r.Servings, emptyDefault(r.ServingName, "serving"), r.PrepTime, r.CookTime, r.Instructions, r.LeftoverStorage, string(groupsJSON), recipeID)
 	if err != nil {
@@ -1192,6 +1236,9 @@ func (s *PostgresStore) hydrateRecipeTx(tx *sql.Tx, recipeID string, r BundleRec
 		if err != nil {
 			return err
 		}
+		if err := writeIngredientMissingTx(tx, id, ing.MissingNutrients); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1248,7 +1295,7 @@ func (s *PostgresStore) upsertImportMappingTx(tx *sql.Tx, userID, objectType, ob
 	return err
 }
 
-func (s *PostgresStore) findOrCreateCategoryTx(tx *sql.Tx, name string, parentID *string) (string, error) {
+func (s *PostgresStore) findOrCreateCategoryTx(tx *sql.Tx, userID, name string, parentID *string) (string, error) {
 	var id string
 	err := tx.QueryRow(`SELECT id FROM categories WHERE name=$1 AND (($2::text IS NULL AND parent_id IS NULL) OR parent_id=$2) LIMIT 1`, name, parentID).Scan(&id)
 	if err == nil {
@@ -1258,13 +1305,15 @@ func (s *PostgresStore) findOrCreateCategoryTx(tx *sql.Tx, name string, parentID
 		return "", err
 	}
 	id = uuid.New().String()
-	_, err = tx.Exec(`INSERT INTO categories (id, name, parent_id, created_at, updated_at) VALUES ($1,$2,$3,NOW(),NOW())`, id, name, parentID)
+	err = tx.QueryRow(`INSERT INTO categories (id,name,parent_id,created_at,updated_at) SELECT $1,$2,$3,NOW(),NOW() WHERE EXISTS(SELECT 1 FROM users WHERE id=$4 AND is_admin) RETURNING id`, id, name, parentID, userID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("administrator must provision new global categories before import")
+	}
 	return id, err
 }
 
 func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCandidate, error) {
 	candidates := []ExportCandidate{}
-	isAdmin := user != nil && user.IsAdmin
 	userID := ""
 	if user != nil {
 		userID = user.ID
@@ -1276,17 +1325,17 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 		       COALESCE(pub.description, '') AS description,
 		       CONCAT_WS(' ', r.name, COALESCE(pub.description, ''), COALESCE(r.instructions, '')) AS search_text,
 		       r.user_id,
-		       CASE WHEN r.user_id = $1 THEN 'owned' WHEN $2 THEN 'admin' ELSE 'public' END AS access
+		       CASE WHEN r.user_id = $1 THEN 'owned' ELSE 'public' END AS access
 		  FROM recipes r
 		  LEFT JOIN LATERAL (
 		    SELECT recipe_id, description
 		      FROM shared_recipes
-		     WHERE recipe_id = r.id AND visibility = 'public'
+		     WHERE recipe_id = r.id AND user_id = r.user_id AND (visibility = 'public' OR (visibility = 'users' AND $1 <> ''))
 		     ORDER BY updated_at DESC
 		     LIMIT 1
 		  ) pub ON TRUE
-		 WHERE $2 OR r.user_id = $1 OR pub.recipe_id IS NOT NULL
-		 ORDER BY LOWER(r.name), r.updated_at DESC`, userID, isAdmin)
+		 WHERE r.user_id = $1 OR pub.recipe_id IS NOT NULL
+		 ORDER BY LOWER(r.name), r.updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1309,10 +1358,10 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 		       '' AS description,
 		       p.name AS search_text,
 		       p.user_id,
-		       CASE WHEN p.user_id = $1 THEN 'owned' ELSE 'admin' END AS access
+		       'owned' AS access
 		  FROM person_profiles p
-		 WHERE $2 OR p.user_id = $1
-		 ORDER BY LOWER(p.name), p.updated_at DESC`, userID, isAdmin)
+		 WHERE p.user_id = $1
+		 ORDER BY LOWER(p.name), p.updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1335,10 +1384,10 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 		       m.week_start AS description,
 		       CONCAT_WS(' ', m.name, m.week_start) AS search_text,
 		       m.user_id,
-		       CASE WHEN m.user_id = $1 THEN 'owned' ELSE 'admin' END AS access
+		       'owned' AS access
 		  FROM meal_plans m
-		 WHERE $2 OR m.user_id = $1
-		 ORDER BY m.week_start DESC, LOWER(m.name)`, userID, isAdmin)
+		 WHERE m.user_id = $1
+		 ORDER BY m.week_start DESC, LOWER(m.name)`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1366,10 +1415,10 @@ func (s *PostgresStore) ListRecipeBundleExportCandidates(user *User) ([]ExportCa
 		         COALESCE((SELECT STRING_AGG(CONCAT_WS(' ', cp.title, cp.content), ' ') FROM chapters ch JOIN chapter_pages cp ON cp.chapter_id = ch.id WHERE ch.book_id = b.id), '')
 		       ) AS search_text,
 		       b.user_id,
-		       CASE WHEN b.user_id = $1 THEN 'owned' ELSE 'admin' END AS access
+		       'owned' AS access
 		  FROM recipe_books b
-		 WHERE $2 OR b.user_id = $1
-		 ORDER BY LOWER(b.title), b.updated_at DESC`, userID, isAdmin)
+		 WHERE b.user_id = $1
+		 ORDER BY LOWER(b.title), b.updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1546,6 +1595,9 @@ func (s *PostgresStore) getRecipeByID(recipeID string) (*Recipe, error) {
 		return nil, err
 	}
 	r.ScanIngredientGroups(groupsJSON)
+	if err := s.loadRecipeMetadata(r); err != nil {
+		return nil, err
+	}
 	ings, err := s.listIngredientsByRecipe(r.ID)
 	if err != nil {
 		return nil, err
@@ -1559,16 +1611,13 @@ func (s *PostgresStore) canExportRecipe(user *User, recipeID string) (bool, erro
 		return false, nil
 	}
 	var ok bool
-	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND ($3 OR r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.visibility='public')))`, recipeID, user.ID, user.IsAdmin).Scan(&ok)
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes r WHERE r.id=$1 AND (r.user_id=$2 OR EXISTS(SELECT 1 FROM shared_recipes sr WHERE sr.recipe_id=r.id AND sr.user_id=r.user_id AND sr.visibility IN ('public','users'))))`, recipeID, user.ID).Scan(&ok)
 	return ok, err
 }
 
 func (s *PostgresStore) canExportBook(user *User, bookID string) (bool, error) {
 	if user == nil {
 		return false, nil
-	}
-	if user.IsAdmin {
-		return true, nil
 	}
 	var ok bool
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM recipe_books WHERE id=$1 AND user_id=$2)`, bookID, user.ID).Scan(&ok)
@@ -1579,11 +1628,8 @@ func (s *PostgresStore) canExportProfile(user *User, profileID string) (bool, er
 	if user == nil {
 		return false, nil
 	}
-	if user.IsAdmin {
-		return true, nil
-	}
 	var ok bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM person_profiles WHERE id=$1 AND user_id=$2)`, profileID, user.ID).Scan(&ok)
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM person_profiles WHERE id=$1 AND user_id=$2)`, profileID, user.ID).Scan(&ok)
 	return ok, err
 }
 
@@ -1591,11 +1637,8 @@ func (s *PostgresStore) canExportMealPlan(user *User, mealPlanID string) (bool, 
 	if user == nil {
 		return false, nil
 	}
-	if user.IsAdmin {
-		return true, nil
-	}
 	var ok bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM meal_plans WHERE id=$1 AND user_id=$2)`, mealPlanID, user.ID).Scan(&ok)
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM meal_plans WHERE id=$1 AND user_id=$2)`, mealPlanID, user.ID).Scan(&ok)
 	return ok, err
 }
 
@@ -1617,7 +1660,7 @@ func (s *PostgresStore) addNutritionProfileToBundleForUser(user *User, profileID
 		return err
 	}
 	bundle.FoodLogEntries = append(bundle.FoodLogEntries, logs...)
-	weights, err := s.ListWeightEntries(profileID, "", "")
+	weights, err := s.ListWeightEntries(user.ID, profileID, "", "")
 	if err != nil {
 		return err
 	}
@@ -1638,12 +1681,12 @@ func (s *PostgresStore) addMealPlanToBundleForUser(user *User, mealPlanID string
 		return err
 	}
 	bundle.MealPlans = append(bundle.MealPlans, *plan)
-	groups, err := s.ListMealGroups(mealPlanID)
+	groups, err := s.ListMealGroups(user.ID, mealPlanID)
 	if err != nil {
 		return err
 	}
 	bundle.MealGroups = append(bundle.MealGroups, groups...)
-	entries, err := s.ListDayPlanEntries(mealPlanID)
+	entries, err := s.ListDayPlanEntries(user.ID, mealPlanID)
 	if err != nil {
 		return err
 	}
@@ -1688,7 +1731,10 @@ func (s *PostgresStore) addRecipeRecordToBundle(user *User, r *Recipe, bundle *R
 	if err := json.Unmarshal([]byte(r.IngredientGroupsJSON), &groups); err != nil {
 		return fmt.Errorf("decode ingredient groups for recipe %q: %w", r.ID, err)
 	}
-	br := BundleRecipe{PortableID: r.PortableID, BundleRecipeID: r.PortableID, SourceRecipeID: r.ID, Name: r.Name, Servings: r.Servings, ServingName: r.ServingName, PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage}
+	if r.CustomNutrition != nil || r.Description != nil {
+		bundle.Version = 4
+	}
+	br := BundleRecipe{Description: r.Description, CustomNutrition: r.CustomNutrition, PortableID: r.PortableID, BundleRecipeID: r.PortableID, SourceRecipeID: r.ID, Name: r.Name, Servings: r.Servings, ServingName: r.ServingName, PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage}
 	for _, g := range groups {
 		br.IngredientGroups = append(br.IngredientGroups, BundleIngredientGroup{BundleGroupID: g.ID, Title: g.Title})
 	}
@@ -1722,7 +1768,10 @@ func (s *PostgresStore) addRecipeRecordToBundle(user *User, r *Recipe, bundle *R
 			}
 		}
 		position := ing.Position
-		br.Ingredients = append(br.Ingredients, BundleIngredient{BundleIngredientID: ing.ID, SourceIngredientID: ing.ID, Position: &position, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride, SuppliedNutrition: ing.UnconfirmedNutrition})
+		if len(ing.MissingNutrients) > 0 {
+			bundle.Version = 4
+		}
+		br.Ingredients = append(br.Ingredients, BundleIngredient{MissingNutrients: ing.MissingNutrients, BundleIngredientID: ing.ID, SourceIngredientID: ing.ID, Position: &position, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride, SuppliedNutrition: ing.UnconfirmedNutrition})
 	}
 	if err := s.addRecipeCategoriesToBundle(r, bundle); err != nil {
 		return err

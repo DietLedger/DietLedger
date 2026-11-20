@@ -7,7 +7,12 @@ import (
 
 // Package array order is not a parent-before-child guarantee. Resolve parents
 // before inserting children so imports cannot silently flatten category trees.
-func (s *PostgresStore) importBundleCategoriesTx(tx *sql.Tx, categories []BundleCategory, mapped map[string]string) error {
+func (s *PostgresStore) importBundleCategoriesTx(tx *sql.Tx, userID string, categories []BundleCategory, mapped map[string]string) error {
+	if len(categories) > 0 {
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(74192341)`); err != nil {
+			return err
+		}
+	}
 	pending := categories
 	for len(pending) > 0 {
 		next := make([]BundleCategory, 0, len(pending))
@@ -21,7 +26,7 @@ func (s *PostgresStore) importBundleCategoriesTx(tx *sql.Tx, categories []Bundle
 				}
 				parentID = &parent
 			}
-			id, err := s.findOrCreateCategoryTx(tx, c.Name, parentID)
+			id, err := s.findOrCreateCategoryTx(tx, userID, c.Name, parentID)
 			if err != nil {
 				return err
 			}

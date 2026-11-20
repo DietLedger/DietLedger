@@ -47,6 +47,18 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
+  // Standalone `node --test` harnesses intentionally use CommonJS, including
+  // optional browser-module loading. Keep application/other-file imports checked.
+  files: [
+    "docs/GitHubPagesTemp/contrast.test.cjs",
+    "docs/GitHubPagesTemp/copy.test.cjs",
+    "docs/GitHubPagesTemp/navigation.test.cjs",
+    "docs/GitHubPagesTemp/preview.test.cjs",
+  ],
+  rules: {
+    "@typescript-eslint/no-require-imports": "off",
+  },
+}, {
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", "examples/**", "skills", "server.js", "scripts/**", "src-tauri/**"]
 }];
 

@@ -384,7 +384,7 @@ erDiagram
 
 - Per-user secrets are stored in `user_secrets.encrypted_value`.
 - Encryption uses AES-GCM with a 32-byte key derived from `AuthService.SecretKey()`.
-- Operational implication: if `HMAC_SECRET` is empty, the server generates a random key at startup. Tokens will not survive restarts, and encrypted user secrets may become undecryptable after restart. Production must set a stable secret.
+- Operational implication: `HMAC_SECRET` is required and startup fails closed if it is empty/invalid; there is no random-key fallback. Preserve the same stable value across restarts/restores: changing or losing it may make encrypted user secrets undecryptable.
 
 ### Trust boundaries and attack surface
 
@@ -460,7 +460,7 @@ flowchart TD
     API -->|DATABASE_URL| PG[Container: dietledger-postgres\nPostgreSQL 17 Alpine]
     PG --> Vol[(Docker volume: pg-data)]
 
-    Host[Remote Docker host\ndeploy.example.invalid] -. runs .- Web
+    Host[Operator-selected remote Docker host] -. runs .- Web
     Host -. runs .- API
     Host -. runs .- PG
 ```

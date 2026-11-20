@@ -729,7 +729,7 @@ export default function BookDetailPage() {
           </DialogHeader>
           <div className="space-y-3 mt-2">
             <Input placeholder="Search recipes..." value={addRecipeSearch} onChange={(e) => setAddRecipeSearch(e.target.value)} autoFocus />
-            <ScrollArea className="max-h-[300px]">
+            <ScrollArea className="h-[min(300px,50vh)]">
               <div className="space-y-1">
                 {filteredRecipes.length === 0 ? (
                   <p className="text-sm text-stone-400 text-center py-4">

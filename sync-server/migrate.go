@@ -38,24 +38,77 @@ func RunMigrations(db *sql.DB, fs embed.FS, dir string) error {
 	if err != nil {
 		return fmt.Errorf("get applied versions: %w", err)
 	}
+	if err := validateAppliedMigrationVersions(migrations, applied); err != nil {
+		return err
+	}
 
 	for _, m := range migrations {
 		if applied[m.Version] {
 			continue
 		}
 		log.Printf("[Migrate] Applying %04d ...", m.Version)
-		if _, err := db.Exec(m.UpSQL); err != nil {
+		// A seed is not applied until its version is recorded. Keep both in
+		// one transaction so an interrupted/failed version write cannot cause
+		// duplicate random-ID data when the next startup retries the migration.
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration %04d: %w", m.Version, err)
+		}
+		if _, err := tx.Exec(m.UpSQL); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("apply migration %04d: %w", m.Version, err)
 		}
-		if _, err := db.Exec(
+		if _, err := tx.Exec(
 			"INSERT INTO schema_migrations (version) VALUES ($1)",
 			m.Version,
 		); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("record migration %04d: %w", m.Version, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %04d: %w", m.Version, err)
 		}
 		log.Printf("[Migrate] Applied %04d", m.Version)
 	}
 
+	return nil
+}
+
+// VerifyMigrations never mutates the schema; the API must not serve against an
+// incomplete database or mask an unavailable migration ledger.
+func VerifyMigrations(db *sql.DB, fs embed.FS, dir string) error {
+	migrations, err := loadMigrations(fs, dir)
+	if err != nil {
+		return fmt.Errorf("load migrations: %w", err)
+	}
+	applied, err := getAppliedVersions(db)
+	if err != nil {
+		return fmt.Errorf("read migration ledger: %w", err)
+	}
+	if err := validateAppliedMigrationVersions(migrations, applied); err != nil {
+		return err
+	}
+	for _, m := range migrations {
+		if !applied[m.Version] {
+			return fmt.Errorf("migration %04d has not been applied", m.Version)
+		}
+	}
+	return nil
+}
+
+// The controlled migration command and read-only startup gate share membership
+// validation. Reject unknown versions before known migration SQL or later grants;
+// a higher maximum alone cannot detect an unknown gap below it.
+func validateAppliedMigrationVersions(migrations []Migration, applied map[int]bool) error {
+	known := make(map[int]bool, len(migrations))
+	for _, m := range migrations {
+		known[m.Version] = true
+	}
+	for version := range applied {
+		if !known[version] {
+			return fmt.Errorf("database contains migration %04d unknown to this API; downgrades are not supported", version)
+		}
+	}
 	return nil
 }
 

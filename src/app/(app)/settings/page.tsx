@@ -11,7 +11,7 @@ import { useAppTheme } from '@/hooks/use-app-theme';
 import { useRecipes } from '@/hooks/use-recipes';
 import { useBooks } from '@/hooks/use-books';
 import { queryKeys } from '@/lib/query-keys';
-import { getApiAuthHeaders } from '@/lib/api-auth';
+import { getApiAuthHeaders, authenticatedFetch } from '@/lib/api-auth';
 import { getApiClient, type UserListEntry } from '@/lib/api-client';
 import { ConfirmWithPasswordDialog } from '@/components/confirm-with-password-dialog';
 import FoodDatabasePanel from '@/components/food-database-panel';
@@ -79,6 +79,8 @@ const TABS: { id: TabKey; label: string; icon: typeof Settings }[] = [
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
 ];
 
+const RESET_CUSTOM_DATA_DESCRIPTION = 'Permanently deletes all custom data across every user, including recipes, books, custom foods, categories, templates, staples, plans, logs, profiles, storage locations, secrets, API keys/devices, and all import history (including staged imports). Accounts, settings, and imported standard nutrition databases are preserved. Cannot be undone.';
+
 export default function SettingsPage() {
   const { importFile, decisionDialog } = useRecipeImport();
   const { user, logout } = useAuth();
@@ -95,7 +97,7 @@ export default function SettingsPage() {
   const { data: secrets = [] } = useSecrets();
   const createSecretMutation = useCreateSecret();
   const deleteSecretMutation = useDeleteSecret();
-  const { themeId, setTheme, themes } = useAppTheme();
+  const { themeId, setTheme, themes, appearance, setAppearance } = useAppTheme();
   const { data: recipes = [] } = useRecipes();
   const { data: books = [] } = useBooks();
 
@@ -133,7 +135,7 @@ export default function SettingsPage() {
   const [copied, setCopied] = useState(false);
   const loadKeys = useCallback(async () => {
     try {
-      const res = await fetch('/api/keys', { headers: getApiAuthHeaders() });
+      const res = await authenticatedFetch('/api/keys', { headers: getApiAuthHeaders() });
       if (res.ok) { const json = await res.json(); setKeys(Array.isArray(json.data ?? json) ? (json.data ?? json) : []); }
       else setKeys([]);
     } catch { setKeys([]); }
@@ -149,11 +151,11 @@ export default function SettingsPage() {
       if (actions.length > 0) permissions[feat] = actions;
     }
     try {
-      const res = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getApiAuthHeaders() }, body: JSON.stringify({ name: newKeyName.trim(), permissions: JSON.stringify(permissions) }) });
+      const res = await authenticatedFetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getApiAuthHeaders() }, body: JSON.stringify({ name: newKeyName.trim(), permissions: JSON.stringify(permissions) }) });
       if (res.ok) { const json = await res.json(); setCreatedKey(json.data?.key ?? json.key); setNewKeyName(''); loadKeys(); }
     } catch {}
   };
-  const handleDeleteKey = async (id: string) => { try { await fetch(`/api/keys/${id}`, { method: 'DELETE', headers: getApiAuthHeaders() }); loadKeys(); } catch {} };
+  const handleDeleteKey = async (id: string) => { try { await authenticatedFetch(`/api/keys/${id}`, { method: 'DELETE', headers: getApiAuthHeaders() }); loadKeys(); } catch {} };
   const togglePerm = (feat: FeatureKey, action: 'read' | 'write') => setNewKeyPerms(prev => ({ ...prev, [feat]: { ...prev[feat], [action]: !prev[feat][action] } }));
 
   // ── Encrypted user secrets ─────────────────────────────────────────
@@ -212,6 +214,7 @@ export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -255,7 +258,7 @@ export default function SettingsPage() {
       const bundle = await getApiClient().exportOwnerRecipeBookBackup();
       await downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
       await getApiClient().deleteMyAccount(delAccPw, needSuccessor ? delAccSucc : undefined);
-      logout();
+      await logout();
       router.replace('/');
     } catch (e) {
       setDelAccErr(e instanceof Error ? e.message : 'Failed to delete account');
@@ -312,10 +315,19 @@ export default function SettingsPage() {
               <Card>
                 <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2"><Palette className="w-4 h-4 text-brand-600" />Theme</CardTitle></CardHeader>
                 <CardContent>
+                  <label className="block text-xs font-medium text-stone-600 mb-1.5" htmlFor="theme-palette">Color palette</label>
                   <Select value={themeId} onValueChange={setTheme}>
-                    <SelectTrigger className="w-full text-sm"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="theme-palette" className="w-full text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {themes.map((t) => (<SelectItem key={t.id} value={t.id}><span>{t.name} <span className="text-stone-400 text-xs">— {t.description}</span></span></SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                  <label className="block text-xs font-medium text-stone-600 mt-4 mb-1.5" htmlFor="appearance-mode">Color appearance</label>
+                  <Select value={appearance} onValueChange={(mode) => setAppearance(mode === 'dark' ? 'dark' : 'light')}>
+                    <SelectTrigger id="appearance-mode" className="w-full text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark</SelectItem>
                     </SelectContent>
                   </Select>
                 </CardContent>
@@ -338,7 +350,7 @@ export default function SettingsPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold flex items-center gap-2"><Clock className="w-4 h-4 text-brand-600" />Default Meal Times</CardTitle>
-                  <button onClick={() => appSettings && updateSettingsMutation.mutate({ defaultMealSlotTimes: { ...DEFAULT_MEAL_SLOT_TIMES }, unitSystem: appSettings.unitSystem, theme: appSettings.theme })} className="text-xs text-stone-500 hover:text-brand-600">Reset to Defaults</button>
+                  <button onClick={() => appSettings && updateSettingsMutation.mutate({ defaultMealSlotTimes: { ...DEFAULT_MEAL_SLOT_TIMES } })} className="text-xs text-stone-500 hover:text-brand-600">Reset to Defaults</button>
                 </div>
                 <p className="text-xs text-stone-400">Used when creating new meal plans. Individual plans can override these.</p>
               </CardHeader>
@@ -348,7 +360,7 @@ export default function SettingsPage() {
                     <div key={slot} className="flex items-center justify-between">
                       <span className="text-sm text-stone-600">{SLOT_LABELS[slot]}</span>
                       <input type="time" value={defaultMealSlotTimes[slot] || DEFAULT_MEAL_SLOT_TIMES[slot]}
-                        onChange={(e) => appSettings && updateSingleSlotTimeMutation.mutate({ slot, time: e.target.value, currentTimes: defaultMealSlotTimes, unitSystem: appSettings.unitSystem, theme: appSettings.theme })}
+                        onChange={(e) => appSettings && updateSingleSlotTimeMutation.mutate({ slot, time: e.target.value, currentTimes: defaultMealSlotTimes })}
                         className="h-8 w-32 px-2 text-sm border border-stone-200 rounded-md bg-transparent focus:outline-none focus:border-brand-400" />
                     </div>
                   ))}
@@ -398,23 +410,16 @@ export default function SettingsPage() {
               </Card>
 
               <Card className="border-red-200">
-                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-700"><AlertTriangle className="w-4 h-4" />Account Deletion</CardTitle></CardHeader>
+                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-700"><AlertTriangle className="w-4 h-4" />Data and Account Deletion</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-stone-700">Delete my data</p>
-                      <p className="text-xs text-stone-400 mt-0.5">Permanently deletes all your content. Keeps your account, settings, and global data.</p>
+                      <p className="text-sm font-medium text-stone-700">Reset all custom data</p>
+                      <p className="text-xs text-stone-400 mt-0.5">{RESET_CUSTOM_DATA_DESCRIPTION}</p>
                     </div>
-                    <ConfirmWithPasswordDialog
-                      title="Delete all your data?"
-                      description="This permanently deletes ALL of your content (recipes, books, plans, profiles, etc.). Your account and settings remain. Cannot be undone."
-                      confirmLabel="Delete data" destructive
-                      trigger={<Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50"><RotateCcw className="w-3.5 h-3.5" />Delete data</Button>}
-                      action={async (password) => {
-                        try { await getApiClient().deleteMyData(password); qc.clear(); return { ok: true }; }
-                        catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; }
-                      }}
-                    />
+                    <Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50" onClick={() => setTab('danger')}>
+                      <RotateCcw className="w-3.5 h-3.5" />Reset all custom data
+                    </Button>
                   </div>
                   <div className="border-t border-stone-100 pt-4 flex items-center justify-between gap-4">
                     <div className="min-w-0">
@@ -437,13 +442,13 @@ export default function SettingsPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold flex items-center gap-2"><Key className="w-4 h-4 text-brand-600" />Developer API Keys</CardTitle>
-                    <Button size="sm" className="bg-brand-600 hover:bg-brand-700 gap-1 h-8" onClick={() => { setCreatedKey(null); setDialogOpen(true); }}><Plus className="w-3.5 h-3.5" />Generate Key</Button>
+                    <Button size="sm" disabled>Key issuance unavailable</Button>
                   </div>
-                  <p className="text-xs text-stone-400">Scoped keys for AI assistants and external tools.</p>
+                  <p className="text-xs text-stone-400">Existing keys cannot authenticate and can be revoked below. Issuance is disabled until scoped authentication is supported.</p>
                 </CardHeader>
                 <CardContent>
                   {keys.length === 0 ? (
-                    <div className="text-center py-6 text-stone-400"><Key className="w-8 h-8 mx-auto mb-2 text-stone-300" /><p className="text-sm">No API keys yet</p></div>
+                    <div className="text-center py-6 text-stone-400"><Key className="w-8 h-8 mx-auto mb-2 text-stone-300" /><p className="text-sm">Existing keys cannot authenticate; revoke them below. New key issuance is disabled until scoped authentication is supported.</p></div>
                   ) : (
                     <div className="space-y-2">
                       {keys.map((k) => (
@@ -544,16 +549,33 @@ export default function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-stone-700">Reset user data (all users)</p>
-                    <p className="text-xs text-stone-400 mt-0.5">Deletes all content across the instance. Keeps accounts, settings, USDA data.</p>
+                    <p className="text-sm font-medium text-stone-700">Reset all custom data</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{RESET_CUSTOM_DATA_DESCRIPTION}</p>
                   </div>
                   <ConfirmWithPasswordDialog
-                    title="Reset all user data?" description="Permanently deletes ALL user-generated content across the instance. Accounts, settings, and USDA data are kept. Cannot be undone."
-                    confirmLabel="Reset data" destructive
-                    trigger={<Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50"><RotateCcw className="w-3.5 h-3.5" />Reset data</Button>}
-                    action={async (password) => { try { await getApiClient().resetUserData(password); qc.clear(); return { ok: true }; } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; } }}
+                    title="Reset all custom data?" description={RESET_CUSTOM_DATA_DESCRIPTION}
+                    confirmLabel="Reset all custom data" destructive
+                    trigger={<Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50"><RotateCcw className="w-3.5 h-3.5" />Reset all custom data</Button>}
+                    action={async (password) => {
+                      setResetStatus(null);
+                      try {
+                        await getApiClient().resetUserData(password);
+                        setKeys([]);
+                        setCreatedKey(null);
+                        setSecretValues({});
+                        setSecretVisible({});
+                        setImportStatus(null);
+                        // Clear stale custom data while keeping active query observers subscribed and refetching.
+                        await qc.resetQueries();
+                        setResetStatus('All custom data across every user has been reset. Accounts, settings, and imported standard nutrition databases were preserved.');
+                        return { ok: true };
+                      } catch (e) {
+                        return { ok: false, error: e instanceof Error ? e.message : 'Failed to reset custom data' };
+                      }
+                    }}
                   />
                 </div>
+                {resetStatus && <p role="status" className="text-xs text-green-700">{resetStatus}</p>}
                 <div className="border-t border-stone-100 pt-4 flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-stone-700">Factory reset</p>
@@ -563,7 +585,7 @@ export default function SettingsPage() {
                     title="Reset to factory defaults?" description="Deletes EVERYTHING and returns the instance to setup state. You will be signed out. Cannot be undone."
                     confirmLabel="Factory reset" destructive
                     trigger={<Button variant="outline" size="sm" className="gap-1 shrink-0 border-red-200 text-red-700 hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" />Factory reset</Button>}
-                    action={async (password) => { try { await getApiClient().factoryReset(password); logout(); router.replace('/'); return { ok: true }; } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; } }}
+                    action={async (password) => { try { await getApiClient().factoryReset(password); await logout(); router.replace('/'); return { ok: true }; } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; } }}
                   />
                 </div>
               </CardContent>

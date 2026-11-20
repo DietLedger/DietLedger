@@ -1,101 +1,102 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestNewAuthServiceHMAC(t *testing.T) {
-	os.Unsetenv("HMAC_SECRET")
-	auth, err := NewAuthService(nil, "")
-	if err != nil {
-		t.Fatalf("NewAuthService: %v", err)
-	}
-	if auth == nil {
-		t.Fatal("expected non-nil AuthService")
+func TestAuthRequiresPersistentSecret(t *testing.T) {
+	for _, secret := range []string{"", "short", "replace-with-a-real-secret-before-starting"} {
+		t.Setenv("HMAC_SECRET", secret)
+		if _, err := NewAuthService(nil, ""); err == nil {
+			t.Fatal("weak secret accepted")
+		}
 	}
 }
 
 func TestNewAuthServiceWithHMACSecret(t *testing.T) {
-	os.Setenv("HMAC_SECRET", "test-secret-that-is-long-enough-for-aes256")
-	defer os.Unsetenv("HMAC_SECRET")
-
+	t.Setenv("HMAC_SECRET", securityClaim)
 	auth, err := NewAuthService(nil, "")
 	if err != nil {
-		t.Fatalf("NewAuthService: %v", err)
+		t.Fatal(err)
 	}
-	key := auth.SecretKey()
-	if len(key) != 32 {
-		t.Fatalf("SecretKey len = %d, want 32", len(key))
+	if string(auth.SecretKey()) != securityClaim[:32] {
+		t.Fatal("persistent encryption material changed")
 	}
 }
 
 func TestNewAuthServiceInvalidKeyPath(t *testing.T) {
-	_, err := NewAuthService(nil, "/nonexistent/key.pem")
-	if err == nil {
-		t.Fatal("expected error for invalid key path")
+	t.Setenv("HMAC_SECRET", securityClaim)
+	if _, err := NewAuthService(nil, "/nonexistent/key.pem"); err == nil {
+		t.Fatal("invalid key path accepted")
 	}
 }
 
-func TestTokenRoundTrip(t *testing.T) {
-	os.Unsetenv("HMAC_SECRET")
+func TestAuthJWTAlgorithmAndClaims(t *testing.T) {
+	t.Setenv("HMAC_SECRET", securityClaim)
 	auth, _ := NewAuthService(nil, "")
+	for _, method := range []jwt.SigningMethod{jwt.SigningMethodHS384, jwt.SigningMethodHS512} {
+		raw, err := jwt.NewWithClaims(method, jwt.MapClaims{"sub": "test", "type": "access", "exp": time.Now().Add(time.Hour).Unix()}).SignedString(auth.hmacSecret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := auth.parseToken(raw); err == nil {
+			t.Fatal("wrong HMAC algorithm accepted")
+		}
+	}
+	for _, claims := range []jwt.MapClaims{
+		{"sub": "test", "type": "access"},
+		{"sub": "test", "type": "access", "exp": time.Now().Add(-time.Hour).Unix()},
+	} {
+		raw, _ := auth.signToken(claims)
+		if _, err := auth.parseToken(raw); err == nil {
+			t.Fatal("missing/expired expiry accepted")
+		}
+	}
+	raw, _ := auth.signToken(jwt.MapClaims{"sub": "test", "type": "access", "exp": time.Now().Add(time.Hour).Unix()})
+	if _, err := auth.ValidateAccessToken(raw); err == nil {
+		t.Fatal("legacy sid-less token accepted")
+	}
+	if _, err := auth.ValidateAccessToken("garbage"); err == nil {
+		t.Fatal("garbage accepted")
+	}
+}
 
-	user := &User{ID: "user-123", Email: "test@example.com"}
-	resp, err := auth.generateTokens(user)
+func TestAuthRSARoundTripAndWrongAlgorithm(t *testing.T) {
+	t.Setenv("HMAC_SECRET", securityClaim)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatalf("generateTokens: %v", err)
+		t.Fatal(err)
 	}
-
-	if resp.AccessToken == "" {
-		t.Fatal("expected non-empty access token")
+	path := filepath.Join(t.TempDir(), "synthetic-signing.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0600); err != nil {
+		t.Fatal(err)
 	}
-	if resp.RefreshToken == "" {
-		t.Fatal("expected non-empty refresh token")
-	}
-	if resp.ExpiresIn == 0 {
-		t.Fatal("expected non-zero ExpiresIn")
-	}
-
-	userID, err := auth.ValidateAccessToken(resp.AccessToken)
+	auth, err := NewAuthService(nil, path)
 	if err != nil {
-		t.Fatalf("ValidateAccessToken: %v", err)
+		t.Fatal(err)
 	}
-	if userID != "user-123" {
-		t.Fatalf("userID = %q, want %q", userID, "user-123")
+	claims := jwt.MapClaims{"sub": "test", "type": "access", "exp": time.Now().Add(time.Hour).Unix()}
+	raw, err := auth.signToken(claims)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestValidateAccessTokenRejectsRefreshToken(t *testing.T) {
-	os.Unsetenv("HMAC_SECRET")
-	auth, _ := NewAuthService(nil, "")
-
-	user := &User{ID: "user-123", Email: "test@example.com"}
-	resp, _ := auth.generateTokens(user)
-
-	_, err := auth.ValidateAccessToken(resp.RefreshToken)
-	if err == nil {
-		t.Fatal("expected error when validating refresh token as access token")
+	if _, err := auth.parseToken(raw); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestValidateAccessTokenRejectsGarbage(t *testing.T) {
-	os.Unsetenv("HMAC_SECRET")
-	auth, _ := NewAuthService(nil, "")
-
-	_, err := auth.ValidateAccessToken("garbage-token")
-	if err == nil {
-		t.Fatal("expected error for garbage token")
+	raw, err = jwt.NewWithClaims(jwt.SigningMethodRS512, claims).SignedString(key)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestSecretKeyPadding(t *testing.T) {
-	os.Setenv("HMAC_SECRET", "short")
-	defer os.Unsetenv("HMAC_SECRET")
-
-	auth, _ := NewAuthService(nil, "")
-	key := auth.SecretKey()
-	if len(key) != 32 {
-		t.Fatalf("SecretKey len = %d, want 32 (padded)", len(key))
+	if _, err := auth.parseToken(raw); err == nil {
+		t.Fatal("wrong RSA algorithm accepted")
 	}
 }

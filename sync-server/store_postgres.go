@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -24,17 +28,46 @@ type postgresReader interface {
 
 type PostgresStore struct {
 	db *sql.DB
-	// Set only on the local store used to serialize an owner backup. The shared
-	// store and its connection-pool lifecycle remain unchanged.
-	readTx *sql.Tx
+	// Set only on request-local stores used for a stable read or book-owner
+	// authorization transaction. The shared pool/store is never mutated.
+	readTx  *sql.Tx
+	writeTx *sql.Tx
+	ownerID string
 }
 
 func (s *PostgresStore) reader() postgresReader {
+	if s.writeTx != nil {
+		return s.writeTx
+	}
 	if s.readTx != nil {
 		return s.readTx
 	}
 	return s.db
 }
+
+func (s *PostgresStore) executor() interface {
+	Exec(string, ...interface{}) (sql.Result, error)
+} {
+	if s.writeTx != nil {
+		return s.writeTx
+	}
+	return s.db
+}
+func (s *PostgresStore) beginOptionalTx() (*sql.Tx, bool, error) {
+	if s.writeTx != nil {
+		return s.writeTx, false, nil
+	}
+	tx, err := s.db.Begin()
+	return tx, true, err
+}
+func finishOptionalTx(tx *sql.Tx, owned bool) error {
+	if owned {
+		return tx.Commit()
+	}
+	return nil
+}
+
+var ErrBookResourceNotFound = errors.New("book resource not found")
 
 func NewPostgresStore(connString string) (*PostgresStore, error) {
 	db, err := sql.Open("pgx", connString)
@@ -68,46 +101,83 @@ func generateAPIKey() (string, error) {
 
 // ── Users & Auth ─────────────────────────────────────────────────────
 
-func (s *PostgresStore) CreateUser(email, password, displayName string) (*User, error) {
+func (s *PostgresStore) CreateUser(email, password, displayName string, setupClaim ...string) (*User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
-	apiKey, err := generateAPIKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate api key: %w", err)
-	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	// The first registered user becomes the administrator.
+	// User creation and the default profile are one transaction: every new
+	// account gets the starter exactly once, with no read-time reseeding.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin user creation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockMembership(tx); err != nil {
+		return nil, err
+	}
+	var registrationEnabled bool
+	if err := tx.QueryRow(`SELECT registration_enabled FROM instance_meta WHERE id=1`).Scan(&registrationEnabled); err != nil {
+		return nil, err
+	}
 	isAdmin := false
 	var userCount int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
 		return nil, fmt.Errorf("count users: %w", err)
 	}
 	if userCount == 0 {
+		expected := os.Getenv("SETUP_CLAIM_SECRET")
+		claim := ""
+		if len(setupClaim) > 0 {
+			claim = setupClaim[0]
+		}
+		if !validDeploymentSecret(expected, 32) || subtle.ConstantTimeCompare([]byte(tokenHash(expected)), []byte(tokenHash(claim))) != 1 {
+			return nil, ErrSetupClaim
+		}
+		result, err := tx.Exec(`INSERT INTO bootstrap_claim_consumptions(claim_hash) VALUES ($1) ON CONFLICT DO NOTHING`, tokenHash(claim))
+		if err != nil {
+			return nil, err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if n != 1 {
+			return nil, ErrSetupClaim
+		}
 		isAdmin = true
+	} else {
+		if len(setupClaim) > 0 && setupClaim[0] != "" {
+			return nil, ErrSetupClaim
+		}
+		if !registrationEnabled {
+			return nil, ErrRegistrationDisabled
+		}
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO users (id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
-		id, email, displayName, string(hash), apiKey, isAdmin, now,
+	_, err = tx.Exec(
+		`INSERT INTO users (id,email,display_name,password_hash,is_admin,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+		id, email, displayName, string(hash), isAdmin, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
-	return &User{ID: id, Email: email, DisplayName: displayName, PasswordHash: string(hash), APIKey: apiKey, IsAdmin: isAdmin, CreatedAt: now, UpdatedAt: now}, nil
-}
-
-func (s *PostgresStore) GetUserByAPIKey(apiKey string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE api_key = $1`, apiKey)
+	if err := insertDefaultDiabetesAwareProfile(tx, id, now); err != nil {
+		return nil, fmt.Errorf("insert default dietary profile: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit user creation: %w", err)
+	}
+	return &User{ID: id, Email: email, DisplayName: displayName, PasswordHash: string(hash), IsAdmin: isAdmin, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) GetUserByID(id string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE id = $1`, id)
+	return s.scanUser(`SELECT id, email, display_name, password_hash, is_admin, created_at, updated_at FROM users WHERE id = $1`, id)
 }
 
 func (s *PostgresStore) GetUserByEmail(email string) (*User, error) {
-	return s.scanUser(`SELECT id, email, display_name, password_hash, api_key, is_admin, created_at, updated_at FROM users WHERE email = $1`, email)
+	return s.scanUser(`SELECT id, email, display_name, password_hash, is_admin, created_at, updated_at FROM users WHERE email = $1`, email)
 }
 
 func (s *PostgresStore) UpdateUserLastLogin(id string) error {
@@ -158,18 +228,27 @@ func (s *PostgresStore) CompleteOnboarding(version int) error {
 }
 
 func (s *PostgresStore) SetRegistrationEnabled(enabled bool) error {
-	_, err := s.db.Exec(
-		`UPDATE instance_meta SET registration_enabled = $1, updated_at = NOW() WHERE id = 1`,
-		enabled,
-	)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockMembership(tx); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE instance_meta SET registration_enabled=$1,updated_at=NOW() WHERE id=1`, enabled); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// userDataTables are the user-generated content tables. Wiped by both resets.
-// Reference data (USDA food_items, seed_jobs), accounts (users), preferences
-// (user_settings), and instance config (instance_meta) are NOT included here.
+// userDataTables is the explicit inventory of custom content for both resets.
+// Accounts, sessions, settings, instance metadata, migrations, imported food
+// reference data are preserved.
 var userDataTables = []string{
-	"ingredients", "recipes", "recipe_categories", "recipe_ratings",
+	"recipe_import_staged", "recipe_import_batches", "recipe_import_resolutions",
+	"import_object_mappings", "recipe_create_requests", "recipe_completions",
+	"custom_recipe_nutrition", "ingredients", "recipes", "recipe_categories", "recipe_ratings",
 	"categories", "chapter_recipes", "chapter_pages", "book_pages",
 	"chapters", "recipe_books", "shared_recipes", "community_categories",
 	"day_plan_entries", "meal_groups", "grocery_checklists", "meal_plans",
@@ -186,17 +265,18 @@ func (s *PostgresStore) ResetUserData() error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
+	// Import/create flows lock their user first. Wait for those transactions
+	// before acquiring custom-table locks, avoiding inverted lock order.
+	if _, err := tx.Exec(`LOCK TABLE users IN EXCLUSIVE MODE`); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(
-		fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", strings.Join(userDataTables, ", ")),
+		fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY", strings.Join(userDataTables, ", ")),
 	); err != nil {
-		tx.Rollback()
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	// Restore the default global staples (TRUNCATE above cleared them).
-	return s.SeedGlobalStaples()
+	return tx.Commit()
 }
 
 // FactoryReset wipes everything user-created AND all accounts/sessions, then
@@ -205,6 +285,10 @@ func (s *PostgresStore) ResetUserData() error {
 func (s *PostgresStore) FactoryReset() error {
 	tx, err := s.db.Begin()
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockMembership(tx); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
@@ -227,12 +311,16 @@ func (s *PostgresStore) FactoryReset() error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return s.SeedGlobalStaples()
+	if err := s.SeedGlobalStaples(); err != nil {
+		return err
+	}
+	// Factory reset returns to defaults; a custom-data reset stays empty.
+	return s.SeedCategories()
 }
 
 func (s *PostgresStore) scanUser(query string, args ...interface{}) (*User, error) {
 	u := &User{}
-	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.APIKey, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
+	err := s.db.QueryRow(query, args...).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -272,6 +360,9 @@ func (s *PostgresStore) ListRecipes(userID string, page, perPage int) ([]Recipe,
 			return nil, 0, err
 		}
 		r.ScanIngredientGroups(groupsJSON)
+		if err := s.loadRecipeMetadata(&r); err != nil {
+			return nil, 0, err
+		}
 		ings, err := s.listIngredientsByRecipe(r.ID)
 		if err != nil {
 			return nil, 0, err
@@ -296,6 +387,9 @@ func (s *PostgresStore) GetRecipe(userID, id string) (*Recipe, error) {
 		return nil, err
 	}
 	r.ScanIngredientGroups(groupsJSON)
+	if err := s.loadRecipeMetadata(r); err != nil {
+		return nil, err
+	}
 	ings, err := s.listIngredientsByRecipe(r.ID)
 	if err != nil {
 		return nil, err
@@ -309,6 +403,14 @@ func (s *PostgresStore) CreateRecipe(userID string, req *CreateRecipeRequest) (*
 }
 
 func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest) (*Recipe, error) {
+	if err := validateRecipeMetadata(req.Description, req.CustomNutrition); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	now := time.Now().UTC()
 	setClauses := []string{"updated_at = $1"}
 	args := []interface{}{now}
@@ -355,17 +457,23 @@ func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest
 	}
 	args = append(args, userID, id)
 	query := fmt.Sprintf("UPDATE recipes SET %s WHERE user_id = $%d AND id = $%d", strings.Join(setClauses, ", "), argN, argN+1)
-	res, err := s.db.Exec(query, args...)
+	res, err := tx.Exec(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, nil
 	}
+	if err := writeRecipeMetadataTx(tx, id, req.Description, req.CustomNutrition, req.customNutritionSet || req.CustomNutrition != nil); err != nil {
+		return nil, err
+	}
 	if req.Ingredients != nil {
-		if err := s.ReplaceIngredients(id, *req.Ingredients); err != nil {
+		if err := replaceIngredientsTx(tx, id, *req.Ingredients); err != nil {
 			return nil, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return s.GetRecipe(userID, id)
 }
@@ -407,7 +515,7 @@ func listIngredientsByRecipeQuery(q interface {
 	Query(string, ...interface{}) (*sql.Rows, error)
 }, recipeID string) ([]Ingredient, error) {
 	rows, err := q.Query(
-		`SELECT id, recipe_id, fdc_id, name, amount, unit, COALESCE(description,''), calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,''), group_id, linked_recipe_id, COALESCE(source_type,'manual'), source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition FROM ingredients WHERE recipe_id = $1 ORDER BY position, id`,
+		`SELECT id, recipe_id, fdc_id, name, amount, unit, COALESCE(description,''), calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, COALESCE(prep_instructions,'[]'), COALESCE(storage_location,''), group_id, linked_recipe_id, COALESCE(source_type,'manual'), source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition, missing_nutrients FROM ingredients WHERE recipe_id = $1 ORDER BY position, id`,
 		recipeID,
 	)
 	if err != nil {
@@ -418,9 +526,18 @@ func listIngredientsByRecipeQuery(q interface {
 	for rows.Next() {
 		var i Ingredient
 		var prepJSON string
-		var unresolvedJSON, unconfirmedJSON []byte
-		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID, &i.SourceType, &i.SourceKey, &i.Position, &i.ZeroNutritionOverride, &unresolvedJSON, &unconfirmedJSON); err != nil {
+		var unresolvedJSON, unconfirmedJSON, missingJSON []byte
+		if err := rows.Scan(&i.ID, &i.RecipeID, &i.FdcID, &i.Name, &i.Amount, &i.Unit, &i.Description, &i.Calories, &i.TotalFat, &i.SaturatedFat, &i.TransFat, &i.Cholesterol, &i.Sodium, &i.TotalCarbs, &i.DietaryFiber, &i.TotalSugars, &i.AddedSugars, &i.Protein, &i.VitaminD, &i.Calcium, &i.Iron, &i.Potassium, &prepJSON, &i.StorageLocation, &i.GroupID, &i.LinkedRecipeID, &i.SourceType, &i.SourceKey, &i.Position, &i.ZeroNutritionOverride, &unresolvedJSON, &unconfirmedJSON, &missingJSON); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal(missingJSON, &i.MissingNutrients); err != nil {
+			return nil, err
+		}
+		if err := validateMissingNutrients(i.MissingNutrients); err != nil {
+			return nil, err
+		}
+		if len(i.MissingNutrients) == 0 {
+			i.MissingNutrients = nil
 		}
 		if err := i.ScanPrepInstructions(prepJSON); err != nil {
 			return nil, fmt.Errorf("decode preparation instructions for ingredient %q: %w", i.ID, err)
@@ -443,6 +560,8 @@ func listIngredientsByRecipeQuery(q interface {
 }
 
 func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientReq) (*Ingredient, error) {
+	copy := *ing
+	ing = &copy
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -450,6 +569,9 @@ func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientR
 	defer tx.Rollback()
 	var lockedRecipeID string
 	if err := tx.QueryRow(`SELECT id FROM recipes WHERE id=$1 FOR UPDATE`, recipeID).Scan(&lockedRecipeID); err != nil {
+		return nil, err
+	}
+	if err := canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
 		return nil, err
 	}
 	position := 0
@@ -478,19 +600,32 @@ func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientR
 	if err != nil {
 		return nil, err
 	}
+	if err := writeIngredientMissingTx(tx, id, ing.MissingNutrients); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &Ingredient{ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Position: position, ZeroNutritionOverride: zero, UnresolvedSource: ing.UnresolvedSource, UnconfirmedNutrition: ing.UnconfirmedNutrition}, nil
+	return &Ingredient{MissingNutrients: ing.MissingNutrients, ID: id, RecipeID: recipeID, FdcID: ing.FdcID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, Calories: ing.Calories, TotalFat: ing.TotalFat, SaturatedFat: ing.SaturatedFat, TransFat: ing.TransFat, Cholesterol: ing.Cholesterol, Sodium: ing.Sodium, TotalCarbs: ing.TotalCarbs, DietaryFiber: ing.DietaryFiber, TotalSugars: ing.TotalSugars, AddedSugars: ing.AddedSugars, Protein: ing.Protein, VitaminD: ing.VitaminD, Calcium: ing.Calcium, Iron: ing.Iron, Potassium: ing.Potassium, GroupID: ing.GroupID, LinkedRecipeID: ing.LinkedRecipeID, SourceType: sourceType, SourceKey: ing.SourceKey, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Position: position, ZeroNutritionOverride: zero, UnresolvedSource: ing.UnresolvedSource, UnconfirmedNutrition: ing.UnconfirmedNutrition}, nil
 }
 
 func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *CreateIngredientReq) (*Ingredient, error) {
+	copy := *ing
+	ing = &copy
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	// Match import/reset ordering before ingredient locks and the default's
+	// user FK lock, including the first saved storage location.
+	if err := lockImportOwner(tx, userID); err != nil {
+		return nil, err
+	}
 
+	if err := canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
+		return nil, err
+	}
 	// Lock the existing ingredient: both authorization and the first-choice
 	// transition must refer to this same row, even under concurrent updates.
 	var oldLocation, oldType string
@@ -549,6 +684,13 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	sameSource := oldType == sourceType && oldFdcID == ing.FdcID && oldKey.String == derefString(ing.SourceKey) && oldLinkedRecipe.String == derefString(ing.LinkedRecipeID)
+	if ing.MissingNutrients != nil || !sameSource {
+		if err := writeIngredientMissingTx(tx, id, ing.MissingNutrients); err != nil {
+			return nil, err
+		}
 	}
 
 	// A rematch is not a first choice for the new item. USDA identity is its
@@ -621,9 +763,18 @@ func (s *PostgresStore) ListFoodStorageDefaults(userID string) ([]FoodStorageDef
 }
 
 func (s *PostgresStore) UpsertFoodStorageDefault(userID, sourceType, sourceKey, location string) (*FoodStorageDefault, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	// Lock the owner before touching custom foods or storage defaults.
+	if err := lockImportOwner(tx, userID); err != nil {
+		return nil, err
+	}
 	fdcID, _ := strconv.Atoi(sourceKey) // Handler validates positive canonical FDC IDs.
 	var d FoodStorageDefault
-	err := s.db.QueryRow(`INSERT INTO food_storage_defaults (user_id, source_type, source_key, custom_food_id, location)
+	err = tx.QueryRow(`INSERT INTO food_storage_defaults (user_id, source_type, source_key, custom_food_id, location)
 		SELECT $1, $2, $3, CASE WHEN $2 = 'custom_food' THEN $3 ELSE NULL END, $4
 		WHERE ($2 = 'usda' AND EXISTS (SELECT 1 FROM food_items WHERE fdc_id = $5))
 		   OR ($2 = 'custom_food' AND EXISTS (SELECT 1 FROM custom_foods WHERE id=$3 AND user_id=$1))
@@ -635,6 +786,9 @@ func (s *PostgresStore) UpsertFoodStorageDefault(userID, sourceType, sourceKey, 
 	if err != nil {
 		return nil, err
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return &d, nil
 }
 
@@ -643,11 +797,22 @@ func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []Create
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
+	if err := replaceIngredientsTx(tx, recipeID, ingredients); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func replaceIngredientsTx(tx *sql.Tx, recipeID string, ingredients []CreateIngredientReq) error {
 	if _, err := tx.Exec(`DELETE FROM ingredients WHERE recipe_id = $1`, recipeID); err != nil {
 		tx.Rollback()
 		return err
 	}
 	for position, ing := range ingredients {
+		if err := canonicalizeLinkedCustomIngredient(tx, recipeID, &ing); err != nil {
+			return err
+		}
 		id := uuid.New().String()
 		prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 		sourceType := ing.SourceType
@@ -671,8 +836,11 @@ func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []Create
 			tx.Rollback()
 			return err
 		}
+		if err := writeIngredientMissingTx(tx, id, ing.MissingNutrients); err != nil {
+			return err
+		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // ── Food Items ───────────────────────────────────────────────────────
@@ -842,7 +1010,11 @@ func (s *PostgresStore) CreateFoodItem(f *FoodItem) (*FoodItem, error) {
 }
 
 func (s *PostgresStore) ListSeedJobs() ([]SeedJob, error) {
-	rows, err := s.db.Query(`SELECT id, data_type, release_date, file_name, record_count, status, progress, error, checkpoint, started_at, completed_at, created_at FROM seed_jobs ORDER BY created_at DESC`)
+	return s.ListSeedJobsContext(context.Background())
+}
+
+func (s *PostgresStore) ListSeedJobsContext(ctx context.Context) ([]SeedJob, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, data_type, release_date, file_name, record_count, status, progress, error, checkpoint, started_at, completed_at, created_at FROM seed_jobs ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -855,13 +1027,17 @@ func (s *PostgresStore) ListSeedJobs() ([]SeedJob, error) {
 		}
 		jobs = append(jobs, j)
 	}
-	return jobs, nil
+	return jobs, rows.Err()
 }
 
 func (s *PostgresStore) CreateSeedJob(dataType, releaseDate, fileName string) (*SeedJob, error) {
+	return s.CreateSeedJobContext(context.Background(), dataType, releaseDate, fileName)
+}
+
+func (s *PostgresStore) CreateSeedJobContext(ctx context.Context, dataType, releaseDate, fileName string) (*SeedJob, error) {
 	now := time.Now().UTC()
 	var id int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO seed_jobs (data_type, release_date, file_name, status, created_at) VALUES ($1,$2,$3,'pending',$4) RETURNING id`,
 		dataType, releaseDate, fileName, now,
 	).Scan(&id)
@@ -872,7 +1048,11 @@ func (s *PostgresStore) CreateSeedJob(dataType, releaseDate, fileName string) (*
 }
 
 func (s *PostgresStore) UpdateSeedJob(id int, status string, recordCount int, progress float64, errorMsg string) error {
-	_, err := s.db.Exec(
+	return s.UpdateSeedJobContext(context.Background(), id, status, recordCount, progress, errorMsg)
+}
+
+func (s *PostgresStore) UpdateSeedJobContext(ctx context.Context, id int, status string, recordCount int, progress float64, errorMsg string) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE seed_jobs SET status=$1, record_count=$2, progress=$3, error=CASE WHEN $1='failed' THEN $5 ELSE error END, started_at=CASE WHEN $1='running' THEN NOW() ELSE started_at END, completed_at=CASE WHEN $1 IN ('completed','failed') THEN NOW() ELSE completed_at END WHERE id=$4`,
 		status, recordCount, progress, id, errorMsg,
 	)
@@ -928,7 +1108,11 @@ func (s *PostgresStore) DeleteAllFoods() error {
 }
 
 func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
-	tx, err := s.db.Begin()
+	return s.CreateFoodItemsContext(context.Background(), items)
+}
+
+func (s *PostgresStore) CreateFoodItemsContext(ctx context.Context, items []FoodItem) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -942,7 +1126,7 @@ func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
 		}
 		var existingID int
 		var existingPortions []byte
-		err = tx.QueryRow(`SELECT id, portions FROM food_items WHERE fdc_id = $1 FOR UPDATE`, f.FdcID).Scan(&existingID, &existingPortions)
+		err = tx.QueryRowContext(ctx, `SELECT id, portions FROM food_items WHERE fdc_id = $1 FOR UPDATE`, f.FdcID).Scan(&existingID, &existingPortions)
 		if err == nil {
 			if f.Source == "usda" && len(f.Portions) > 0 {
 				var saved []FoodPortion
@@ -956,7 +1140,7 @@ func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
 					return inserted, err
 				}
 			}
-			_, err := tx.Exec(
+			_, err := tx.ExecContext(ctx,
 				`UPDATE food_items SET description=$1, data_type=$2, brand_owner=$3, gtin_upc=$4, serving_size=$5, serving_size_unit=$6, calories=$7, total_fat=$8, saturated_fat=$9, trans_fat=$10, cholesterol=$11, sodium=$12, total_carbs=$13, dietary_fiber=$14, total_sugars=$15, added_sugars=$16, protein=$17, vitamin_d=$18, calcium=$19, iron=$20, potassium=$21, source=$22, updated_at=$23, portions=CASE WHEN $25::jsonb = '[]'::jsonb THEN portions ELSE $25::jsonb END WHERE fdc_id=$24`,
 				f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
 				f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
@@ -974,7 +1158,7 @@ func (s *PostgresStore) CreateFoodItems(items []FoodItem) (int, error) {
 			tx.Rollback()
 			return inserted, err
 		}
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO food_items (fdc_id, description, data_type, brand_owner, gtin_upc, serving_size, serving_size_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, source, created_at, updated_at, portions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24,$25)`,
 			f.FdcID, f.Description, f.DataType, f.BrandOwner, f.GtinUpc, f.ServingSize, f.ServingSizeUnit,
 			f.Calories, f.TotalFat, f.SaturatedFat, f.TransFat, f.Cholesterol, f.Sodium,
@@ -1110,6 +1294,11 @@ func (s *PostgresStore) ListFoodLogEntriesByDateRange(profileID, startDate, endD
 }
 
 func (s *PostgresStore) CreateFoodLogEntry(userID, profileID string, req *CreateFoodLogRequest) (*FoodLogEntry, error) {
+	copy := *req
+	req = &copy
+	if err := s.canonicalizeCustomLog(userID, req); err != nil {
+		return nil, err
+	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	_, err := s.db.Exec(
@@ -1123,7 +1312,18 @@ func (s *PostgresStore) CreateFoodLogEntry(userID, profileID string, req *Create
 	return e, nil
 }
 
+func (s *PostgresStore) OwnsFoodLogEntry(userID, profileID, id string) (bool, error) {
+	var exists bool
+	err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM food_log_entries e JOIN person_profiles p ON p.id=e.profile_id WHERE e.id=$1 AND e.profile_id=$2 AND e.user_id=$3 AND p.user_id=$3)`, id, profileID, userID).Scan(&exists)
+	return exists, err
+}
+
 func (s *PostgresStore) UpdateFoodLogEntry(id string, req *CreateFoodLogRequest) (*FoodLogEntry, error) {
+	copy := *req
+	req = &copy
+	if err := s.canonicalizeCustomLogUpdate(id, req); err != nil {
+		return nil, err
+	}
 	_, err := s.db.Exec(
 		`UPDATE food_log_entries SET date=$1, time=$2, meal_slot=$3, source_type=$4, source_id=$5, name=$6, servings=$7, serving_amount=$8, serving_unit=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25`,
 		req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id,
@@ -1142,21 +1342,21 @@ func (s *PostgresStore) DeleteFoodLogEntry(id string) error {
 
 // ── Weight Entries ───────────────────────────────────────────────────
 
-func (s *PostgresStore) ListWeightEntries(profileID, fromDate, toDate string) ([]WeightEntry, error) {
-	query := `SELECT id, user_id, profile_id, date, time, COALESCE(weight_kg,0), notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at FROM weight_entries WHERE profile_id = $1`
-	args := []interface{}{profileID}
-	n := 2
+func (s *PostgresStore) ListWeightEntries(userID, profileID, fromDate, toDate string) ([]WeightEntry, error) {
+	query := `SELECT w.id, w.user_id, w.profile_id, w.date, w.time, COALESCE(w.weight_kg,0), w.notes, w.blood_sugar, w.blood_pressure_systolic, w.blood_pressure_diastolic, w.measurement_context, w.created_at, w.updated_at FROM weight_entries w JOIN person_profiles p ON p.id=w.profile_id WHERE p.user_id=$1 AND w.profile_id=$2`
+	args := []interface{}{userID, profileID}
+	n := 3
 	if fromDate != "" {
-		query += fmt.Sprintf(` AND date >= $%d`, n)
+		query += fmt.Sprintf(` AND w.date >= $%d`, n)
 		args = append(args, fromDate)
 		n++
 	}
 	if toDate != "" {
-		query += fmt.Sprintf(` AND date <= $%d`, n)
+		query += fmt.Sprintf(` AND w.date <= $%d`, n)
 		args = append(args, toDate)
 		n++
 	}
-	query += ` ORDER BY date ASC`
+	query += ` ORDER BY w.date ASC`
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -1180,31 +1380,43 @@ func (s *PostgresStore) CreateWeightEntry(userID, profileID string, req *CreateW
 	if req.WeightKg == 0 {
 		weightVal = nil
 	}
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		`INSERT INTO weight_entries (id, user_id, profile_id, date, time, weight_kg, notes, blood_sugar, blood_pressure_systolic, blood_pressure_diastolic, measurement_context, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`,
+		 SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12 WHERE EXISTS (SELECT 1 FROM person_profiles WHERE id=$3 AND user_id=$2)`,
 		id, userID, profileID, req.Date, req.Time, weightVal, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, now,
 	)
 	if err != nil {
 		return nil, err
 	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
+	}
 	return &WeightEntry{ID: id, UserID: userID, ProfileID: profileID, Date: req.Date, Time: req.Time, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-func (s *PostgresStore) UpdateWeightEntry(id string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
-	_, err := s.db.Exec(
-		`UPDATE weight_entries SET date=$1, time=$2, weight_kg=$3, notes=$4, blood_sugar=$5, blood_pressure_systolic=$6, blood_pressure_diastolic=$7, measurement_context=$8, updated_at=NOW() WHERE id=$9`,
-		req.Date, req.Time, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id,
+func (s *PostgresStore) UpdateWeightEntry(userID, profileID, id string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
+	res, err := s.db.Exec(
+		`UPDATE weight_entries w SET date=$1, time=$2, weight_kg=$3, notes=$4, blood_sugar=$5, blood_pressure_systolic=$6, blood_pressure_diastolic=$7, measurement_context=$8, updated_at=NOW() WHERE w.id=$9 AND w.profile_id=$10 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=w.profile_id AND p.user_id=$11)`,
+		req.Date, req.Time, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id, profileID, userID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
+	}
 	return &WeightEntry{ID: id, Date: req.Date, Time: req.Time, WeightKg: req.WeightKg, Notes: req.Notes, BloodSugar: req.BloodSugar, BloodPressureSystolic: req.BloodPressureSystolic, BloodPressureDiastolic: req.BloodPressureDiastolic, MeasurementContext: req.MeasurementContext}, nil
 }
 
-func (s *PostgresStore) DeleteWeightEntry(id string) error {
-	_, err := s.db.Exec(`DELETE FROM weight_entries WHERE id = $1`, id)
-	return err
+func (s *PostgresStore) DeleteWeightEntry(userID, profileID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM weight_entries w USING person_profiles p WHERE w.id=$1 AND w.profile_id=$2 AND p.id=w.profile_id AND p.user_id=$3`, id, profileID, userID)
+	if err != nil {
+		return err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Meal Plans ───────────────────────────────────────────────────────
@@ -1294,9 +1506,9 @@ func (s *PostgresStore) DeleteMealPlan(userID, id string) error {
 
 // ── Day Plan Entries ─────────────────────────────────────────────────
 
-func (s *PostgresStore) ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, error) {
+func (s *PostgresStore) ListDayPlanEntries(userID, mealPlanID string) ([]DayPlanEntry, error) {
 	rows, err := s.db.Query(
-		`SELECT id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM day_plan_entries WHERE meal_plan_id = $1 ORDER BY date, position`, mealPlanID,
+		`SELECT e.id, e.meal_plan_id, e.date, e.slot, e.recipe_id, e.position, e.group_id, e.servings, e.is_leftover, e.source_type, e.food_name, e.calories, e.total_fat, e.saturated_fat, e.trans_fat, e.cholesterol, e.sodium, e.total_carbs, e.dietary_fiber, e.total_sugars, e.added_sugars, e.protein, e.vitamin_d, e.calcium, e.iron, e.potassium, e.created_at, e.updated_at FROM day_plan_entries e JOIN meal_plans p ON p.id=e.meal_plan_id WHERE p.user_id=$1 AND p.id=$2 ORDER BY e.date, e.position`, userID, mealPlanID,
 	)
 	if err != nil {
 		return nil, err
@@ -1313,10 +1525,10 @@ func (s *PostgresStore) ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, e
 	return entries, nil
 }
 
-func (s *PostgresStore) GetDayPlanEntryByID(id string) (*DayPlanEntry, error) {
+func (s *PostgresStore) GetDayPlanEntryByID(userID, mealPlanID, id string) (*DayPlanEntry, error) {
 	var e DayPlanEntry
 	err := s.db.QueryRow(
-		`SELECT id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM day_plan_entries WHERE id = $1`, id,
+		`SELECT e.id, e.meal_plan_id, e.date, e.slot, e.recipe_id, e.position, e.group_id, e.servings, e.is_leftover, e.source_type, e.food_name, e.calories, e.total_fat, e.saturated_fat, e.trans_fat, e.cholesterol, e.sodium, e.total_carbs, e.dietary_fiber, e.total_sugars, e.added_sugars, e.protein, e.vitamin_d, e.calcium, e.iron, e.potassium, e.created_at, e.updated_at FROM day_plan_entries e JOIN meal_plans p ON p.id=e.meal_plan_id WHERE e.id=$1 AND p.user_id=$2 AND ($3='' OR p.id=$3)`, id, userID, mealPlanID,
 	).Scan(&e.ID, &e.MealPlanID, &e.Date, &e.Slot, &e.RecipeID, &e.Position, &e.GroupID, &e.Servings, &e.IsLeftover, &e.SourceType, &e.FoodName, &e.Calories, &e.TotalFat, &e.SaturatedFat, &e.TransFat, &e.Cholesterol, &e.Sodium, &e.TotalCarbs, &e.DietaryFiber, &e.TotalSugars, &e.AddedSugars, &e.Protein, &e.VitaminD, &e.Calcium, &e.Iron, &e.Potassium, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1327,39 +1539,76 @@ func (s *PostgresStore) GetDayPlanEntryByID(id string) (*DayPlanEntry, error) {
 	return &e, nil
 }
 
-func (s *PostgresStore) CreateDayPlanEntry(mealPlanID string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
+func (s *PostgresStore) CreateDayPlanEntry(userID, mealPlanID string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
+	copy := *req
+	req = &copy
+	var ownsPlan bool
+	if err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM meal_plans WHERE id=$1 AND user_id=$2)`, mealPlanID, userID).Scan(&ownsPlan); err != nil {
+		return nil, err
+	}
+	if !ownsPlan {
+		return nil, nil
+	}
+	if err := s.canonicalizeCustomDayPlan(mealPlanID, req); err != nil {
+		return nil, err
+	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(
-		`INSERT INTO day_plan_entries (id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$27)`,
-		id, mealPlanID, req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now,
+	res, err := s.db.Exec(
+		`INSERT INTO day_plan_entries (id, meal_plan_id, date, slot, recipe_id, position, group_id, servings, is_leftover, source_type, food_name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$27 WHERE EXISTS (SELECT 1 FROM meal_plans p WHERE p.id=$2 AND p.user_id=$28) AND ($7::text IS NULL OR EXISTS (SELECT 1 FROM meal_groups g WHERE g.id=$7 AND g.meal_plan_id=$2)) AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM recipes r WHERE r.id=$5 AND r.user_id=$28))`,
+		id, mealPlanID, req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now, userID,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
 	}
 	return &DayPlanEntry{ID: id, MealPlanID: mealPlanID, Date: req.Date, Slot: req.Slot, RecipeID: req.RecipeID, Position: req.Position, GroupID: req.GroupID, Servings: req.Servings, IsLeftover: req.IsLeftover, SourceType: req.SourceType, FoodName: req.FoodName, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-func (s *PostgresStore) UpdateDayPlanEntry(id string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
-	_, err := s.db.Exec(
-		`UPDATE day_plan_entries SET date=$1, slot=$2, recipe_id=$3, position=$4, group_id=$5, servings=$6, is_leftover=$7, source_type=$8, food_name=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25`,
-		req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id,
+func (s *PostgresStore) UpdateDayPlanEntry(userID, requestedPlanID, id string, req *CreateDayPlanEntryRequest) (*DayPlanEntry, error) {
+	copy := *req
+	req = &copy
+	var mealPlanID string
+	err := s.reader().QueryRow(`SELECT e.meal_plan_id FROM day_plan_entries e JOIN meal_plans p ON p.id=e.meal_plan_id WHERE e.id=$1 AND p.user_id=$2 AND ($3='' OR p.id=$3)`, id, userID, requestedPlanID).Scan(&mealPlanID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.canonicalizeCustomDayPlan(mealPlanID, req); err != nil {
+		return nil, err
+	}
+	res, err := s.db.Exec(
+		`UPDATE day_plan_entries e SET date=$1, slot=$2, recipe_id=$3, position=$4, group_id=$5, servings=$6, is_leftover=$7, source_type=$8, food_name=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() FROM meal_plans p WHERE e.id=$25 AND p.id=e.meal_plan_id AND p.user_id=$26 AND ($27='' OR p.id=$27) AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM meal_groups g WHERE g.id=$5 AND g.meal_plan_id=p.id)) AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM recipes r WHERE r.id=$3 AND r.user_id=$26))`,
+		req.Date, req.Slot, req.RecipeID, req.Position, req.GroupID, req.Servings, req.IsLeftover, req.SourceType, req.FoodName, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id, userID, requestedPlanID,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &DayPlanEntry{ID: id, Date: req.Date, Slot: req.Slot, RecipeID: req.RecipeID, Position: req.Position, GroupID: req.GroupID, Servings: req.Servings, IsLeftover: req.IsLeftover, SourceType: req.SourceType, FoodName: req.FoodName, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium}, nil
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
+	}
+	return &DayPlanEntry{ID: id, MealPlanID: mealPlanID, Date: req.Date, Slot: req.Slot, RecipeID: req.RecipeID, Position: req.Position, GroupID: req.GroupID, Servings: req.Servings, IsLeftover: req.IsLeftover, SourceType: req.SourceType, FoodName: req.FoodName, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium}, nil
 }
 
-func (s *PostgresStore) DeleteDayPlanEntry(id string) error {
-	_, err := s.db.Exec(`DELETE FROM day_plan_entries WHERE id = $1`, id)
-	return err
+func (s *PostgresStore) DeleteDayPlanEntry(userID, mealPlanID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM day_plan_entries e USING meal_plans p WHERE e.id=$1 AND p.id=e.meal_plan_id AND p.user_id=$2 AND ($3='' OR p.id=$3)`, id, userID, mealPlanID)
+	if err != nil {
+		return err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Meal Groups ──────────────────────────────────────────────────────
 
-func (s *PostgresStore) ListMealGroups(mealPlanID string) ([]MealGroup, error) {
-	rows, err := s.db.Query(`SELECT id, meal_plan_id, date, slot, name, position FROM meal_groups WHERE meal_plan_id = $1 ORDER BY position`, mealPlanID)
+func (s *PostgresStore) ListMealGroups(userID, mealPlanID string) ([]MealGroup, error) {
+	rows, err := s.db.Query(`SELECT g.id, g.meal_plan_id, g.date, g.slot, g.name, g.position FROM meal_groups g JOIN meal_plans p ON p.id=g.meal_plan_id WHERE p.user_id=$1 AND p.id=$2 ORDER BY g.position`, userID, mealPlanID)
 	if err != nil {
 		return nil, err
 	}
@@ -1375,24 +1624,33 @@ func (s *PostgresStore) ListMealGroups(mealPlanID string) ([]MealGroup, error) {
 	return groups, nil
 }
 
-func (s *PostgresStore) CreateMealGroup(mealPlanID, name, date, slot string, position int) (*MealGroup, error) {
+func (s *PostgresStore) CreateMealGroup(userID, mealPlanID, name, date, slot string, position int) (*MealGroup, error) {
 	id := uuid.New().String()
-	_, err := s.db.Exec(`INSERT INTO meal_groups (id, meal_plan_id, date, slot, name, position) VALUES ($1,$2,$3,$4,$5,$6)`, id, mealPlanID, date, slot, name, position)
+	res, err := s.db.Exec(`INSERT INTO meal_groups (id, meal_plan_id, date, slot, name, position) SELECT $1,p.id,$3,$4,$5,$6 FROM meal_plans p WHERE p.id=$2 AND p.user_id=$7`, id, mealPlanID, date, slot, name, position, userID)
 	if err != nil {
 		return nil, err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
 	}
 	return &MealGroup{ID: id, MealPlanID: mealPlanID, Date: date, Slot: slot, Name: name, Position: position}, nil
 }
 
-func (s *PostgresStore) DeleteMealGroup(id string) error {
-	_, err := s.db.Exec(`DELETE FROM meal_groups WHERE id = $1`, id)
-	return err
+func (s *PostgresStore) DeleteMealGroup(userID, mealPlanID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM meal_groups g USING meal_plans p WHERE g.id=$1 AND g.meal_plan_id=$2 AND p.id=g.meal_plan_id AND p.user_id=$3`, id, mealPlanID, userID)
+	if err != nil {
+		return err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Recipe Books ─────────────────────────────────────────────────────
 
 func (s *PostgresStore) ListBooks(userID string) ([]RecipeBook, error) {
-	rows, err := s.db.Query(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 ORDER BY updated_at DESC`, userID)
+	rows, err := s.reader().Query(`SELECT id, user_id, title, description, cover_color, created_at, updated_at FROM recipe_books WHERE user_id = $1 ORDER BY updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1427,7 +1685,7 @@ func (s *PostgresStore) CreateBook(userID string, req *CreateBookRequest) (*Reci
 	if req.CoverColor != "" {
 		coverColor = req.CoverColor
 	}
-	_, err := s.db.Exec(`INSERT INTO recipe_books (id, user_id, title, description, cover_color, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Title, req.Description, coverColor, now)
+	_, err := s.executor().Exec(`INSERT INTO recipe_books (id, user_id, title, description, cover_color, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, userID, req.Title, req.Description, coverColor, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1435,7 +1693,7 @@ func (s *PostgresStore) CreateBook(userID string, req *CreateBookRequest) (*Reci
 }
 
 func (s *PostgresStore) UpdateBook(userID, id string, req *CreateBookRequest) (*RecipeBook, error) {
-	_, err := s.db.Exec(`UPDATE recipe_books SET title=$1, description=$2, cover_color=$3, updated_at=NOW() WHERE user_id=$4 AND id=$5`, req.Title, req.Description, req.CoverColor, userID, id)
+	_, err := s.executor().Exec(`UPDATE recipe_books SET title=$1, description=$2, cover_color=$3, updated_at=NOW() WHERE user_id=$4 AND id=$5`, req.Title, req.Description, req.CoverColor, userID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1443,7 +1701,7 @@ func (s *PostgresStore) UpdateBook(userID, id string, req *CreateBookRequest) (*
 }
 
 func (s *PostgresStore) DeleteBook(userID, id string) error {
-	res, err := s.db.Exec(`DELETE FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id)
+	res, err := s.executor().Exec(`DELETE FROM recipe_books WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		return err
 	}
@@ -1475,7 +1733,7 @@ func (s *PostgresStore) ListChapters(bookID string) ([]Chapter, error) {
 func (s *PostgresStore) CreateChapter(bookID string, req *CreateChapterRequest) (*Chapter, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO chapters (id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, bookID, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, now)
+	_, err := s.executor().Exec(`INSERT INTO chapters (id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, bookID, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1483,7 +1741,7 @@ func (s *PostgresStore) CreateChapter(bookID string, req *CreateChapterRequest) 
 }
 
 func (s *PostgresStore) UpdateChapter(id string, req *CreateChapterRequest) (*Chapter, error) {
-	_, err := s.db.Exec(`UPDATE chapters SET title=$1, position=$2, page_template_id=$3, recipe_template_id=$4, updated_at=NOW() WHERE id=$5`, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, id)
+	_, err := s.executor().Exec(`UPDATE chapters SET title=$1, position=$2, page_template_id=$3, recipe_template_id=$4, updated_at=NOW() WHERE id=$5`, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1491,7 +1749,7 @@ func (s *PostgresStore) UpdateChapter(id string, req *CreateChapterRequest) (*Ch
 }
 
 func (s *PostgresStore) DeleteChapter(id string) error {
-	_, err := s.db.Exec(`DELETE FROM chapters WHERE id = $1`, id)
+	_, err := s.executor().Exec(`DELETE FROM chapters WHERE id = $1`, id)
 	return err
 }
 
@@ -1529,8 +1787,20 @@ func (s *PostgresStore) ListChapterRecipes(chapterID string) ([]ChapterRecipe, e
 }
 
 func (s *PostgresStore) AddChapterRecipe(chapterID, recipeID string, position int) (*ChapterRecipe, error) {
+	if s.ownerID != "" {
+		var owner string
+		if err := s.reader().QueryRow(`SELECT user_id FROM recipes WHERE id=$1`, recipeID).Scan(&owner); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrBookResourceNotFound
+			}
+			return nil, err
+		}
+		if owner != s.ownerID {
+			return nil, ErrBookResourceNotFound
+		}
+	}
 	id := uuid.New().String()
-	_, err := s.db.Exec(`INSERT INTO chapter_recipes (id, chapter_id, recipe_id, position) VALUES ($1,$2,$3,$4)`, id, chapterID, recipeID, position)
+	_, err := s.executor().Exec(`INSERT INTO chapter_recipes (id, chapter_id, recipe_id, position) VALUES ($1,$2,$3,$4)`, id, chapterID, recipeID, position)
 	if err != nil {
 		return nil, err
 	}
@@ -1538,7 +1808,7 @@ func (s *PostgresStore) AddChapterRecipe(chapterID, recipeID string, position in
 }
 
 func (s *PostgresStore) RemoveChapterRecipe(chapterID, recipeID string) error {
-	_, err := s.db.Exec(`DELETE FROM chapter_recipes WHERE chapter_id = $1 AND recipe_id = $2`, chapterID, recipeID)
+	_, err := s.executor().Exec(`DELETE FROM chapter_recipes WHERE chapter_id = $1 AND recipe_id = $2`, chapterID, recipeID)
 	return err
 }
 
@@ -1564,7 +1834,7 @@ func (s *PostgresStore) ListChapterPages(chapterID string) ([]ChapterPage, error
 func (s *PostgresStore) CreateChapterPage(chapterID, title, content string, position int) (*ChapterPage, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO chapter_pages (id, chapter_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, chapterID, title, content, position, now)
+	_, err := s.executor().Exec(`INSERT INTO chapter_pages (id, chapter_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, chapterID, title, content, position, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1572,7 +1842,7 @@ func (s *PostgresStore) CreateChapterPage(chapterID, title, content string, posi
 }
 
 func (s *PostgresStore) UpdateChapterPage(id, title, content string, position int) (*ChapterPage, error) {
-	_, err := s.db.Exec(`UPDATE chapter_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
+	_, err := s.executor().Exec(`UPDATE chapter_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1580,7 +1850,7 @@ func (s *PostgresStore) UpdateChapterPage(id, title, content string, position in
 }
 
 func (s *PostgresStore) DeleteChapterPage(id string) error {
-	_, err := s.db.Exec(`DELETE FROM chapter_pages WHERE id = $1`, id)
+	_, err := s.executor().Exec(`DELETE FROM chapter_pages WHERE id = $1`, id)
 	return err
 }
 
@@ -1606,16 +1876,58 @@ func (s *PostgresStore) ListCategories() ([]Category, error) {
 func (s *PostgresStore) CreateCategory(req *CreateCategoryRequest) (*Category, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO categories (id, name, parent_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)`, id, req.Name, req.ParentID, now)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(74192341)`); err != nil {
+		return nil, err
+	}
+	_, err = tx.Exec(`INSERT INTO categories (id, name, parent_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)`, id, req.Name, req.ParentID, now)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &Category{ID: id, Name: req.Name, ParentID: req.ParentID, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) UpdateCategory(id string, req *CreateCategoryRequest) (*Category, error) {
-	_, err := s.db.Exec(`UPDATE categories SET name=$1, parent_id=$2, updated_at=NOW() WHERE id=$3`, req.Name, req.ParentID, id)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(74192341)`); err != nil {
+		return nil, err
+	}
+	if req.ParentID != nil {
+		var cycle bool
+		err = tx.QueryRow(`WITH RECURSIVE ancestors(id,parent_id,path,cycle) AS (
+			SELECT id,parent_id,ARRAY[id],(id=$1) FROM categories WHERE id=$2
+			UNION ALL SELECT c.id,c.parent_id,a.path||c.id,(c.id=ANY(a.path)) FROM categories c JOIN ancestors a ON c.id=a.parent_id WHERE NOT a.cycle
+		) SELECT COALESCE(bool_or(id=$1 OR cycle),false) FROM ancestors`, id, *req.ParentID).Scan(&cycle)
+		if err != nil {
+			return nil, err
+		}
+		if cycle {
+			return nil, fmt.Errorf("category parent would create a cycle")
+		}
+	}
+	result, err := tx.Exec(`UPDATE categories SET name=$1, parent_id=$2, updated_at=NOW() WHERE id=$3`, req.Name, req.ParentID, id)
+	if err != nil {
+		return nil, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, sql.ErrNoRows
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &Category{ID: id, Name: req.Name, ParentID: req.ParentID}, nil
@@ -1659,8 +1971,8 @@ func (s *PostgresStore) RemoveRecipeCategory(recipeID, categoryID string) error 
 	return err
 }
 
-func (s *PostgresStore) RecipeCategoriesByCategory(categoryID string) ([]RecipeCategory, error) {
-	rows, err := s.db.Query(`SELECT id, recipe_id, category_id FROM recipe_categories WHERE category_id = $1`, categoryID)
+func (s *PostgresStore) RecipeCategoriesByCategory(categoryID, userID string) ([]RecipeCategory, error) {
+	rows, err := s.db.Query(`SELECT rc.id, rc.recipe_id, rc.category_id FROM recipe_categories rc JOIN recipes r ON r.id=rc.recipe_id WHERE rc.category_id = $1 AND r.user_id=$2`, categoryID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1830,7 +2142,7 @@ func (s *PostgresStore) ListBookPages(bookID string) ([]BookPage, error) {
 func (s *PostgresStore) CreateBookPage(bookID, title, content string, position int) (*BookPage, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO book_pages (id, book_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, bookID, title, content, position, now)
+	_, err := s.executor().Exec(`INSERT INTO book_pages (id, book_id, title, content, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, id, bookID, title, content, position, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1838,7 +2150,7 @@ func (s *PostgresStore) CreateBookPage(bookID, title, content string, position i
 }
 
 func (s *PostgresStore) UpdateBookPage(id, title, content string, position int) (*BookPage, error) {
-	_, err := s.db.Exec(`UPDATE book_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
+	_, err := s.executor().Exec(`UPDATE book_pages SET title=$1, content=$2, position=$3, updated_at=NOW() WHERE id=$4`, title, content, position, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1846,7 +2158,7 @@ func (s *PostgresStore) UpdateBookPage(id, title, content string, position int) 
 }
 
 func (s *PostgresStore) DeleteBookPage(id string) error {
-	_, err := s.db.Exec(`DELETE FROM book_pages WHERE id = $1`, id)
+	_, err := s.executor().Exec(`DELETE FROM book_pages WHERE id = $1`, id)
 	return err
 }
 
@@ -1858,7 +2170,29 @@ func (s *PostgresStore) DeleteBookPage(id string) error {
 // index to make room, then place the moved row.
 
 func (s *PostgresStore) ReorderBookLevelItems(bookID string, items []BookLevelItem) error {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		for _, item := range items {
+			var exists bool
+			switch item.Type {
+			case "chapter":
+				err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM chapters WHERE id=$1 AND book_id=$2)`, item.ID, bookID).Scan(&exists)
+				if err != nil {
+					return err
+				}
+			case "book-page":
+				err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM book_pages WHERE id=$1 AND book_id=$2)`, item.ID, bookID).Scan(&exists)
+				if err != nil {
+					return err
+				}
+			default:
+				return ErrBookResourceNotFound
+			}
+			if !exists {
+				return ErrBookResourceNotFound
+			}
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return err
 	}
@@ -1876,11 +2210,33 @@ func (s *PostgresStore) ReorderBookLevelItems(bookID string, items []BookLevelIt
 			}
 		}
 	}
-	return tx.Commit()
+	return finishOptionalTx(tx, ownTx)
 }
 
 func (s *PostgresStore) ReorderChapterItems(chapterID string, items []ChapterItem) error {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		for _, item := range items {
+			var exists bool
+			switch item.Type {
+			case "recipe":
+				err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM chapter_recipes WHERE chapter_id=$1 AND recipe_id=$2)`, chapterID, item.RecipeID).Scan(&exists)
+				if err != nil {
+					return err
+				}
+			case "page":
+				err := s.reader().QueryRow(`SELECT EXISTS(SELECT 1 FROM chapter_pages WHERE chapter_id=$1 AND id=$2)`, chapterID, item.PageID).Scan(&exists)
+				if err != nil {
+					return err
+				}
+			default:
+				return ErrBookResourceNotFound
+			}
+			if !exists {
+				return ErrBookResourceNotFound
+			}
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return err
 	}
@@ -1904,11 +2260,23 @@ func (s *PostgresStore) ReorderChapterItems(chapterID string, items []ChapterIte
 			}
 		}
 	}
-	return tx.Commit()
+	return finishOptionalTx(tx, ownTx)
 }
 
 func (s *PostgresStore) MoveRecipeBetweenChapters(chapterRecipeID, targetChapterID string, position int) error {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		var owner string
+		if err := s.reader().QueryRow(`SELECT b.user_id FROM chapters c JOIN recipe_books b ON b.id=c.book_id WHERE c.id=$1`, targetChapterID).Scan(&owner); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrBookResourceNotFound
+			}
+			return err
+		}
+		if owner != s.ownerID {
+			return ErrBookResourceNotFound
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return err
 	}
@@ -1922,11 +2290,23 @@ func (s *PostgresStore) MoveRecipeBetweenChapters(chapterRecipeID, targetChapter
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	return finishOptionalTx(tx, ownTx)
 }
 
 func (s *PostgresStore) MovePageBetweenChapters(pageID, targetChapterID string, position int) error {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		var owner string
+		if err := s.reader().QueryRow(`SELECT b.user_id FROM chapters c JOIN recipe_books b ON b.id=c.book_id WHERE c.id=$1`, targetChapterID).Scan(&owner); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrBookResourceNotFound
+			}
+			return err
+		}
+		if owner != s.ownerID {
+			return ErrBookResourceNotFound
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return err
 	}
@@ -1940,11 +2320,23 @@ func (s *PostgresStore) MovePageBetweenChapters(pageID, targetChapterID string, 
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	return finishOptionalTx(tx, ownTx)
 }
 
 func (s *PostgresStore) ConvertChapterPageToBookPage(pageID, bookID string, position int) (*BookPage, error) {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		var owner string
+		if err := s.reader().QueryRow(`SELECT user_id FROM recipe_books WHERE id=$1`, bookID).Scan(&owner); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrBookResourceNotFound
+			}
+			return nil, err
+		}
+		if owner != s.ownerID {
+			return nil, ErrBookResourceNotFound
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return nil, err
 	}
@@ -1971,14 +2363,26 @@ func (s *PostgresStore) ConvertChapterPageToBookPage(pageID, bookID string, posi
 		tx.Rollback()
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := finishOptionalTx(tx, ownTx); err != nil {
 		return nil, err
 	}
 	return &BookPage{ID: pageID, BookID: bookID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *PostgresStore) ConvertBookPageToChapterPage(pageID, chapterID string, position int) (*ChapterPage, error) {
-	tx, err := s.db.Begin()
+	if s.ownerID != "" {
+		var owner string
+		if err := s.reader().QueryRow(`SELECT b.user_id FROM chapters c JOIN recipe_books b ON b.id=c.book_id WHERE c.id=$1`, chapterID).Scan(&owner); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrBookResourceNotFound
+			}
+			return nil, err
+		}
+		if owner != s.ownerID {
+			return nil, ErrBookResourceNotFound
+		}
+	}
+	tx, ownTx, err := s.beginOptionalTx()
 	if err != nil {
 		return nil, err
 	}
@@ -2005,7 +2409,7 @@ func (s *PostgresStore) ConvertBookPageToChapterPage(pageID, chapterID string, p
 		tx.Rollback()
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := finishOptionalTx(tx, ownTx); err != nil {
 		return nil, err
 	}
 	return &ChapterPage{ID: pageID, ChapterID: chapterID, Title: title, Content: content, Position: position, CreatedAt: now, UpdatedAt: now}, nil
@@ -2066,11 +2470,17 @@ func (s *PostgresStore) CreateSharedRecipe(userID, recipeID, title, description,
 	id := uuid.New().String()
 	shareToken := uuid.New().String()
 	now := time.Now().UTC()
-	visibility = normalizeVisibility(visibility)
-	_, err := s.db.Exec(
-		`INSERT INTO shared_recipes (id, user_id, recipe_id, share_token, visibility, title, description, category, tags, recipe_data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
+	if visibility == "" {
+		visibility = VisibilityPrivate
+	}
+	if !validVisibility(visibility) {
+		return nil, fmt.Errorf("invalid visibility")
+	}
+	err := s.db.QueryRow(
+		`INSERT INTO shared_recipes (id, user_id, recipe_id, share_token, visibility, title, description, category, tags, recipe_data, created_at, updated_at)
+		 SELECT $1,$2,r.id,$4,$5,$6,$7,$8,$9,$10,$11,$11 FROM recipes r WHERE r.id=$3 AND r.user_id=$2 RETURNING id`,
 		id, userID, recipeID, shareToken, visibility, title, description, category, tags, recipeData, now,
-	)
+	).Scan(new(string))
 	if err != nil {
 		return nil, err
 	}
@@ -2110,14 +2520,37 @@ func (s *PostgresStore) GetSharedRecipesByUser(userID string) ([]SharedRecipe, e
 	return recipes, nil
 }
 
-func (s *PostgresStore) SetSharedRecipeVisibility(id string, visibility string) error {
-	_, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2`, normalizeVisibility(visibility), id)
-	return err
+func (s *PostgresStore) SetSharedRecipeVisibility(userID, id string, visibility string) error {
+	if !validVisibility(visibility) {
+		return fmt.Errorf("invalid visibility")
+	}
+	result, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2 AND user_id=$3`, visibility, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
-func (s *PostgresStore) DeleteSharedRecipe(id string) error {
-	_, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2`, VisibilityPrivate, id)
-	return err
+func (s *PostgresStore) DeleteSharedRecipe(userID, id string) error {
+	result, err := s.db.Exec(`UPDATE shared_recipes SET visibility = $1, updated_at = NOW() WHERE id = $2 AND user_id=$3`, VisibilityPrivate, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *PostgresStore) IncrementSharedRecipeViews(id string) error {
@@ -2235,7 +2668,9 @@ func (s *PostgresStore) SeedCategories() error {
 		{ID: uuid.New().String(), Name: "Sides", Slug: "sides"},
 	}
 	for _, c := range cats {
-		s.db.Exec(`INSERT INTO community_categories (id, name, slug) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, c.ID, c.Name, c.Slug)
+		if _, err := s.db.Exec(`INSERT INTO community_categories (id, name, slug) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, c.ID, c.Name, c.Slug); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2264,39 +2699,31 @@ func (s *PostgresStore) GetSettings(userID string) (*UserSettings, error) {
 }
 
 func (s *PostgresStore) UpsertSettings(userID string, settingsJSON string) (*UserSettings, error) {
-	// Settings is a free-form JSON object and callers send partial updates, so
-	// merge the incoming keys into any existing settings rather than replacing
-	// the whole document (which would drop keys other callers depend on, e.g.
-	// onboardingComplete, unitSystem, theme).
-	merged := map[string]interface{}{}
-	if existing, err := s.GetSettings(userID); err != nil {
-		return nil, err
-	} else if existing != nil && existing.SettingsJSON != "" {
-		_ = json.Unmarshal([]byte(existing.SettingsJSON), &merged)
-	}
+	// Validate as a partial object, retaining the historical empty/null no-op.
+	incoming := map[string]interface{}{}
 	if settingsJSON != "" {
-		incoming := map[string]interface{}{}
 		if err := json.Unmarshal([]byte(settingsJSON), &incoming); err != nil {
 			return nil, err
 		}
-		for k, v := range incoming {
-			merged[k] = v
-		}
 	}
-	mergedBytes, err := json.Marshal(merged)
+	if incoming == nil {
+		incoming = map[string]interface{}{}
+	}
+	incomingJSON, err := json.Marshal(incoming)
 	if err != nil {
 		return nil, err
 	}
-	mergedJSON := string(mergedBytes)
 
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	var us UserSettings
 	err = s.db.QueryRow(`
 		INSERT INTO user_settings (id, user_id, settings_json, updated_at) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id) DO UPDATE SET settings_json = $3, updated_at = $4
+		ON CONFLICT (user_id) DO UPDATE SET
+			settings_json = user_settings.settings_json || EXCLUDED.settings_json,
+			updated_at = EXCLUDED.updated_at
 		RETURNING id, user_id, settings_json, updated_at`,
-		id, userID, mergedJSON, now,
+		id, userID, string(incomingJSON), now,
 	).Scan(&us.ID, &us.UserID, &us.SettingsJSON, &us.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -2355,7 +2782,7 @@ func (s *PostgresStore) GetTemplate(userID, id string) (*Template, error) {
 func (s *PostgresStore) CreateTemplate(userID string, req *CreateTemplateRequest) (*Template, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, id, userID, req.Name, req.Type, req.IsDefault, req.Layout, now)
+	err := s.db.QueryRow(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) SELECT $1,$2,$3,$4,$5,$6,$7,$7 WHERE NOT $5 OR EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin) RETURNING id`, id, userID, req.Name, req.Type, req.IsDefault, req.Layout, now).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -2382,16 +2809,38 @@ func (s *PostgresStore) UpdateTemplate(userID, id string, req *UpdateTemplateReq
 	if req.IsDefault != nil {
 		isDefault = *req.IsDefault
 	}
-	_, err = s.db.Exec(`UPDATE templates SET name=$1, layout_json=$2, is_default=$3, updated_at=NOW() WHERE id=$4 AND (user_id=$5 OR is_default=TRUE)`, name, layout, isDefault, id, userID)
+	// Authorize against both the current row and requested publication state
+	// in the write statement. A concurrent admin publication cannot race an
+	// earlier owner read; administrator authority comes from PostgreSQL.
+	result, err := s.db.Exec(`UPDATE templates SET name=$1, layout_json=$2, is_default=$3, updated_at=NOW() WHERE id=$4 AND (
+	 (user_id=$5 AND NOT is_default AND NOT $3) OR
+	 (EXISTS(SELECT 1 FROM users WHERE id=$5 AND is_admin) AND (is_default OR user_id=$5)))`, name, layout, isDefault, id, userID)
 	if err != nil {
 		return nil, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, sql.ErrNoRows
 	}
 	return &Template{ID: id, UserID: existing.UserID, Name: name, Type: existing.Type, IsDefault: isDefault, LayoutJSON: layout, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
 }
 
 func (s *PostgresStore) DeleteTemplate(userID, id string) error {
-	_, err := s.db.Exec(`DELETE FROM templates WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	result, err := s.db.Exec(`DELETE FROM templates WHERE id=$1 AND ((user_id=$2 AND NOT is_default) OR (is_default AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin)))`, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Dietary Profiles ─────────────────────────────────────────────────
@@ -2497,18 +2946,21 @@ func (s *PostgresStore) ListAllergenRules(userID, profileID string) ([]AllergenR
 func (s *PostgresStore) CreateAllergenRule(userID, profileID string, req *CreateAllergenRuleRequest) (*AllergenRule, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO allergen_rules (id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, userID, profileID, req.Allergen, req.Severity, req.CustomKeywords, now)
+	err := s.db.QueryRow(`INSERT INTO allergen_rules (id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at) SELECT $1,$2,p.id,$4,$5,$6,$7,$7 FROM dietary_profiles p WHERE p.id=$3 AND p.user_id=$2 RETURNING id`, id, userID, profileID, req.Allergen, req.Severity, req.CustomKeywords, now).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &AllergenRule{ID: id, UserID: userID, ProfileID: profileID, Allergen: req.Allergen, Severity: req.Severity, CustomKeywordsJSON: req.CustomKeywords, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-func (s *PostgresStore) UpdateAllergenRule(userID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error) {
+func (s *PostgresStore) UpdateAllergenRule(userID, profileID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error) {
 	var existing AllergenRule
-	err := s.db.QueryRow(`SELECT id, user_id, profile_id, allergen, severity, custom_keywords_json, created_at, updated_at FROM allergen_rules WHERE id = $1 AND user_id = $2`, id, userID).Scan(&existing.ID, &existing.UserID, &existing.ProfileID, &existing.Allergen, &existing.Severity, &existing.CustomKeywordsJSON, &existing.CreatedAt, &existing.UpdatedAt)
+	err := s.db.QueryRow(`SELECT r.id, r.user_id, r.profile_id, r.allergen, r.severity, r.custom_keywords_json, r.created_at, r.updated_at FROM allergen_rules r JOIN dietary_profiles p ON p.id=r.profile_id WHERE r.id=$1 AND r.user_id=$2 AND p.user_id=$2 AND ($3='' OR p.id=$3)`, id, userID, profileID).Scan(&existing.ID, &existing.UserID, &existing.ProfileID, &existing.Allergen, &existing.Severity, &existing.CustomKeywordsJSON, &existing.CreatedAt, &existing.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("allergen rule not found")
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -2525,16 +2977,25 @@ func (s *PostgresStore) UpdateAllergenRule(userID, id string, req *UpdateAllerge
 	if req.CustomKeywords != nil {
 		keywords = *req.CustomKeywords
 	}
-	_, err = s.db.Exec(`UPDATE allergen_rules SET allergen=$1, severity=$2, custom_keywords_json=$3, updated_at=NOW() WHERE id=$4 AND user_id=$5`, allergen, severity, keywords, id, userID)
+	res, err := s.db.Exec(`UPDATE allergen_rules r SET allergen=$1, severity=$2, custom_keywords_json=$3, updated_at=NOW() WHERE r.id=$4 AND r.user_id=$5 AND ($6='' OR r.profile_id=$6) AND EXISTS (SELECT 1 FROM dietary_profiles p WHERE p.id=r.profile_id AND p.user_id=$5)`, allergen, severity, keywords, id, userID, profileID)
 	if err != nil {
 		return nil, err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return nil, nil
 	}
 	return &AllergenRule{ID: id, UserID: userID, ProfileID: existing.ProfileID, Allergen: allergen, Severity: severity, CustomKeywordsJSON: keywords, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC()}, nil
 }
 
-func (s *PostgresStore) DeleteAllergenRule(userID, id string) error {
-	_, err := s.db.Exec(`DELETE FROM allergen_rules WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+func (s *PostgresStore) DeleteAllergenRule(userID, profileID, id string) error {
+	res, err := s.db.Exec(`DELETE FROM allergen_rules r WHERE r.id=$1 AND r.user_id=$2 AND ($3='' OR r.profile_id=$3) AND EXISTS (SELECT 1 FROM dietary_profiles p WHERE p.id=r.profile_id AND p.user_id=$2)`, id, userID, profileID)
+	if err != nil {
+		return err
+	}
+	if count, _ := res.RowsAffected(); count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Brand Kits ───────────────────────────────────────────────────────
@@ -2660,7 +3121,7 @@ func (s *PostgresStore) RemovePantryStaple(userID, name string) error {
 	return err
 }
 
-// SeedGlobalStaples is idempotent; called at startup and after instance-wide
+// SeedGlobalStaples is idempotent; called after factory
 // resets so the default global staple list always exists.
 func (s *PostgresStore) SeedGlobalStaples() error {
 	defaults := []string{
@@ -2678,45 +3139,71 @@ func (s *PostgresStore) SeedGlobalStaples() error {
 }
 
 // DeleteAccount removes the user; FK ON DELETE CASCADE drops all their content.
-func (s *PostgresStore) DeleteAccount(userID string) error {
-	res, err := s.db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+func (s *PostgresStore) DeleteAccount(userID string, successorID ...string) error {
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("user not found")
+	defer tx.Rollback()
+	if err := lockMembership(tx); err != nil {
+		return err
 	}
-	return nil
+	var admin bool
+	if err := tx.QueryRow(`SELECT is_admin FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&admin); err != nil {
+		return err
+	}
+	if admin {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin`).Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			if len(successorID) == 0 || successorID[0] == "" || successorID[0] == userID {
+				return ErrLastAdmin
+			}
+			res, err := tx.Exec(`UPDATE users SET is_admin=TRUE,updated_at=NOW() WHERE id=$1`, successorID[0])
+			if err != nil {
+				return err
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return ErrLastAdmin
+			}
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM users WHERE id=$1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteUserData wipes the caller's own content but keeps their account and
 // settings (a personal reset). Global data (categories, global staples/templates,
 // USDA) is untouched. Each top-level user-scoped table is deleted; dependents
 // (ingredients→recipes, chapters→books, entries→plans) cascade via FK rules.
-// A savepoint per table isolates any table missing a user_id column.
 func (s *PostgresStore) DeleteUserData(userID string) error {
 	tables := []string{
-		"recipes", "recipe_books", "meal_plans", "person_profiles",
-		"food_log_entries", "weight_entries", "dietary_profiles", "allergen_rules",
-		"custom_foods", "templates", "brand_kits", "shared_recipes",
-		"recipe_ratings", "pantry_staples", "user_secrets", "user_locations", "api_keys", "food_storage_defaults",
+		"recipe_import_staged", "recipe_import_batches", "recipe_import_resolutions",
+		"import_object_mappings", "recipe_create_requests", "recipe_completions",
+		"recipe_ratings", "shared_recipes", "recipe_books", "recipes",
+		"grocery_checklists", "meal_plans", "food_log_entries", "weight_entries", "person_profiles",
+		"allergen_rules", "dietary_profiles", "food_storage_defaults", "custom_foods",
+		"templates", "brand_kits", "pantry_staples", "user_secrets", "user_locations", "api_keys", "devices",
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	for _, t := range tables {
-		if _, err := tx.Exec(fmt.Sprintf("SAVEPOINT del_%s", t)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE user_id = $1", t), userID); err != nil {
-			// Table has no user_id column (cascades from a parent) — release and move on.
-			if _, rbErr := tx.Exec(fmt.Sprintf("ROLLBACK TO SAVEPOINT del_%s", t)); rbErr != nil {
-				tx.Rollback()
-				return rbErr
-			}
-			continue
+	defer tx.Rollback()
+	if err := lockImportOwner(tx, userID); err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE user_id = $1", table), userID); err != nil {
+			return fmt.Errorf("delete %s: %w", table, err)
 		}
 	}
 	return tx.Commit()
@@ -2740,8 +3227,31 @@ func (s *PostgresStore) ListUsers() ([]UserListEntry, error) {
 }
 
 func (s *PostgresStore) SetUserAdmin(userID string, isAdmin bool) error {
-	_, err := s.db.Exec(`UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2`, isAdmin, userID)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockMembership(tx); err != nil {
+		return err
+	}
+	var current bool
+	if err := tx.QueryRow(`SELECT is_admin FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&current); err != nil {
+		return err
+	}
+	if current && !isAdmin {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin`).Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	if _, err := tx.Exec(`UPDATE users SET is_admin=$1,updated_at=NOW() WHERE id=$2`, isAdmin, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *PostgresStore) AdminCount() (int, error) {
@@ -2899,4 +3409,74 @@ func (s *PostgresStore) UpsertRecipeCompletion(userID, recipeID, date string) er
 func (s *PostgresStore) DeleteRecipeCompletion(userID, recipeID string) error {
 	_, err := s.db.Exec(`DELETE FROM recipe_completions WHERE user_id = $1 AND recipe_id = $2`, userID, recipeID)
 	return err
+}
+func (s *PostgresStore) withBookOwner(userID, query string, args []interface{}, fn func(Store) error) error {
+	tx := s.writeTx
+	ownTx := tx == nil
+	var err error
+	if ownTx {
+		tx, err = s.db.Begin()
+		if err != nil {
+			return err
+		}
+	}
+	if ownTx {
+		defer tx.Rollback()
+	}
+	if ownTx {
+		var locked string
+		if err = tx.QueryRow(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrBookResourceNotFound
+			}
+			return err
+		}
+	}
+	var owner string
+	if err = tx.QueryRow(query, args...).Scan(&owner); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrBookResourceNotFound
+		}
+		return err
+	}
+	if owner != userID {
+		return ErrBookResourceNotFound
+	}
+	local := *s
+	local.writeTx = tx
+	local.ownerID = userID
+	if err = fn(&local); err != nil {
+		return err
+	}
+	if ownTx {
+		return tx.Commit()
+	}
+	return nil
+}
+func (s *PostgresStore) WithOwnedBook(userID, bookID string, fn func(Store) error) error {
+	return s.withBookOwner(userID, `SELECT user_id FROM recipe_books WHERE id=$1`, []interface{}{bookID}, fn)
+}
+func (s *PostgresStore) WithOwnedChapter(userID, chapterID, expectedBookID string, fn func(Store) error) error {
+	query := `SELECT b.user_id FROM chapters c JOIN recipe_books b ON b.id=c.book_id WHERE c.id=$1`
+	args := []interface{}{chapterID}
+	if expectedBookID != "" {
+		query += ` AND c.book_id=$2`
+		args = append(args, expectedBookID)
+	}
+	return s.withBookOwner(userID, query, args, fn)
+}
+func (s *PostgresStore) WithOwnedChapterPage(userID, pageID, expectedChapterID string, fn func(Store) error) error {
+	query := `SELECT b.user_id FROM chapter_pages p JOIN chapters c ON c.id=p.chapter_id JOIN recipe_books b ON b.id=c.book_id WHERE p.id=$1`
+	args := []interface{}{pageID}
+	if expectedChapterID != "" {
+		query += ` AND p.chapter_id=$2`
+		args = append(args, expectedChapterID)
+	}
+	return s.withBookOwner(userID, query, args, fn)
+}
+func (s *PostgresStore) WithOwnedBookPage(userID, pageID string, fn func(Store) error) error {
+	return s.withBookOwner(userID, `SELECT b.user_id FROM book_pages p JOIN recipe_books b ON b.id=p.book_id WHERE p.id=$1`, []interface{}{pageID}, fn)
+}
+func (s *PostgresStore) WithOwnedChapterRecipe(userID, joinID string, fn func(Store) error) error {
+	return s.withBookOwner(userID, `SELECT b.user_id FROM chapter_recipes r JOIN chapters c ON c.id=r.chapter_id JOIN recipe_books b ON b.id=c.book_id WHERE r.id=$1`, []interface{}{joinID}, fn)
 }

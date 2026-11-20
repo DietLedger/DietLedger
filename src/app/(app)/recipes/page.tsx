@@ -47,7 +47,7 @@ import { useRecipeImport } from '@/components/recipe/recipe-import-workflow';
 import { markdownDraftToBundle } from '@/lib/recipe-import-bundle';
 import Link from 'next/link';
 import { generateUUID } from '@/lib/utils';
-import { sumNutrition, emptyNutrition, serializeInstructions, type NutrientKeys } from '@/lib/recipe-types';
+import { recipeNutrition, recipeMissingNutrients, emptyNutrition, serializeInstructions, type NutrientKeys } from '@/lib/recipe-types';
 import { searchFDAFoods } from '@/lib/fda-client';
 import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
 import { computeRecipeGL, type GLResult } from '@/lib/glycemic-load';
@@ -109,10 +109,13 @@ import { toCanvas } from 'html-to-image';
 import { fmt } from '@/lib/format';
 import { useTemplates } from '@/hooks/use-templates';
 import { DietaryFilters, applyDietaryFilters } from '@/components/dietary/dietary-filters';
-import { useDietaryProfiles } from '@/hooks/use-dietary';
+import { useDietaryProfiles, useDietaryRecipeAssessments, useRestoreDiabetesAwareProfile } from '@/hooks/use-dietary';
+import { filterByNutritionAssessment } from '@/lib/dietary-rules';
 import type { DietaryTag } from '@/lib/types';
 import RecipeRenderer from '@/components/recipe-renderer';
 import { ShareDialog } from '@/components/recipe/share-dialog';
+import { CustomNutritionEditor } from '@/components/recipe/custom-nutrition-editor';
+import { ScalingControls } from '@/components/recipe/scaling-controls';
 import { RecipeImportDialog } from '@/components/recipe/recipe-import-dialog';
 import { cloneImportDraft, isImportDraftReady, parseSeedRecipeMarkdown, resetImportDraft, type ImportRecipeDraft } from '@/lib/recipe-import';
 import { STORAGE_LOCATIONS, STORAGE_LOCATION_META } from '@/data/storage-locations';
@@ -169,8 +172,8 @@ function computeInstructionSlots(steps: InstructionStep[], groups: InstructionGr
   return slots;
 }
 
-function recipeTotalCalories(ingredients: Ingredient[]): number {
-  return ingredients.reduce((sum, i) => sum + i.calories, 0);
+function recipeTotalCalories(recipe: Recipe): number {
+  return recipeNutrition(recipe).calories;
 }
 
 function CategoryTreeItem({ node, selectedId, onSelect, depth }: {
@@ -227,7 +230,7 @@ function RecipePage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
-  const { data: recipes = [] } = useRecipes();
+  const { data: recipes = [], isFetching: recipesRefreshing, isError: recipesError } = useRecipes();
   const [activeRecipeId, setActiveRecipeId] = useState<string | null>(searchParams.get('recipeId'));
   const { data: activeRecipe } = useRecipe(activeRecipeId ?? '');
 
@@ -260,7 +263,7 @@ function RecipePage() {
 
   const { data: templates = [] } = useTemplates();
 
-  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId } = useDietaryProfiles();
+  const { profiles: dietaryProfiles, activeProfileId: activeDietaryProfileId, isError: dietaryProfilesError, isFetching: dietaryProfilesRefreshing } = useDietaryProfiles();
   const activeDietaryProfile = useMemo(
     () => dietaryProfiles.find((p) => p.id === activeDietaryProfileId) ?? null,
     [dietaryProfiles, activeDietaryProfileId]
@@ -268,6 +271,23 @@ function RecipePage() {
 
   const [dietaryTags, setDietaryTags] = useState<DietaryTag[]>([]);
   const [excludeAllergens, setExcludeAllergens] = useState(false);
+  const [diabetesProfileId, setDiabetesProfileId] = useState<string | null>(null);
+  const restoreDiabetesProfile = useRestoreDiabetesAwareProfile();
+  const [diabetesRestoreRequested, setDiabetesRestoreRequested] = useState(false);
+  const restoreSelectionGeneration = useRef(0);
+  useEffect(() => () => { restoreSelectionGeneration.current++; }, []);
+  const diabetesProfile = dietaryProfiles.find(p => p.id === diabetesProfileId && p.dietaryTags.includes('diabetesAware')) ?? null;
+  const diabetesAssessments = useDietaryRecipeAssessments(diabetesProfile, recipes);
+  const diabetesFilterRequested = !!diabetesProfileId || diabetesRestoreRequested;
+  const assessmentError = !!diabetesProfileId && (recipesError || dietaryProfilesError ||
+    (!diabetesProfile && !dietaryProfilesRefreshing) || (!!diabetesProfile && diabetesAssessments.isError));
+  const restoreError = restoreDiabetesProfile.isError;
+  const assessmentPending = restoreDiabetesProfile.isPending || (!!diabetesProfileId && !assessmentError &&
+    (!diabetesProfile || diabetesAssessments.isPending || diabetesAssessments.isFetching || recipesRefreshing || dietaryProfilesRefreshing));
+  const assessedRecipeIds = new Set(diabetesAssessments.data?.filter(a => a.status !== 'notAssessed').map(a => a.recipeId));
+  const notAssessedCount = diabetesAssessments.data
+    ? recipes.filter(recipe => !assessedRecipeIds.has(recipe.id)).length
+    : 0;
 
   const [selectedRecipeTemplateId, setSelectedRecipeTemplateId] = useState<string | null>(null);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
@@ -365,8 +385,13 @@ function RecipePage() {
     if (dietaryTags.length > 0 || excludeAllergens) {
       result = applyDietaryFilters(result as any, dietaryTags, excludeAllergens, activeDietaryProfile) as any;
     }
+    if (diabetesFilterRequested) {
+      result = !diabetesProfile || assessmentPending || assessmentError
+        ? []
+        : filterByNutritionAssessment(result, diabetesAssessments.data, diabetesProfile);
+    }
     return result;
-  }, [recipes, recipeSearchQuery, filteredRecipeIds, dietaryTags, excludeAllergens, activeDietaryProfile]);
+  }, [recipes, recipeSearchQuery, filteredRecipeIds, dietaryTags, excludeAllergens, activeDietaryProfile, diabetesFilterRequested, diabetesProfile, assessmentPending, assessmentError, diabetesAssessments.data]);
 
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<FDAFood[]>([]);
@@ -865,16 +890,20 @@ function RecipePage() {
     setEditingGroupId(null);
   }, [editingGroupId, editingGroupTitleValue, editingGroupType, activeRecipe, activeRecipeId, updateGroupsMutation, updateRecipeMutation]);
 
-  const totalNutrition = activeRecipe && activeRecipe.ingredients.length > 0
-    ? sumNutrition(activeRecipe.ingredients)
+  const totalNutrition = activeRecipe
+    ? recipeNutrition(activeRecipe)
     : emptyNutrition();
 
   const nutritionData: NutritionData = {
     servings: activeRecipe?.servings || 1,
+    missingNutrients: activeRecipe ? recipeMissingNutrients(activeRecipe) : [],
+    customNutrition: activeRecipe?.customNutrition,
     ...totalNutrition,
   };
 
   const perServingNutrition: NutritionData = {
+    missingNutrients: activeRecipe ? recipeMissingNutrients(activeRecipe) : [],
+    customNutrition: activeRecipe?.customNutrition,
     servings: activeRecipe?.servings || 1,
     calories: Math.round((totalNutrition.calories / (activeRecipe?.servings || 1)) * 10) / 10,
     totalFat: Math.round((totalNutrition.totalFat / (activeRecipe?.servings || 1)) * 10) / 10,
@@ -1024,13 +1053,44 @@ function RecipePage() {
                     onTagsChange={setDietaryTags}
                     excludeAllergens={excludeAllergens}
                     onExcludeAllergensChange={setExcludeAllergens}
+                    diabetesProfileId={diabetesProfileId}
+                    onDiabetesProfileChange={id => {
+                      restoreSelectionGeneration.current++;
+                      restoreDiabetesProfile.reset();
+                      setDiabetesRestoreRequested(false);
+                      setDiabetesProfileId(id);
+                    }}
+                    onRestoreDiabetesProfile={() => {
+                      const generation = ++restoreSelectionGeneration.current;
+                      setDiabetesRestoreRequested(true);
+                      restoreDiabetesProfile.mutate(undefined, { onSuccess: profile => {
+                        if (generation === restoreSelectionGeneration.current) {
+                          setDiabetesRestoreRequested(false);
+                          setDiabetesProfileId(profile.id);
+                        }
+                      } });
+                    }}
+                    diabetesProfileRestorePending={restoreDiabetesProfile.isPending}
+                    diabetesFilterRequested={diabetesFilterRequested}
                   />
                 </div>
+                {dietaryProfilesError && <p role="alert" className="text-xs text-destructive mb-2">Dietary profiles unavailable; configured restrictions could not be loaded.</p>}
+                {restoreError && <p role="alert" className="text-xs text-destructive mb-2">Unable to restore the Diabetic filter. Please try again.</p>}
+                {assessmentError && <p role="alert" className="text-xs text-destructive mb-2">Nutrition assessment unavailable; matches cannot be verified.</p>}
+                {diabetesProfile && !assessmentPending && !assessmentError && notAssessedCount > 0 && <p role="status" className="text-xs mb-2">{notAssessedCount} recipe(s) not assessed and excluded from matches: required nutrition is missing, data is invalid, or no recipe-level targets are configured.</p>}
                 <ScrollArea className="flex-1 min-h-0">
                   <div className="space-y-1.5 pr-2">
                     {displayRecipes.length === 0 ? (
-                      <p className="text-xs text-stone-400 text-center py-8">
-                        {recipeSearchQuery.trim()
+                      <p role={assessmentPending ? 'status' : undefined} className="text-xs text-stone-400 text-center py-8">
+                        {restoreError
+                          ? 'Diabetic filter is unavailable.'
+                          : diabetesFilterRequested
+                          ? assessmentPending
+                            ? 'Checking configured nutrition targets...'
+                            : assessmentError
+                              ? 'Matches are unavailable.'
+                              : 'No recipes match the configured nutrition targets'
+                          : recipeSearchQuery.trim()
                           ? 'No recipes match your search'
                           : categoryFilterId
                             ? 'No recipes in this category'
@@ -1048,9 +1108,9 @@ function RecipePage() {
                           onClick={() => setActiveRecipeId(recipe.id)}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium text-sm">{recipe.name}</div>
+                            <div className="min-w-0 whitespace-normal break-words font-medium text-sm">{recipe.name}</div>
                             <div className="text-xs text-stone-400 mt-0.5">
-                              {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''} · {recipe.servings} {recipe.servingName || 'serving'}
+                              {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''} · {recipe.servings} servings · {fmt(recipeTotalCalories(recipe))} cal total
                             </div>
                             {(() => {
                               const cats = recipeCategories.get(recipe.id);
@@ -1117,7 +1177,7 @@ function RecipePage() {
                         </div>
                       ) : (
                         <p className="text-sm text-stone-500 mt-1 cursor-pointer hover:text-brand-600 transition-colors" onClick={() => { setServingsValue(String(activeRecipe.servings)); setServingNameValue(activeRecipe.servingName || 'serving'); setEditingServings(true); }} title="Click to edit">
-                          {activeRecipe.servings} {activeRecipe.servingName || 'serving'} · Click to edit
+                          {activeRecipe.customNutrition ? `${activeRecipe.servings} servings · ${activeRecipe.servingName}` : `${activeRecipe.servings} ${activeRecipe.servingName || 'serving'}`} · Click to edit
                         </p>
                        )}
                         {(activeRecipe.prepTime || activeRecipe.cookTime) && (
@@ -1276,7 +1336,7 @@ function RecipePage() {
                                         <span className="font-medium text-sm text-stone-900">{recipe.name}</span>
                                       </div>
                                       <div className="text-xs text-stone-400 mt-1 ml-6">
-                                        {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''} · {fmt(recipeTotalCalories(recipe.ingredients))} cal total
+                                        {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''} · {fmt(recipeTotalCalories(recipe))} cal total
                                       </div>
                                     </div>
                                   ))
@@ -1290,7 +1350,7 @@ function RecipePage() {
                                     <BookOpen className="w-3.5 h-3.5" />{selectedRecipeToAdd.name}
                                   </p>
                                   <p className="text-xs text-brand-700 mt-1">
-                                    {fmt(recipeTotalCalories(selectedRecipeToAdd.ingredients))} cal total · {selectedRecipeToAdd.servings} {selectedRecipeToAdd.servingName || 'servings'}
+                                    {fmt(recipeTotalCalories(selectedRecipeToAdd))} cal total · {selectedRecipeToAdd.servings} servings · {selectedRecipeToAdd.servingName || 'servings'}
                                   </p>
                                 </div>
                                 <div className="flex gap-2">
@@ -1426,6 +1486,19 @@ function RecipePage() {
 
                 <CardContent className="pt-0 flex-1 min-h-0 overflow-y-auto">
                   <Separator className="mb-4" />
+                  <div className="mb-4 space-y-3">
+                    <CustomNutritionEditor key={activeRecipe.id} recipe={activeRecipe} onSave={data => updateRecipeMutation.mutateAsync({ id: activeRecipe.id, data })} />
+                    <details><summary className="cursor-pointer text-sm">Scale full recipe</summary>
+                      <ScalingControls key={activeRecipe.id} recipe={{ ...activeRecipe, totalCalories: totalNutrition.calories }} onApplyScale={scaled => {
+                        const ingredients = activeRecipe.ingredients.map(ingredient => {
+                          const next = scaled.ingredients.find(item => item.id === ingredient.id);
+                          return next ? { ...ingredient, ...buildRescaledIngredientUpdate(ingredient, { amount: next.scaledAmount, unit: next.scaledUnit }) } : ingredient;
+                        });
+                        updateRecipeMutation.mutate({ id: activeRecipe.id, data: { servings: Math.max(1, scaled.servings), ingredients, ...(scaled.customNutrition ? { customNutrition: scaled.customNutrition } : {}) } });
+                      }} />
+                    </details>
+                    {updateRecipeMutation.isError && <p role="alert" className="text-sm text-destructive">Could not save recipe changes.</p>}
+                  </div>
 
                   {/* Ingredients List */}
                   <div className="mb-4">
@@ -1742,14 +1815,14 @@ function RecipePage() {
                   )}
                 </CardHeader>
                 <CardContent className="pt-0 flex-1 min-h-0 overflow-y-auto">
-                  <div className="flex justify-center" ref={nutritionLabelRef}>
+                  <div className="flex flex-col items-center gap-2" ref={nutritionLabelRef}>
                     <NutritionLabel
                       data={activeRecipe && activeRecipe.servings > 1 ? perServingNutrition : nutritionData}
-                      servingDescription={activeRecipe ? `1 ${activeRecipe.servingName || 'serving'}` : undefined}
+                      servingDescription={activeRecipe?.customNutrition ? activeRecipe.servingName : activeRecipe ? `1 ${activeRecipe.servingName || 'serving'}` : undefined}
                       servingsPerContainer={activeRecipe?.servings}
                     />
                   </div>
-                  {activeRecipe && activeRecipe.ingredients.length > 0 && activeRecipe.servings > 1 && (
+                  {activeRecipe && (activeRecipe.customNutrition || activeRecipe.ingredients.length > 0) && activeRecipe.servings > 1 && (
                     <div className="mt-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
                       <p className="text-xs font-medium text-stone-600 mb-2">Full Recipe (all {activeRecipe.servings} {activeRecipe.servingName || 'serving'})</p>
                       <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1827,6 +1900,8 @@ function RecipePage() {
                   <RecipeRenderer
                     recipe={{
                       name: activeRecipe.name,
+                      description: activeRecipe.description,
+                      customNutrition: activeRecipe.customNutrition,
                       servings: activeRecipe.servings,
                       servingName: activeRecipe.servingName,
                       ingredients: activeRecipe.ingredients.map((i) => ({
@@ -1836,6 +1911,7 @@ function RecipePage() {
                         unit: i.unit,
                         description: i.description,
                         groupId: i.groupId,
+                        missingNutrients: i.missingNutrients,
                       })),
                       ingredientGroups: activeRecipe.ingredientGroups,
                       instructionSteps: activeRecipe.instructionSteps,

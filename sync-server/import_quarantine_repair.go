@@ -144,7 +144,18 @@ func (s *PostgresStore) ResolveQuarantinedIngredient(userID, stagedID, ingredien
 	// Recompute from canonical facts; a client nutrient snapshot (even a positive
 	// one) cannot invent a source or override its amount/unit conversion.
 	ing.Nutrients = nutrients
+	ing.MissingNutrients = nil
+	if ing.Source.Type == "recipe" {
+		dependency, err := evaluator.recipeByIdentity(evaluator.linkedIdentity(batch, ing.Source.BundleRecipeID))
+		if err != nil {
+			return nil, err
+		}
+		ing.MissingNutrients = append([]string{}, dependency.missing...)
+	}
 	row.Recipe.Ingredients[index] = ing
+	if recipeHasV4Metadata(row.Recipe) {
+		batch.Context.Version = 4
+	}
 	check := batch.Context
 	check.Recipes = []BundleRecipe{row.Recipe}
 	check.ChapterRecipes = nil

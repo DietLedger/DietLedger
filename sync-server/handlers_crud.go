@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,79 @@ import (
 	"strings"
 )
 
+func writeBookOperationError(w http.ResponseWriter, err error, message string) {
+	if errors.Is(err, ErrBookResourceNotFound) {
+		writeError(w, http.StatusNotFound, "book resource not found")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, message)
+}
+
+type bookScopeResponseWriter struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func newBookScopeResponseWriter() *bookScopeResponseWriter {
+	return &bookScopeResponseWriter{header: make(http.Header)}
+}
+func (w *bookScopeResponseWriter) Header() http.Header { return w.header }
+func (w *bookScopeResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+func (w *bookScopeResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(body)
+}
+func (w *bookScopeResponseWriter) flush(dst http.ResponseWriter) {
+	for name, values := range w.header {
+		dst.Header()[name] = append([]string(nil), values...)
+	}
+	status := w.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	dst.WriteHeader(status)
+	_, _ = dst.Write(w.body.Bytes())
+}
+
+var errBookScopeResponse = errors.New("book operation returned an error response")
+
+func (s *Server) runBookScope(w http.ResponseWriter, scope func(func(Store) error) error, fn func(*Server, http.ResponseWriter)) {
+	response := newBookScopeResponseWriter()
+	err := scope(func(store Store) error {
+		scoped := *s
+		scoped.store = store
+		fn(&scoped, response)
+		if response.status >= http.StatusBadRequest {
+			return errBookScopeResponse
+		}
+		return nil
+	})
+	if errors.Is(err, errBookScopeResponse) {
+		response.flush(w)
+		return
+	}
+	if errors.Is(err, ErrBookResourceNotFound) {
+		writeError(w, http.StatusNotFound, "book resource not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "book operation failed")
+		return
+	}
+	response.flush(w)
+}
+
 func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
+	if !s.browserAuthRequest(w, r, false) {
+		return
+	}
 	if r.Method != "POST" {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -29,19 +102,26 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp, err := s.auth.Register(req.Email, req.Password, req.DisplayName)
+	resp, err := s.auth.Register(req.Email, req.Password, req.DisplayName, req.SetupClaim)
 	if err != nil {
 		if errors.Is(err, ErrRegistrationDisabled) {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}
-		writeError(w, http.StatusConflict, err.Error())
+		if errors.Is(err, ErrSetupClaim) {
+			writeError(w, http.StatusForbidden, ErrSetupClaim.Error())
+			return
+		}
+		writeError(w, http.StatusConflict, "unable to register account")
 		return
 	}
-	writeJSON(w, http.StatusCreated, resp)
+	s.writeAuthResponse(w, r, http.StatusCreated, resp)
 }
 
 func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
+	if !s.browserAuthRequest(w, r, false) {
+		return
+	}
 	if r.Method != "POST" {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -53,28 +133,29 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.auth.Login(req.Email, req.Password)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	s.writeAuthResponse(w, r, http.StatusOK, resp)
 }
 
 func (s *Server) refreshHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !s.browserAuthRequest(w, r, true) {
 		return
 	}
-	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	resp, err := s.auth.RefreshToken(req.RefreshToken)
+	cookie, err := selectedRefreshCookie(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		s.clearRefreshCookie(w, r)
+		writeError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	resp, err := s.auth.RefreshToken(cookie.Value)
+	if err != nil {
+		s.clearRefreshCookie(w, r)
+		writeError(w, http.StatusUnauthorized, "invalid session")
+		return
+	}
+	s.writeAuthResponse(w, r, http.StatusOK, resp)
 }
 
 // ── Food storage defaults ───────────────────────────────────────────
@@ -239,6 +320,10 @@ func (s *Server) createRecipe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := validateRecipeMetadata(req.Description, req.CustomNutrition); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if !validRecipeServings(req.Servings) {
 		writeError(w, http.StatusBadRequest, "servings must be at least 1")
 		return
@@ -271,6 +356,10 @@ func (s *Server) updateRecipe(w http.ResponseWriter, r *http.Request, id string)
 	var req UpdateRecipeRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := validateRecipeMetadata(req.Description, req.CustomNutrition); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.PortableID != nil {
@@ -381,6 +470,20 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 }
 
 func (s *Server) recipeCategoriesRouter(w http.ResponseWriter, r *http.Request, recipeID string) {
+	user := getUserFromContext(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	recipe, err := s.store.GetRecipe(user.ID, recipeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authorize recipe")
+		return
+	}
+	if recipe == nil {
+		writeError(w, http.StatusNotFound, "recipe not found")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		rcs, err := s.store.ListRecipeCategories(recipeID)
@@ -528,6 +631,15 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 		writeError(w, http.StatusBadRequest, "profile id is required")
 		return
 	}
+	profile, err := s.store.GetProfile(user.ID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get profile")
+		return
+	}
+	if profile == nil {
+		writeError(w, http.StatusNotFound, "profile not found")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		date := r.URL.Query().Get("date")
@@ -574,7 +686,17 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 	}
 }
 
-func (s *Server) foodLogEntryRouter(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) foodLogEntryRouter(w http.ResponseWriter, r *http.Request, profileID, id string) {
+	user := getUserFromContext(r)
+	owned, err := s.store.OwnsFoodLogEntry(user.ID, profileID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get food log entry")
+		return
+	}
+	if !owned {
+		writeError(w, http.StatusNotFound, "food log entry not found")
+		return
+	}
 	switch r.Method {
 	case "PUT":
 		var req CreateFoodLogRequest
@@ -607,11 +729,20 @@ func (s *Server) foodLogEntryRouter(w http.ResponseWriter, r *http.Request, id s
 
 func (s *Server) weightRouter(w http.ResponseWriter, r *http.Request, profileID string) {
 	user := getUserFromContext(r)
+	profile, err := s.store.GetProfile(user.ID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get profile")
+		return
+	}
+	if profile == nil {
+		writeError(w, http.StatusNotFound, "profile not found")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
-		entries, err := s.store.ListWeightEntries(profileID, from, to)
+		entries, err := s.store.ListWeightEntries(user.ID, profileID, from, to)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list weight entries")
 			return
@@ -640,13 +771,27 @@ func (s *Server) weightRouter(w http.ResponseWriter, r *http.Request, profileID 
 			writeError(w, http.StatusInternalServerError, "failed to create weight entry")
 			return
 		}
+		if entry == nil {
+			writeError(w, http.StatusNotFound, "profile not found")
+			return
+		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: entry})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func (s *Server) weightEntryRouter(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) weightEntryRouter(w http.ResponseWriter, r *http.Request, profileID, id string) {
+	user := getUserFromContext(r)
+	profile, err := s.store.GetProfile(user.ID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get profile")
+		return
+	}
+	if profile == nil {
+		writeError(w, http.StatusNotFound, "measurement not found")
+		return
+	}
 	switch r.Method {
 	case "PUT":
 		var req CreateWeightEntryRequest
@@ -658,15 +803,19 @@ func (s *Server) weightEntryRouter(w http.ResponseWriter, r *http.Request, id st
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		entry, err := s.store.UpdateWeightEntry(id, &req)
+		entry, err := s.store.UpdateWeightEntry(user.ID, profileID, id, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update weight entry")
 			return
 		}
+		if entry == nil {
+			writeError(w, http.StatusNotFound, "measurement not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: entry})
 	case "DELETE":
-		if err := s.store.DeleteWeightEntry(id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to delete weight entry")
+		if err := s.store.DeleteWeightEntry(user.ID, profileID, id); err != nil {
+			writeError(w, http.StatusNotFound, "measurement not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -772,9 +921,19 @@ func (s *Server) mealPlanItemRouter(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, mealPlanID string) {
+	user := getUserFromContext(r)
+	plan, err := s.store.GetMealPlan(user.ID, mealPlanID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get meal plan")
+		return
+	}
+	if plan == nil {
+		writeError(w, http.StatusNotFound, "meal plan not found")
+		return
+	}
 	switch r.Method {
 	case "GET":
-		entries, err := s.store.ListDayPlanEntries(mealPlanID)
+		entries, err := s.store.ListDayPlanEntries(user.ID, mealPlanID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list entries")
 			return
@@ -793,9 +952,13 @@ func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, me
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		entry, err := s.store.CreateDayPlanEntry(mealPlanID, &req)
+		entry, err := s.store.CreateDayPlanEntry(user.ID, mealPlanID, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create entry")
+			return
+		}
+		if entry == nil {
+			writeError(w, http.StatusNotFound, "meal plan not found")
 			return
 		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: entry})
@@ -804,10 +967,11 @@ func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, me
 	}
 }
 
-func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, mealPlanID, id string) {
+	user := getUserFromContext(r)
 	switch r.Method {
 	case "PUT":
-		existing, err := s.store.GetDayPlanEntryByID(id)
+		existing, err := s.store.GetDayPlanEntryByID(user.ID, mealPlanID, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to get entry")
 			return
@@ -829,15 +993,19 @@ func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, 
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		entry, err := s.store.UpdateDayPlanEntry(id, &req)
+		entry, err := s.store.UpdateDayPlanEntry(user.ID, mealPlanID, id, &req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update entry")
 			return
 		}
+		if entry == nil {
+			writeError(w, http.StatusNotFound, "entry not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: entry})
 	case "DELETE":
-		if err := s.store.DeleteDayPlanEntry(id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to delete entry")
+		if err := s.store.DeleteDayPlanEntry(user.ID, mealPlanID, id); err != nil {
+			writeError(w, http.StatusNotFound, "entry not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -847,8 +1015,18 @@ func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) mealGroupsRouter(w http.ResponseWriter, r *http.Request, mealPlanID string) {
+	user := getUserFromContext(r)
+	plan, err := s.store.GetMealPlan(user.ID, mealPlanID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get meal plan")
+		return
+	}
+	if plan == nil {
+		writeError(w, http.StatusNotFound, "meal plan not found")
+		return
+	}
 	if r.Method == "GET" {
-		groups, err := s.store.ListMealGroups(mealPlanID)
+		groups, err := s.store.ListMealGroups(user.ID, mealPlanID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list groups")
 			return
@@ -870,9 +1048,13 @@ func (s *Server) mealGroupsRouter(w http.ResponseWriter, r *http.Request, mealPl
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		group, err := s.store.CreateMealGroup(mealPlanID, req.Name, req.Date, req.Slot, req.Position)
+		group, err := s.store.CreateMealGroup(user.ID, mealPlanID, req.Name, req.Date, req.Slot, req.Position)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create group")
+			return
+		}
+		if group == nil {
+			writeError(w, http.StatusNotFound, "meal plan not found")
 			return
 		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: group})
@@ -884,8 +1066,8 @@ func (s *Server) mealGroupsRouter(w http.ResponseWriter, r *http.Request, mealPl
 			writeError(w, http.StatusBadRequest, "id is required")
 			return
 		}
-		if err := s.store.DeleteMealGroup(id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to delete group")
+		if err := s.store.DeleteMealGroup(user.ID, mealPlanID, id); err != nil {
+			writeError(w, http.StatusNotFound, "meal group not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -933,19 +1115,18 @@ func (s *Server) booksRouter(w http.ResponseWriter, r *http.Request) {
 func (s *Server) bookItemRouter(w http.ResponseWriter, r *http.Request, id string) {
 	user := getUserFromContext(r)
 	path := r.URL.Path
-	if strings.Contains(path, "/chapters") {
+	if strings.Contains(path, "/chapters") || strings.Contains(path, "/pages") || strings.HasSuffix(path, "/items/reorder") {
 		bookID := strings.SplitN(id, "/", 2)[0]
-		s.chaptersRouter(w, r, bookID)
-		return
-	}
-	if strings.Contains(path, "/pages") {
-		bookID := strings.SplitN(id, "/", 2)[0]
-		s.bookPagesRouter(w, r, bookID)
-		return
-	}
-	if strings.HasSuffix(path, "/items/reorder") {
-		bookID := strings.SplitN(id, "/", 2)[0]
-		s.bookItemsReorderHandler(w, r, bookID)
+		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedBook(user.ID, bookID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+			w := response
+			if strings.Contains(path, "/chapters") {
+				scoped.chaptersRouter(w, r, bookID)
+			} else if strings.Contains(path, "/pages") {
+				scoped.bookPagesRouter(w, r, bookID)
+			} else {
+				scoped.bookItemsReorderHandler(w, r, bookID)
+			}
+		})
 		return
 	}
 	switch r.Method {
@@ -987,17 +1168,19 @@ func (s *Server) chaptersRouter(w http.ResponseWriter, r *http.Request, bookID s
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/books/"+bookID+"/chapters/"), "/")
 	if len(parts) > 0 && parts[0] != "" {
 		chapterID := parts[0]
-		if len(parts) > 1 {
-			if parts[1] == "recipes" {
-				s.chapterRecipesRouter(w, r, chapterID)
+		user := getUserFromContext(r)
+		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapter(user.ID, chapterID, bookID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+			w := response
+			if len(parts) > 1 && parts[1] == "recipes" {
+				scoped.chapterRecipesRouter(w, r, chapterID)
 				return
 			}
-			if parts[1] == "pages" {
-				s.chapterPagesRouter(w, r, chapterID)
+			if len(parts) > 1 && parts[1] == "pages" {
+				scoped.chapterPagesRouter(w, r, chapterID)
 				return
 			}
-		}
-		s.chapterItemRouter(w, r, chapterID)
+			scoped.chapterItemRouter(w, r, chapterID)
+		})
 		return
 	}
 	switch r.Method {
@@ -1038,13 +1221,13 @@ func (s *Server) chapterItemRouter(w http.ResponseWriter, r *http.Request, chapt
 		}
 		ch, err := s.store.UpdateChapter(chapterID, &req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update chapter")
+			writeBookOperationError(w, err, "failed to update chapter")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: ch})
 	case "DELETE":
 		if err := s.store.DeleteChapter(chapterID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to delete chapter")
+			writeBookOperationError(w, err, "failed to delete chapter")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1058,7 +1241,7 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 	case "GET":
 		crs, err := s.store.ListChapterRecipes(chapterID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list chapter recipes")
+			writeBookOperationError(w, err, "failed to list chapter recipes")
 			return
 		}
 		if crs == nil {
@@ -1076,7 +1259,7 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 		}
 		cr, err := s.store.AddChapterRecipe(chapterID, req.RecipeID, req.Position)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to add chapter recipe")
+			writeBookOperationError(w, err, "failed to add chapter recipe")
 			return
 		}
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: cr})
@@ -1093,7 +1276,7 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 			return
 		}
 		if err := s.store.RemoveChapterRecipe(chapterID, recipeID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to remove chapter recipe")
+			writeBookOperationError(w, err, "failed to remove chapter recipe")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1105,7 +1288,12 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 func (s *Server) chapterPagesRouter(w http.ResponseWriter, r *http.Request, chapterID string) {
 	parts := strings.Split(r.URL.Path, "/pages/")
 	if len(parts) > 1 && parts[1] != "" {
-		s.chapterPageItemRouter(w, r, parts[1])
+		pageID := parts[1]
+		user := getUserFromContext(r)
+		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterPage(user.ID, pageID, chapterID, fn) }, func(scoped *Server, response http.ResponseWriter) {
+			w := response
+			scoped.chapterPageItemRouter(w, r, pageID)
+		})
 		return
 	}
 	switch r.Method {
@@ -1187,7 +1375,7 @@ func (s *Server) bookItemsReorderHandler(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if err := s.store.ReorderBookLevelItems(bookID, req.Items); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder book items")
+		writeBookOperationError(w, err, "failed to reorder book items")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1208,7 +1396,7 @@ func (s *Server) chapterItemsReorderHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.store.ReorderChapterItems(chapterID, req.Items); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder chapter items")
+		writeBookOperationError(w, err, "failed to reorder chapter items")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1234,7 +1422,7 @@ func (s *Server) moveChapterRecipeHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.store.MoveRecipeBetweenChapters(chapterRecipeID, req.TargetChapterID, req.Position); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to move recipe")
+		writeBookOperationError(w, err, "failed to move recipe")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1260,7 +1448,7 @@ func (s *Server) movePageBetweenChaptersHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 	if err := s.store.MovePageBetweenChapters(pageID, req.TargetChapterID, req.Position); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to move page")
+		writeBookOperationError(w, err, "failed to move page")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true})
@@ -1287,7 +1475,7 @@ func (s *Server) convertPageToBookHandler(w http.ResponseWriter, r *http.Request
 	}
 	p, err := s.store.ConvertChapterPageToBookPage(pageID, req.BookID, req.Position)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to convert page")
+		writeBookOperationError(w, err, "failed to convert page")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
@@ -1314,7 +1502,7 @@ func (s *Server) convertPageToChapterHandler(w http.ResponseWriter, r *http.Requ
 	}
 	p, err := s.store.ConvertBookPageToChapterPage(pageID, req.ChapterID, req.Position)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to convert page")
+		writeBookOperationError(w, err, "failed to convert page")
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: p})
@@ -1368,6 +1556,11 @@ func (s *Server) categoriesRouter(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: cats})
 	case "POST":
+		user := getUserFromContext(r)
+		if user == nil || !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "administrator access required")
+			return
+		}
 		var req CreateCategoryRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1385,6 +1578,11 @@ func (s *Server) categoriesRouter(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) categoryItemRouter(w http.ResponseWriter, r *http.Request, id string) {
+	user := getUserFromContext(r)
+	if user == nil || !user.IsAdmin {
+		writeError(w, http.StatusForbidden, "administrator access required")
+		return
+	}
 	switch r.Method {
 	case "PUT":
 		var req CreateCategoryRequest
@@ -1421,11 +1619,13 @@ func (s *Server) categoryDescendants(w http.ResponseWriter, r *http.Request, id 
 	}
 	ids := []string{id}
 	queue := []string{id}
-	for len(queue) > 0 {
+	visited := map[string]bool{id: true}
+	for len(queue) > 0 && len(visited) <= len(cats)+1 {
 		current := queue[0]
 		queue = queue[1:]
 		for _, c := range cats {
-			if c.ParentID != nil && *c.ParentID == current {
+			if c.ParentID != nil && *c.ParentID == current && !visited[c.ID] {
+				visited[c.ID] = true
 				ids = append(ids, c.ID)
 				queue = append(queue, c.ID)
 			}
@@ -1439,7 +1639,12 @@ func (s *Server) categoryRecipes(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	rcs, err := s.store.RecipeCategoriesByCategory(id)
+	user := getUserFromContext(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	rcs, err := s.store.RecipeCategoriesByCategory(id, user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list recipes by category")
 		return
@@ -1630,34 +1835,7 @@ func (s *Server) apiKeysRouter(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: keys})
 	case "POST":
-		var req struct {
-			Name        string `json:"name"`
-			Permissions string `json:"permissions"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
-			return
-		}
-		if req.Name == "" {
-			writeError(w, http.StatusBadRequest, "name is required")
-			return
-		}
-		if req.Permissions == "" {
-			req.Permissions = "{}"
-		}
-		key, raw, err := s.store.CreateAPIKey(user.ID, req.Name, req.Permissions)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create API key")
-			return
-		}
-		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: map[string]interface{}{
-			"id":          key.ID,
-			"name":        key.Name,
-			"key":         raw,
-			"keyPrefix":   key.KeyPrefix,
-			"permissions": key.Permissions,
-			"createdAt":   key.CreatedAt,
-		}})
+		writeError(w, http.StatusGone, "API key issuance is disabled until scoped authentication is supported; existing keys cannot authenticate and may be revoked")
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}

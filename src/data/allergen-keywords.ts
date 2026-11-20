@@ -61,7 +61,8 @@ export const ALLERGEN_EXCLUSIONS: Record<string, string[]> = {
   heartnut: ['treeNuts'],
 };
 
-export const DIETARY_RULES: Record<DietaryTag, { exclude: Allergen[]; excludeKeywords: string[] }> = {
+// Diabetes-aware screening requires server nutrient assessment, never name inference.
+export const DIETARY_RULES: Record<Exclude<DietaryTag, 'diabetesAware'>, { exclude: Allergen[]; excludeKeywords: string[] }> = {
   vegetarian: {
     exclude: [],
     excludeKeywords: [

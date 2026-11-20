@@ -39,7 +39,7 @@ func (s *PostgresStore) addReferencedCustomFoodToBundle(user *User, recipeOwnerI
 	if err != nil {
 		return "", err
 	}
-	if !f.SharedWithCommunity && (f.UserID != recipeOwnerID || user == nil || (!user.IsAdmin && user.ID != f.UserID)) {
+	if !f.SharedWithCommunity && (f.UserID != recipeOwnerID || user == nil || user.ID != f.UserID) {
 		return "", ErrExportForbidden
 	}
 	for _, existing := range bundle.CustomFoods {

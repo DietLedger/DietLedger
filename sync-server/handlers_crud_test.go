@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -22,6 +23,7 @@ func TestSharingCRUD(t *testing.T) {
 		"recipeId":   recipeID,
 		"title":      "Shared Recipe",
 		"recipeData": `{"name":"Share Test"}`,
+		"visibility": "public",
 	})
 	if w.Code != 201 {
 		t.Fatalf("create share: status = %d, body = %s", w.Code, w.Body.String())
@@ -50,6 +52,54 @@ func TestSharingCRUD(t *testing.T) {
 	w = env.doRequest("DELETE", "/api/share/"+m["id"].(string), nil)
 	if w.Code != 200 {
 		t.Fatalf("delete share: status = %d", w.Code)
+	}
+}
+
+func TestShareOwnershipAndVisibilityValidation(t *testing.T) {
+	env := newTestEnv(t)
+	ownerRecipe := env.doRequest("POST", "/api/recipes", map[string]interface{}{"name": "Owner recipe", "servings": 1, "servingName": "portion"})
+	ownerRecipeID := decodeJSON(t, ownerRecipe)["data"].(map[string]interface{})["id"].(string)
+
+	other, err := env.auth.Register("other-sharing@test.com", "Password123", "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherRecipeReq := httptest.NewRequest("POST", "/api/recipes", bytes.NewBufferString(`{"name":"Other recipe","servings":1,"servingName":"portion"}`))
+	otherRecipeReq.Header.Set("Authorization", "Bearer "+other.AccessToken)
+	otherRecipeReq.Header.Set("Content-Type", "application/json")
+	otherRecipeRec := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(otherRecipeRec, otherRecipeReq)
+	otherRecipeID := decodeJSON(t, otherRecipeRec)["data"].(map[string]interface{})["id"].(string)
+
+	foreign := env.doRequest("POST", "/api/share", map[string]interface{}{"recipeId": otherRecipeID, "title": "forged", "recipeData": "{}", "visibility": "public"})
+	if foreign.Code < 400 {
+		t.Fatalf("sharing another owner's recipe returned %d: %s", foreign.Code, foreign.Body.String())
+	}
+
+	created := env.doRequest("POST", "/api/share", map[string]interface{}{"recipeId": ownerRecipeID, "title": "private by default", "recipeData": "{}"})
+	if created.Code != 201 {
+		t.Fatalf("create owner share: %d %s", created.Code, created.Body.String())
+	}
+	share := decodeJSON(t, created)
+	if share["visibility"] != VisibilityPrivate {
+		t.Fatalf("omitted visibility = %v, want private", share["visibility"])
+	}
+	shareID := share["id"].(string)
+
+	for _, body := range []map[string]interface{}{{}, {"visibility": "typo"}} {
+		invalid := env.doRequest("PUT", "/api/share/"+shareID, body)
+		if invalid.Code != 400 {
+			t.Fatalf("invalid visibility update status = %d, body=%s", invalid.Code, invalid.Body.String())
+		}
+	}
+	// The authenticated non-owner must not mutate a known share ID.
+	foreignTokenReq := httptest.NewRequest("PUT", "/api/share/"+shareID, bytes.NewBufferString(`{"visibility":"public"}`))
+	foreignTokenReq.Header.Set("Authorization", "Bearer "+other.AccessToken)
+	foreignTokenReq.Header.Set("Content-Type", "application/json")
+	foreignTokenRec := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(foreignTokenRec, foreignTokenReq)
+	if foreignTokenRec.Code < 400 {
+		t.Fatalf("non-owner updated share: %d %s", foreignTokenRec.Code, foreignTokenRec.Body.String())
 	}
 }
 
@@ -257,6 +307,13 @@ func TestDayPlanEntryPartialUpdate(t *testing.T) {
 	m := decodeJSON(t, w)
 	planID := m["data"].(map[string]interface{})["id"].(string)
 
+	// Create a real plan group so the entry's group reference is valid.
+	w = env.doRequest("POST", "/api/meal-plans/"+planID+"/groups", map[string]interface{}{"name": "Meal group", "date": "2025-01-13", "slot": "morning"})
+	if w.Code != 201 {
+		t.Fatalf("create group: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	groupID := decodeJSON(t, w)["data"].(map[string]interface{})["id"].(string)
+
 	// Create an entry with full data
 	w = env.doRequest("POST", "/api/meal-plans/"+planID+"/entries", map[string]interface{}{
 		"date": "2025-01-13", "slot": "morning", "sourceType": "recipe",
@@ -270,7 +327,7 @@ func TestDayPlanEntryPartialUpdate(t *testing.T) {
 
 	// Partial PUT: only groupId (simulates grouping)
 	w = env.doRequest("PUT", "/api/entries/"+entryID, map[string]interface{}{
-		"groupId": "grp-123",
+		"groupId": groupID,
 	})
 	if w.Code != 200 {
 		t.Fatalf("partial update (groupId): status = %d, body = %s", w.Code, w.Body.String())
@@ -286,8 +343,8 @@ func TestDayPlanEntryPartialUpdate(t *testing.T) {
 	if data["servings"] != float64(2) {
 		t.Errorf("servings overwritten: got %v, want 2", data["servings"])
 	}
-	if data["groupId"] != "grp-123" {
-		t.Errorf("groupId not set: got %v, want grp-123", data["groupId"])
+	if data["groupId"] != groupID {
+		t.Errorf("groupId not set: got %v, want %s", data["groupId"], groupID)
 	}
 
 	// Partial PUT: only slot + position (simulates drag-to-move)
@@ -311,8 +368,8 @@ func TestDayPlanEntryPartialUpdate(t *testing.T) {
 	if data["servings"] != float64(2) {
 		t.Errorf("servings overwritten on move: got %v, want 2", data["servings"])
 	}
-	if data["groupId"] != "grp-123" {
-		t.Errorf("groupId lost on move: got %v, want grp-123", data["groupId"])
+	if data["groupId"] != groupID {
+		t.Errorf("groupId lost on move: got %v, want %s", data["groupId"], groupID)
 	}
 
 	// Partial PUT: groupId=null (simulates ungrouping)
@@ -364,6 +421,33 @@ func TestBookHandlerCRUD(t *testing.T) {
 	w = env.doRequest("DELETE", "/api/books/"+bookID, nil)
 	if w.Code != 200 {
 		t.Fatalf("delete book: status = %d", w.Code)
+	}
+}
+
+func TestCategoryAdminAndCycleGuards(t *testing.T) {
+	env := newTestEnv(t)
+	first := env.doRequest("POST", "/api/categories", map[string]interface{}{"name": "Parent"})
+	if first.Code != 201 {
+		t.Fatalf("admin category create: %d %s", first.Code, first.Body.String())
+	}
+	parentID := decodeJSON(t, first)["data"].(map[string]interface{})["id"].(string)
+	child := env.doRequest("POST", "/api/categories", map[string]interface{}{"name": "Child", "parentId": parentID})
+	childID := decodeJSON(t, child)["data"].(map[string]interface{})["id"].(string)
+	cycle := env.doRequest("PUT", "/api/categories/"+parentID, map[string]interface{}{"name": "Parent", "parentId": childID})
+	if cycle.Code < 400 {
+		t.Fatalf("cyclic category reparent accepted: %d %s", cycle.Code, cycle.Body.String())
+	}
+	other, err := env.auth.Register("category-reader@test.com", "Password123", "Reader")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/api/categories", bytes.NewBufferString(`{"name":"forbidden"}`))
+	req.Header.Set("Authorization", "Bearer "+other.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.server.Routes().ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("non-admin category creation status = %d", rec.Code)
 	}
 }
 
@@ -447,15 +531,15 @@ func TestGroceryHandler(t *testing.T) {
 func TestAPIKeyHandlerCRUD(t *testing.T) {
 	env := newTestEnv(t)
 
-	w := env.doRequest("POST", "/api/keys", map[string]interface{}{
-		"name": "My Key",
-		"secret": "secret-value-123",
-	})
-	if w.Code != 201 {
-		t.Fatalf("create key: status = %d, body = %s", w.Code, w.Body.String())
+	w := env.doRequest("POST", "/api/keys", map[string]interface{}{"name": "My Key"})
+	if w.Code != 410 {
+		t.Fatalf("issuance status=%d", w.Code)
 	}
-	m := decodeJSON(t, w)
-	keyID := m["data"].(map[string]interface{})["id"].(string)
+	key, _, err := env.store.CreateAPIKey(env.userID, "Existing", "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID := key.ID
 
 	w = env.doRequest("GET", "/api/keys", nil)
 	if w.Code != 200 {

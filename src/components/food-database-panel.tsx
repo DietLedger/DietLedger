@@ -23,12 +23,11 @@ import {
 } from 'lucide-react';
 import { fmt } from '@/lib/format';
 import { useAuth } from '@/hooks/use-auth';
+import { getApiAuthHeaders, authenticatedFetch } from '@/lib/api-auth';
 
 // Attach the Bearer token to requests hitting auth-required food endpoints.
 function authHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-  const token = localStorage.getItem('dietledger_access_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return getApiAuthHeaders();
 }
 
 interface DatasetStatus {
@@ -108,7 +107,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/foods/seed/${jobId}`, { headers: authHeaders() });
+        const res = await authenticatedFetch(`/api/foods/seed/${jobId}`, { headers: authHeaders() });
         if (res.ok) {
           const json = await res.json();
           const data: JobStatus = json.data ?? json;
@@ -133,7 +132,7 @@ const ImportProgressCard = React.memo(function ImportProgressCard({
   const handleCancel = useCallback(async () => {
     if (!jobId) return;
     try {
-      await fetch(`/api/foods/seed/${jobId}`, { method: 'DELETE', headers: authHeaders() });
+      await authenticatedFetch(`/api/foods/seed/${jobId}`, { method: 'DELETE', headers: authHeaders() });
       setJob(null);
       onJobDone();
     } catch {
@@ -221,8 +220,8 @@ export default function FoodDatabasePanel() {
   const fetchData = useCallback(async () => {
     try {
       const [seedRes, statsRes] = await Promise.all([
-        fetch('/api/foods/seed', { headers: authHeaders() }),
-        fetch('/api/foods/stats', { headers: authHeaders() }),
+        authenticatedFetch('/api/foods/seed', { headers: authHeaders() }),
+        authenticatedFetch('/api/foods/stats', { headers: authHeaders() }),
       ]);
       if (seedRes.ok) {
         const seedJson = await seedRes.json();
@@ -251,7 +250,7 @@ export default function FoodDatabasePanel() {
 
   const handleSeed = useCallback(async (datasetKey: string) => {
     try {
-      const res = await fetch('/api/foods/seed', {
+      const res = await authenticatedFetch('/api/foods/seed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ dataset: datasetKey }),
@@ -272,7 +271,7 @@ export default function FoodDatabasePanel() {
       const formData = new FormData();
       formData.append('file', uploadFile);
       formData.append('dataType', uploadDataType);
-      const res = await fetch('/api/foods/seed/upload', { method: 'POST', body: formData, headers: authHeaders() });
+      const res = await authenticatedFetch('/api/foods/seed/upload', { method: 'POST', body: formData, headers: authHeaders() });
       if (res.ok) {
         const json = await res.json();
         setActiveJobId((json.data ?? json).jobId);
@@ -289,7 +288,7 @@ export default function FoodDatabasePanel() {
     if (!testQuery.trim()) return;
     setTestSearching(true);
     try {
-      const res = await fetch(`/api/foods/search?query=${encodeURIComponent(testQuery)}&limit=10`, { headers: authHeaders() });
+      const res = await authenticatedFetch(`/api/foods/search?query=${encodeURIComponent(testQuery)}&limit=10`, { headers: authHeaders() });
       if (res.ok) {
         const json = await res.json();
         const data = json.data ?? json;
@@ -545,7 +544,7 @@ export default function FoodDatabasePanel() {
                         size="sm"
                         className="h-7 text-xs"
                         onClick={async () => {
-                          await fetch('/api/foods/cache', { method: 'DELETE', headers: authHeaders() });
+                          await authenticatedFetch('/api/foods/cache', { method: 'DELETE', headers: authHeaders() });
                           setClearConfirm(false);
                           fetchData();
                         }}

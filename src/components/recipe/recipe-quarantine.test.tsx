@@ -32,6 +32,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('actual quarantine UI', () => {
+  it('shows the requested message on an empty successful response', async () => {
+    rows = [];
+    mount();
+    expect(await screen.findByText('No recipes! good job!')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('reports a failed read and can retry without presenting it as empty', async () => {
+    api.getQuarantinedRecipes.mockRejectedValueOnce(new Error('Database unavailable'));
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load quarantine');
+    expect(screen.queryByText('No recipes! good job!')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('button', { name: /Earlier soup/ })).toBeInTheDocument();
+  });
+
   it.each(['keep', 'cancel'] as const)('resumes an abandoned mixed batch after refresh with explicit %s and leaves earlier imports untouched', async action => {
     rows = [recipe('prior', 'Prior unresolved import')];
     api.importRecipeBundle.mockImplementation(async () => {
@@ -198,7 +215,7 @@ describe('actual quarantine UI', () => {
     await user.type(screen.getByLabelText('Ingredient name'), 'Water');
     await user.click(screen.getByRole('button', { name: 'Use no nutrition' }));
     await waitFor(() => expect(api.resolveQuarantinedIngredient).toHaveBeenCalledWith('empty', 'new', expect.objectContaining({ name: 'Water', zeroNutritionOverride: true })));
-    expect(await screen.findByText('No quarantined recipes.')).toBeInTheDocument();
+    expect(await screen.findByText('No recipes! good job!')).toBeInTheDocument();
   });
 
   it('keeps missing/cyclic child dependencies actionable via the same replacement popup', async () => {

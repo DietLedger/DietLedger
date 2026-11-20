@@ -1,11 +1,21 @@
 package main
 
+import "time"
+
 type Store interface {
+	WithOwnedBook(userID, bookID string, fn func(Store) error) error
+	WithOwnedChapter(userID, chapterID, expectedBookID string, fn func(Store) error) error
+	WithOwnedChapterPage(userID, pageID, expectedChapterID string, fn func(Store) error) error
+	WithOwnedBookPage(userID, pageID string, fn func(Store) error) error
+	WithOwnedChapterRecipe(userID, joinID string, fn func(Store) error) error
 	Close() error
 
 	// Users & Auth
-	CreateUser(email, password, displayName string) (*User, error)
-	GetUserByAPIKey(apiKey string) (*User, error)
+	CreateUser(email, password, displayName string, setupClaim ...string) (*User, error)
+	CreateSession(userID, sessionID, refreshHash string) (time.Time, error)
+	RotateSession(refreshHash, nextHash string) (string, string, time.Time, error)
+	SessionActive(sessionID, userID string) (bool, error)
+	RevokeSession(refreshHash string) error
 	GetUserByID(id string) (*User, error)
 	GetUserByEmail(email string) (*User, error)
 	UpdateUserLastLogin(id string) error
@@ -13,7 +23,7 @@ type Store interface {
 	ListUsers() ([]UserListEntry, error)
 	SetUserAdmin(userID string, isAdmin bool) error
 	AdminCount() (int, error)
-	DeleteAccount(userID string) error
+	DeleteAccount(userID string, successorID ...string) error
 	DeleteUserData(userID string) error
 	SeedGlobalStaples() error
 
@@ -62,14 +72,15 @@ type Store interface {
 	ListFoodLogEntries(profileID, date string) ([]FoodLogEntry, error)
 	ListFoodLogEntriesByDateRange(profileID, startDate, endDate string) ([]FoodLogEntry, error)
 	CreateFoodLogEntry(userID, profileID string, e *CreateFoodLogRequest) (*FoodLogEntry, error)
+	OwnsFoodLogEntry(userID, profileID, id string) (bool, error)
 	UpdateFoodLogEntry(id string, e *CreateFoodLogRequest) (*FoodLogEntry, error)
 	DeleteFoodLogEntry(id string) error
 
 	// Weight entries
-	ListWeightEntries(profileID, fromDate, toDate string) ([]WeightEntry, error)
+	ListWeightEntries(userID, profileID, fromDate, toDate string) ([]WeightEntry, error)
 	CreateWeightEntry(userID, profileID string, e *CreateWeightEntryRequest) (*WeightEntry, error)
-	UpdateWeightEntry(id string, e *CreateWeightEntryRequest) (*WeightEntry, error)
-	DeleteWeightEntry(id string) error
+	UpdateWeightEntry(userID, profileID, id string, e *CreateWeightEntryRequest) (*WeightEntry, error)
+	DeleteWeightEntry(userID, profileID, id string) error
 
 	// Meal plans
 	ListMealPlans(userID string) ([]MealPlan, error)
@@ -80,16 +91,16 @@ type Store interface {
 	DeleteMealPlan(userID, id string) error
 
 	// Day plan entries
-	ListDayPlanEntries(mealPlanID string) ([]DayPlanEntry, error)
-	GetDayPlanEntryByID(id string) (*DayPlanEntry, error)
-	CreateDayPlanEntry(mealPlanID string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
-	UpdateDayPlanEntry(id string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
-	DeleteDayPlanEntry(id string) error
+	ListDayPlanEntries(userID, mealPlanID string) ([]DayPlanEntry, error)
+	GetDayPlanEntryByID(userID, mealPlanID, id string) (*DayPlanEntry, error)
+	CreateDayPlanEntry(userID, mealPlanID string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
+	UpdateDayPlanEntry(userID, mealPlanID, id string, e *CreateDayPlanEntryRequest) (*DayPlanEntry, error)
+	DeleteDayPlanEntry(userID, mealPlanID, id string) error
 
 	// Meal groups
-	ListMealGroups(mealPlanID string) ([]MealGroup, error)
-	CreateMealGroup(mealPlanID, name, date, slot string, position int) (*MealGroup, error)
-	DeleteMealGroup(id string) error
+	ListMealGroups(userID, mealPlanID string) ([]MealGroup, error)
+	CreateMealGroup(userID, mealPlanID, name, date, slot string, position int) (*MealGroup, error)
+	DeleteMealGroup(userID, mealPlanID, id string) error
 
 	// Recipe books
 	ListBooks(userID string) ([]RecipeBook, error)
@@ -126,7 +137,7 @@ type Store interface {
 	ListRecipeCategories(recipeID string) ([]RecipeCategory, error)
 	AddRecipeCategory(recipeID, categoryID string) (*RecipeCategory, error)
 	RemoveRecipeCategory(recipeID, categoryID string) error
-	RecipeCategoriesByCategory(categoryID string) ([]RecipeCategory, error)
+	RecipeCategoriesByCategory(categoryID, userID string) ([]RecipeCategory, error)
 
 	// Custom foods
 	ListCustomFoods(userID string) ([]CustomFood, error)
@@ -165,8 +176,8 @@ type Store interface {
 	CreateSharedRecipe(userID, recipeID, title, description, category, tags, recipeData, visibility string) (*SharedRecipe, error)
 	GetSharedRecipeByToken(shareToken string) (*SharedRecipe, error)
 	GetSharedRecipesByUser(userID string) ([]SharedRecipe, error)
-	SetSharedRecipeVisibility(id string, visibility string) error
-	DeleteSharedRecipe(id string) error
+	SetSharedRecipeVisibility(userID, id string, visibility string) error
+	DeleteSharedRecipe(userID, id string) error
 	IncrementSharedRecipeViews(id string) error
 	IncrementSharedRecipeImports(id string) error
 	SearchCommunityRecipes(query, category, sort string, authenticated bool, page, perPage int) ([]SharedRecipe, error)
@@ -188,6 +199,7 @@ type Store interface {
 
 	// Dietary profiles
 	ListDietaryProfiles(userID string) ([]DietaryProfile, error)
+	RestoreDiabetesAwareProfile(userID string) (*DietaryProfile, error)
 	GetDietaryProfile(userID, id string) (*DietaryProfile, error)
 	CreateDietaryProfile(userID string, req *CreateDietaryProfileRequest) (*DietaryProfile, error)
 	UpdateDietaryProfile(userID, id string, req *UpdateDietaryProfileRequest) (*DietaryProfile, error)
@@ -196,8 +208,8 @@ type Store interface {
 	// Allergen rules
 	ListAllergenRules(userID, profileID string) ([]AllergenRule, error)
 	CreateAllergenRule(userID, profileID string, req *CreateAllergenRuleRequest) (*AllergenRule, error)
-	UpdateAllergenRule(userID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error)
-	DeleteAllergenRule(userID, id string) error
+	UpdateAllergenRule(userID, profileID, id string, req *UpdateAllergenRuleRequest) (*AllergenRule, error)
+	DeleteAllergenRule(userID, profileID, id string) error
 
 	// Brand kits
 	ListBrandKits(userID string) ([]BrandKit, error)

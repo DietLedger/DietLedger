@@ -83,7 +83,7 @@ export default function AppNav() {
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const [dataStatus, setDataStatus] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [dataBusy, setDataBusy] = useState(false);
-  const { themeId, setTheme, themes, mounted: themeMounted } = useAppTheme();
+  const { themeId, setTheme, themes, mounted: themeMounted, appearance, setAppearance, isDark } = useAppTheme();
 
   const handleSaveApiKey = useCallback(() => {
     setFDAKeyMutation.mutate(apiKeyInput);
@@ -126,11 +126,11 @@ export default function AppNav() {
   const activeSection = getActiveSection(pathname);
 
   return (
-    <header className="border-b bg-white shadow-sm">
+    <header data-app-nav className="border-b bg-white shadow-sm">
       {decisionDialog}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
         <Link href="/" className="flex items-center gap-3 shrink-0">
-          <img src="/logo.svg" alt="DietLedger" className="w-9 h-9" />
+          <img src={themeMounted && isDark ? '/logo-dark-luxury.svg' : '/logo.svg'} alt="DietLedger" className="w-9 h-9" />
           <div>
             <h1 className="text-xl font-bold text-stone-900 tracking-tight">DietLedger</h1>
           </div>
@@ -195,7 +195,7 @@ export default function AppNav() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400 hover:text-red-500" onClick={logout}>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-stone-400 hover:text-red-500" onClick={() => { void logout().catch(() => window.alert('Server logout failed. Your session may still be active; sign in and try again.')); }}>
                 <LogOut className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
@@ -279,10 +279,18 @@ export default function AppNav() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <label className="block text-xs font-medium text-stone-600 mt-3 mb-1.5" htmlFor="nav-appearance-mode">Color appearance</label>
+                      <Select value={appearance} onValueChange={(mode) => setAppearance(mode === 'dark' ? 'dark' : 'light')}>
+                        <SelectTrigger id="nav-appearance-mode" className="w-full text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="light">Light</SelectItem>
+                          <SelectItem value="dark">Dark</SelectItem>
+                        </SelectContent>
+                      </Select>
                       {themeMounted && (
                         <div className="mt-3 flex gap-1.5">
                           {(() => {
-                            const vars = document.documentElement.classList.contains('dark')
+                            const vars = isDark
                               ? themes.find(t => t.id === themeId)?.dark || themes[0].dark
                               : themes.find(t => t.id === themeId)?.light || themes[0].light;
                             const swatches = ['--brand-600', '--brand-100', '--background', '--foreground', '--brand-400'];
@@ -401,7 +409,7 @@ export default function AppNav() {
                                 const bundle = await getApiClient().exportOwnerRecipeBookBackup();
                                 await downloadRecipeBundle(bundle, `dietledger-recipes-${new Date().toISOString().slice(0, 10)}.dietledger-bundle.json`);
                                 await getApiClient().deleteMyAccount(password);
-                                logout();
+                                await logout();
                                 router.replace('/');
                                 return { ok: true };
                               } catch (e) { return { ok: false, error: e instanceof Error ? e.message : 'Failed' }; }

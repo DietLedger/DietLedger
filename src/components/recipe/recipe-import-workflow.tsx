@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { getApiClient, type RecipeBundle, type RecipeBundleImportSummary } from '@/lib/api-client';
+import { getApiClient, type BookImportConflict, type BookImportDecision, type RecipeBundle, type RecipeBundleImportSummary } from '@/lib/api-client';
 import { importRecipeBundle, importRecipeBundleFromFile } from '@/lib/recipe-bundles';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
@@ -22,16 +22,26 @@ type PendingDecision = {
   resolve: (summary: RecipeBundleImportSummary) => void;
   reject: (error: Error) => void;
 };
+type PendingBookDecision = {
+  conflicts: BookImportConflict[];
+  index: number;
+  decisions: BookImportDecision[];
+  selectedTargetId: string;
+  resolve: (decisions: BookImportDecision[] | null) => void;
+};
 
 export function useRecipeImport() {
   const client = useQueryClient();
   const [pending, setPending] = useState<PendingDecision | null>(null);
+  const [pendingBooks, setPendingBooks] = useState<PendingBookDecision | null>(null);
   const current = useRef<PendingDecision | null>(null);
+  const pendingBookRef = useRef<PendingBookDecision | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => () => {
     current.current?.reject(new Error('Import preserved in quarantine; choose an action there.'));
+    pendingBookRef.current?.resolve(null);
   }, []);
 
   const requestDecision = useCallback((summary: RecipeBundleImportSummary) => new Promise<RecipeBundleImportSummary>((resolve, reject) => {
@@ -42,17 +52,50 @@ export function useRecipeImport() {
     void refreshRecipeImportQueries(client);
   }), [client]);
 
+  const requestBookDecision = useCallback((conflicts: BookImportConflict[]) => new Promise<BookImportDecision[] | null>(resolve => {
+    const decision = { conflicts, index: 0, decisions: [], selectedTargetId: conflicts[0]?.candidates[0]?.targetBookId ?? '', resolve };
+    pendingBookRef.current = decision;
+    setPendingBooks(decision);
+  }), []);
+
   const importFile = useCallback(async (file: File) => {
-    const summary = await importRecipeBundleFromFile(file, requestDecision);
+    const summary = await importRecipeBundleFromFile(file, requestDecision, requestBookDecision);
     await refreshRecipeImportQueries(client);
     return summary;
-  }, [client, requestDecision]);
+  }, [client, requestDecision, requestBookDecision]);
 
   const importBundle = useCallback(async (bundle: RecipeBundle) => {
-    const summary = await importRecipeBundle(bundle, requestDecision);
+    const summary = await importRecipeBundle(bundle, requestDecision, requestBookDecision);
     await refreshRecipeImportQueries(client);
     return summary;
-  }, [client, requestDecision]);
+  }, [client, requestDecision, requestBookDecision]);
+
+  const chooseBookDecision = (action: BookImportDecision['action']) => {
+    if (!pendingBooks) return;
+    const conflict = pendingBooks.conflicts[pendingBooks.index];
+    const candidate = conflict?.candidates.find(item => item.targetBookId === pendingBooks.selectedTargetId);
+    if (!conflict || !candidate) return;
+    const decisions = [...pendingBooks.decisions, {
+      bundleBookId: conflict.bundleBookId,
+      targetBookId: candidate.targetBookId,
+      action,
+      targetFingerprint: candidate.targetFingerprint,
+    }];
+    if (pendingBooks.index + 1 === pendingBooks.conflicts.length) {
+      pendingBooks.resolve(decisions);
+      pendingBookRef.current = null;
+      setPendingBooks(null);
+      return;
+    }
+    const index = pendingBooks.index + 1;
+    setPendingBooks({ ...pendingBooks, index, decisions, selectedTargetId: pendingBooks.conflicts[index]?.candidates[0]?.targetBookId ?? '' });
+  };
+
+  const cancelBookImport = () => {
+    pendingBooks?.resolve(null);
+    pendingBookRef.current = null;
+    setPendingBooks(null);
+  };
 
   const resumeDecision = useCallback((batchId: string, quarantined: number) => requestDecision({
     pendingImportId: batchId, requiresDecision: true, quarantined,
@@ -76,6 +119,37 @@ export function useRecipeImport() {
     }
   };
 
+  const bookConflictDialog = <Dialog open={!!pendingBooks}>
+    <DialogContent className="sm:max-w-lg" onEscapeKeyDown={event => event.preventDefault()} onPointerDownOutside={event => event.preventDefault()} showCloseButton={false}>
+      <DialogHeader>
+        <DialogTitle>Duplicate recipe book</DialogTitle>
+        <DialogDescription>
+          “{pendingBooks?.conflicts[pendingBooks.index]?.title}” matches a book already in your library. Choose how to handle it.
+          {pendingBooks && pendingBooks.conflicts.length > 1 ? ` (${pendingBooks.index + 1} of ${pendingBooks.conflicts.length})` : ''}
+        </DialogDescription>
+      </DialogHeader>
+      {(pendingBooks?.conflicts[pendingBooks.index]?.candidates.length ?? 0) > 1 && (
+        <label className="space-y-1 text-sm">
+          <span>Existing book to use</span>
+          <select
+            className="w-full rounded-md border border-input bg-background px-3 py-2"
+            aria-label="Existing book to use"
+            value={pendingBooks?.selectedTargetId}
+            onChange={event => pendingBooks && setPendingBooks({ ...pendingBooks, selectedTargetId: event.target.value })}
+          >
+            {pendingBooks?.conflicts[pendingBooks.index]?.candidates.map(candidate => <option key={candidate.targetBookId} value={candidate.targetBookId}>{candidate.title}</option>)}
+          </select>
+        </label>
+      )}
+      <p className="text-sm text-muted-foreground">Merge keeps the existing book and adds incoming pages and chapters. Replace swaps its book structure but keeps its recipes in your library.</p>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" onClick={cancelBookImport}>Cancel import</Button>
+        <Button variant="outline" onClick={() => chooseBookDecision('merge')}>Merge</Button>
+        <Button onClick={() => chooseBookDecision('replace')}>Replace</Button>
+      </div>
+    </DialogContent>
+  </Dialog>;
+
   const decisionDialog = <Dialog open={!!pending}>
     <DialogContent className="sm:max-w-lg" onEscapeKeyDown={event => event.preventDefault()} onPointerDownOutside={event => event.preventDefault()} showCloseButton={false}>
       <DialogHeader>
@@ -95,5 +169,5 @@ export function useRecipeImport() {
     </DialogContent>
   </Dialog>;
 
-  return { importFile, importBundle, resumeDecision, decisionDialog };
+  return { importFile, importBundle, resumeDecision, decisionDialog: <>{bookConflictDialog}{decisionDialog}</> };
 }

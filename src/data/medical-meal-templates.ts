@@ -295,16 +295,14 @@ export const MEDICAL_MEAL_TEMPLATES: MedicalMealTemplate[] = [
     id: 'diabetic-diet',
     dietType: 'Diabetic',
     name: 'Diabetic Diet',
-    description: 'Balanced meal plan for blood sugar management — consistent carb timing, high fiber, lean proteins, and limited added sugars.',
+    description: 'Illustrative sample meal plan; all numerical values are examples, not universal diabetes targets. Personalize with your care team.',
     macroSplit: { protein: 20, carbs: 45, fat: 35 },
     maxSugarG: 25,
     notes: [
-      'Distribute carbs evenly across meals (30-45g per meal)',
-      'Choose complex carbs with low glycemic index',
-      'Include protein with every meal to stabilize blood sugar',
-      'Increase fiber to 25-30g/day',
-      'Limit added sugars and refined grains',
-      'Monitor portion sizes carefully',
+      'The macro split, sugar limit and meal calories are illustrative, not individual recommendations.',
+      'Individualize carbohydrate amounts and timing with your diabetes care team.',
+      'Choose high-fiber whole foods, nonstarchy vegetables and lean proteins.',
+      'Limit added sugars, refined grains and sugary drinks.',
     ],
     days: [
       {

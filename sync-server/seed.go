@@ -1,13 +1,14 @@
 package main
 
 import (
-	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -194,12 +195,17 @@ func (s *Server) startSeedProcessor() {
 }
 
 func (s *Server) processPendingJobs() {
-	jobs, err := s.store.ListSeedJobs()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.reconcileSeedJobs(ctx, time.Now()); err != nil {
+		return
+	}
+	jobs, err := s.seedJobs(ctx)
 	if err != nil {
 		return
 	}
 	for _, job := range jobs {
-		if job.Status == "pending" {
+		if job.Status == "pending" && (job.Checkpoint == nil || *job.Checkpoint == "") {
 			go s.processSeedJob(job.ID, job.DataType)
 			return
 		}
@@ -207,114 +213,104 @@ func (s *Server) processPendingJobs() {
 }
 
 func (s *Server) processSeedJob(jobID int, dataType string) {
+	client := &http.Client{Timeout: seedJobTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	s.runSeedJobWorker(context.Background(), client, jobID, dataType)
+}
+
+func (s *Server) runSeedJobWorker(ctx context.Context, client *http.Client, jobID int, dataType string) bool {
+	if !acquireSeedWorker() {
+		return false
+	}
+	defer releaseSeedWorker()
+	ctx, cancel := context.WithTimeout(ctx, seedJobTimeout)
+	defer cancel()
+	s.runSeedJob(ctx, client, jobID, dataType)
+	return true
+}
+
+func (s *Server) runSeedJob(ctx context.Context, client *http.Client, jobID int, dataType string) {
+	checkpoint, err := s.claimSeedJob(ctx, jobID)
+	if err != nil {
+		return
+	}
+	imported := 0
+	completed := false
+	defer func() {
+		status, message := "failed", "dataset invalid, canceled, or budget exceeded"
+		if completed {
+			status, message = "completed", ""
+		}
+		_ = s.finishSeedJob(jobID, checkpoint, status, imported, message)
+	}()
 	url, ok := datasetURLs[dataType]
 	if !ok {
 		log.Printf("[Seed] Job %d: unknown dataset %q", jobID, dataType)
-		s.store.UpdateSeedJob(jobID, "failed", 0, 0, "")
 		return
 	}
 
 	log.Printf("[Seed] Starting job %d: %s", jobID, dataType)
 
-	_ = s.store.UpdateSeedJob(jobID, "downloading", 0, 5, "")
+	if err := s.seedJobStatus(ctx, jobID, "downloading", 0, 5, ""); err != nil {
+		return
+	}
 
-	resp, err := http.Get(url)
+	file, size, err := downloadSeedArchive(ctx, client, url, datasetBodyBytes)
 	if err != nil {
-		log.Printf("[Seed] Job %d: download failed: %v", jobID, err)
-		_ = s.store.UpdateSeedJob(jobID, "failed", 0, 0, "")
+		log.Printf("[Seed] Job %d: download failed", jobID)
 		return
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		log.Printf("[Seed] Job %d: download HTTP %d", jobID, resp.StatusCode)
-		_ = s.store.UpdateSeedJob(jobID, "failed", 0, 0, "")
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if err := s.seedJobStatus(ctx, jobID, "extracting", 0, 20, ""); err != nil {
 		return
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("[Seed] Job %d: read body failed: %v", jobID, err)
-		_ = s.store.UpdateSeedJob(jobID, "failed", 0, 0, "")
-		return
-	}
-
-	_ = s.store.UpdateSeedJob(jobID, "extracting", 0, 20, "")
-
-	var foods []FoodItem
-
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "zip") || strings.HasSuffix(url, ".zip") {
-		foods, err = parseZipBody(body, dataType)
-	} else {
-		foods, err = parseFoodJSON(body, dataType)
-	}
-	if err != nil {
-		log.Printf("[Seed] Job %d: parse failed: %v", jobID, err)
-		_ = s.store.UpdateSeedJob(jobID, "failed", 0, 0, "")
-		return
-	}
-
-	total := len(foods)
-	if total == 0 {
-		_ = s.store.UpdateSeedJob(jobID, "completed", 0, 100, "")
-		return
-	}
-
-	log.Printf("[Seed] Job %d: parsed %d foods, importing...", jobID, total)
-
-	batchSize := 500
-	imported := 0
-	for i := 0; i < total; i += batchSize {
-		end := i + batchSize
-		if end > total {
-			end = total
+	batch := make([]FoodItem, 0, 500)
+	flush := func() error {
+		if len(batch) == 0 {
+			return ctx.Err()
 		}
-		batch := foods[i:end]
-
-		count, err := s.store.CreateFoodItems(batch)
+		count, err := s.createSeedFoodItems(ctx, batch)
 		if err != nil {
-			log.Printf("[Seed] Job %d: import failed at %d: %v", jobID, imported, err)
-			_ = s.store.UpdateSeedJob(jobID, "failed", imported, 0, "")
-			return
+			return err
 		}
 		imported += count
-
-		progress := 20 + float64(imported)/float64(total)*80
-		_ = s.store.UpdateSeedJob(jobID, "importing", imported, progress, "")
-
-		if end%5000 == 0 || end == total {
-			log.Printf("[Seed] Job %d: imported %d/%d foods", jobID, imported, total)
-		}
+		batch = batch[:0]
+		return s.seedJobStatus(ctx, jobID, "importing", imported, 50, "")
 	}
+	err = streamSeedZIP(ctx, file, size, dataType, seedInflatedBytes, func(food FoodItem) error {
+		batch = append(batch, food)
+		if len(batch) == cap(batch) {
+			return flush()
+		}
+		return nil
+	})
+	if err == nil {
+		err = flush()
+	}
+	if err != nil {
+		log.Printf("[Seed] Job %d: failed after %d foods", jobID, imported)
+		return
+	}
+	completed = ctx.Err() == nil
+}
 
-	_ = s.store.UpdateSeedJob(jobID, "completed", imported, 100, "")
-	log.Printf("[Seed] Job %d: completed, %d foods imported", jobID, imported)
+func (s *Server) createSeedFoodItems(ctx context.Context, items []FoodItem) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if store, ok := s.store.(interface {
+		CreateFoodItemsContext(context.Context, []FoodItem) (int, error)
+	}); ok {
+		return store.CreateFoodItemsContext(ctx, items)
+	}
+	return s.store.CreateFoodItems(items)
 }
 
 func parseZipBody(data []byte, dataType string) ([]FoodItem, error) {
-	reader := strings.NewReader(string(data))
-	zipReader, err := zip.NewReader(reader, int64(len(data)))
-	if err != nil {
-		return nil, fmt.Errorf("open zip: %w", err)
-	}
-
-	for _, f := range zipReader.File {
-		if strings.HasSuffix(f.Name, ".json") {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("open %s: %w", f.Name, err)
-			}
-			defer rc.Close()
-			body, err := io.ReadAll(rc)
-			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", f.Name, err)
-			}
-			return parseFoodJSON(body, dataType)
-		}
-	}
-
-	return nil, fmt.Errorf("no JSON file found in zip archive")
+	var foods []FoodItem
+	err := streamSeedZIP(context.Background(), bytes.NewReader(data), int64(len(data)), dataType, seedInflatedBytes, func(food FoodItem) error { foods = append(foods, food); return nil })
+	return foods, err
 }
 
 func hasMeaningfulFoodNutrition(food FoodItem) bool {

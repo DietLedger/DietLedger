@@ -118,18 +118,43 @@ func (s *Server) recipeBundleImportHandler(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "recipe bundles require PostgreSQL store")
 		return
 	}
-	var bundle RecipeBundle
-	if err := json.NewDecoder(r.Body).Decode(&bundle); err != nil {
+	var raw json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	result, err := pg.StageRecipeBundle(user.ID, bundle)
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil || probe == nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	var bundle RecipeBundle
+	var decisions []BookImportDecision
+	if _, wrapped := probe["bundle"]; wrapped {
+		var req struct {
+			Bundle        RecipeBundle         `json:"bundle"`
+			BookDecisions []BookImportDecision `json:"bookDecisions"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid import envelope")
+			return
+		}
+		bundle, decisions = req.Bundle, req.BookDecisions
+	} else if err := json.Unmarshal(raw, &bundle); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe bundle")
+		return
+	}
+	result, err := pg.StageRecipeBundleWithDecisions(user.ID, bundle, decisions)
 	if err != nil {
 		if errors.Is(err, ErrExportForbidden) {
 			writeError(w, http.StatusForbidden, "import contains an inaccessible dependency")
 			return
 		}
 		var conflict *RecipeBundleIdentityConflictError
+		if errors.Is(err, ErrBookImportChanged) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.As(err, &conflict) {
 			writeError(w, http.StatusConflict, conflict.Error())
 			return

@@ -11,7 +11,7 @@
 --                 because their provenance cannot be distinguished in SQL.
 --
 -- food_log_entries and day_plan_entries are intentionally NOT migrated:
--- they are historical consumption records (NUTRITION_DOMAIN.md: historical
+-- they are historical consumption records (docs/NUTRITION_DOMAIN.md: historical
 -- data is immutable). Existing logs keep their legacy values; new entries
 -- are correct from the fixed ingestion path onward.
 UPDATE food_items

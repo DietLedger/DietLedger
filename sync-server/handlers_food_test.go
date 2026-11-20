@@ -180,8 +180,8 @@ func TestFoodItemByUPC(t *testing.T) {
 }
 
 // Current wiring requires auth for /api/foods/search (server.go). NOTE:
-// final_docs/api_contract.md documents this route as public — that drift is
-// tracked for reconciliation in plans/development-plan.md (open questions).
+// docs/final_docs/api_contract.md documents this route as public — that drift is
+// tracked for reconciliation in docs/plans/development-plan.md (open questions).
 // If the route is made public per contract, flip this test back to expect
 // 200 without a token.
 func TestFoodSearchEndpointRequiresAuth(t *testing.T) {

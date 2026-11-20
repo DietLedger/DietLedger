@@ -2,9 +2,12 @@
 
 import React from 'react';
 import type { TemplateRecord, TemplateSection } from '@/lib/types';
+import { recipeNutrition, recipeMissingNutrients } from '@/lib/recipe-types';
+import { CustomNutritionNotice } from '@/components/recipe/custom-nutrition-editor';
 import NutritionLabel, { type NutritionData } from '@/components/nutrition-label';
 
 interface Ingredient {
+  missingNutrients?: string[];
   id: string;
   name: string;
   amount: number;
@@ -30,6 +33,8 @@ interface InstructionGroup {
 }
 
 export interface RecipeData {
+  description?: string;
+  customNutrition?: import('@/lib/types').CustomRecipeNutrition | null;
   name: string;
   servings: number;
   servingName: string;
@@ -84,7 +89,13 @@ interface RecipeRendererProps {
   nutritionData?: NutritionData;
 }
 
-export default function RecipeRenderer({ recipe, template, nutritionData }: RecipeRendererProps) {
+export default function RecipeRenderer({ recipe, template, nutritionData: suppliedNutritionData }: RecipeRendererProps) {
+  const nutritionData = recipe.customNutrition ? {
+    servings: recipe.servings,
+    ...recipeNutrition({ customNutrition: recipe.customNutrition }, 1 / (recipe.servings || 1)),
+    missingNutrients: recipe.customNutrition.missingNutrients,
+    customNutrition: recipe.customNutrition,
+  } : suppliedNutritionData ? { ...suppliedNutritionData, missingNutrients: [...new Set([...(suppliedNutritionData.missingNutrients ?? []), ...recipeMissingNutrients(recipe)])] } : undefined;
   const resolved = resolveTemplate(template);
   const { theme, margins, pageSize } = resolved.layout;
   const sections = sortedVisibleSections(resolved);
@@ -119,13 +130,14 @@ export default function RecipeRenderer({ recipe, template, nutritionData }: Reci
             <h1 style={{ margin: 0, color: section.style.color || theme.primaryColor }}>
               {recipe.name || 'Untitled Recipe'}
             </h1>
+            {recipe.description && <p style={{ fontSize: 13, fontWeight: 400, whiteSpace: 'pre-wrap' }}>{recipe.description}</p>}
           </div>
         );
 
       case 'servings-info':
         return (
           <div key={section.id} style={{ ...sectionStyle, color: section.style.color || theme.textColor, opacity: 0.7 }}>
-            {recipe.servings} {recipe.servingName || 'serving'}{recipe.servings !== 1 ? 's' : ''}
+            {recipe.customNutrition ? `${recipe.servings} servings · ${recipe.servingName}` : `${recipe.servings} ${recipe.servingName || 'serving'}${recipe.servings !== 1 ? 's' : ''}`}
           </div>
         );
 
@@ -141,8 +153,8 @@ export default function RecipeRenderer({ recipe, template, nutritionData }: Reci
           <div key={section.id} style={{ marginTop: 12 }}>
             <NutritionLabel
               data={nutritionData}
-              servingDescription={`${recipe.servings} ${recipe.servingName || 'serving'}${recipe.servings !== 1 ? 's' : ''}`}
-              servingsPerContainer={1}
+              servingDescription={recipe.customNutrition ? recipe.servingName : `${recipe.servings} ${recipe.servingName || 'serving'}${recipe.servings !== 1 ? 's' : ''}`}
+              servingsPerContainer={recipe.customNutrition ? recipe.servings : 1}
             />
           </div>
         );
@@ -186,6 +198,7 @@ export default function RecipeRenderer({ recipe, template, nutritionData }: Reci
       : {};
     return (
       <div style={containerStyle}>
+        {!sections.some(section => section.type === 'nutrition-label') && <CustomNutritionNotice nutrition={recipe.customNutrition} />}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
           <div style={dividerStyle}>{col1.map(renderSection)}</div>
           <div style={{ paddingLeft: hasColumnDivider ? 16 : 0 }}>{col2.map(renderSection)}</div>
@@ -196,6 +209,7 @@ export default function RecipeRenderer({ recipe, template, nutritionData }: Reci
 
   return (
     <div style={containerStyle}>
+      {!sections.some(section => section.type === 'nutrition-label') && <CustomNutritionNotice nutrition={recipe.customNutrition} />}
       {sections.map(renderSection)}
     </div>
   );

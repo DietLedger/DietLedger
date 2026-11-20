@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -71,9 +72,9 @@ func (s *Server) tryUSDAFallback(r *http.Request, query string) ([]FoodItem, str
 		return nil, ""
 	}
 
-	liveFoods, err := searchUSDALive(query, apiKey, 50)
+	liveFoods, err := searchUSDALiveContext(r.Context(), query, apiKey, 50)
 	if err != nil {
-		log.Printf("USDA live search failed for %q: %v", query, err)
+		log.Printf("USDA live search failed: %v", err)
 		return nil, ""
 	}
 	if len(liveFoods) == 0 {
@@ -189,7 +190,27 @@ func (s *Server) foodSeedUploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
+	if !acquireSeedWorker() {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusServiceUnavailable, "dataset worker busy")
+		return
+	}
+	defer releaseSeedWorker()
+	ctx, cancel := context.WithTimeout(r.Context(), seedJobTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: contextReader{ctx: r.Context(), reader: r.Body}, Closer: r.Body,
+	}
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
 		log.Printf("Error parsing multipart form: %v", err)
 		writeError(w, http.StatusBadRequest, "failed to parse form (file may be too large)")
 		return
@@ -204,49 +225,71 @@ func (s *Server) foodSeedUploadHandler(w http.ResponseWriter, r *http.Request) {
 	if dataType == "" {
 		dataType = "uploaded"
 	}
-	body, err := io.ReadAll(file)
-	if err != nil {
-		log.Printf("Error reading upload file: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to read file")
+	// Validate the full upload before any write, then rewind and import bounded
+	// batches. The admitted multipart body is already size-checked on disk.
+	count := 0
+	if err := streamUploadedFoods(r.Context(), file, func(FoodItem) error { count++; return nil }); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: complete array of food items expected")
 		return
 	}
-	var foods []FoodItem
-	if err := json.Unmarshal(body, &foods); err != nil {
-		log.Printf("Error parsing food JSON: %v", err)
-		writeError(w, http.StatusBadRequest, "invalid JSON: array of food items expected")
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to rewind upload")
 		return
 	}
-	foods = foodsWithMeaningfulNutrition(foods)
-	if len(foods) == 0 {
+	if count == 0 {
 		writeError(w, http.StatusBadRequest, "no foods with meaningful nutrition to import")
 		return
 	}
-	job, err := s.store.CreateSeedJob(dataType, "", "upload")
+	job, err := s.createSeedJob(r.Context(), dataType, "", "upload")
 	if err != nil {
 		log.Printf("Error creating seed job: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create seed job")
 		return
 	}
-	totalInserted := 0
-	batchSize := 500
-	for i := 0; i < len(foods); i += batchSize {
-		end := i + batchSize
-		if end > len(foods) {
-			end = len(foods)
-		}
-		batch := foods[i:end]
-		inserted, err := s.store.CreateFoodItems(batch)
-		totalInserted += inserted
-		if err != nil {
-			log.Printf("Error importing food batch (items %d-%d): %v", i, end, err)
-			s.store.UpdateSeedJob(job.ID, "failed", totalInserted, 0, err.Error())
-			writeError(w, http.StatusInternalServerError, "failed to import foods")
-			return
-		}
-		progress := float64(end) / float64(len(foods)) * 100
-		s.store.UpdateSeedJob(job.ID, "importing", totalInserted, progress, "")
+	checkpoint, err := s.claimSeedJob(r.Context(), job.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to claim upload job")
+		return
 	}
-	s.store.UpdateSeedJob(job.ID, "completed", totalInserted, 100, "")
+	totalInserted := 0
+	finalized := false
+	defer func() {
+		if !finalized {
+			_ = s.finishSeedJob(job.ID, checkpoint, "failed", totalInserted, "upload canceled or import failed")
+		}
+	}()
+	batch := make([]FoodItem, 0, 500)
+	flush := func() error {
+		if len(batch) == 0 {
+			return r.Context().Err()
+		}
+		inserted, err := s.createSeedFoodItems(r.Context(), batch)
+		if err != nil {
+			return err
+		}
+		totalInserted += inserted
+		batch = batch[:0]
+		return s.seedJobStatus(r.Context(), job.ID, "importing", totalInserted, float64(totalInserted)/float64(count)*100, "")
+	}
+	err = streamUploadedFoods(r.Context(), file, func(food FoodItem) error {
+		batch = append(batch, food)
+		if len(batch) == cap(batch) {
+			return flush()
+		}
+		return nil
+	})
+	if err == nil {
+		err = flush()
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to import foods")
+		return
+	}
+	finalized = true
+	if err := s.finishSeedJob(job.ID, checkpoint, "completed", totalInserted, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, "foods imported but completion status unavailable")
+		return
+	}
 	writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: map[string]interface{}{"jobId": job.ID, "inserted": totalInserted}})
 }
 
@@ -330,7 +373,7 @@ func (s *Server) startSeedJobHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "dataType is required")
 		return
 	}
-	job, err := s.store.CreateSeedJob(dataType, "", dataType)
+	job, err := s.createSeedJob(r.Context(), dataType, "", dataType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create seed job")
 		return

@@ -1,0 +1,172 @@
+name: Explicit manually approved beta publication
+# Never push images on pull_request, push, release, or tag creation.
+on:
+  workflow_dispatch:
+    inputs:
+      manual_test_confirmed:
+        description: 'Owner completed local build/deploy/manual tests for this exact sanitized tag'
+        type: boolean
+        required: true
+        default: false
+      sanitized_source_confirmed:
+        description: 'History, source, assets and final security release gates reviewed and publication authorized'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: beta-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  gate:
+    if: inputs.manual_test_confirmed && inputs.sanitized_source_confirmed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: version
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const version=require('./package.json').version;
+          if(!/^\d+\.\d+\.\d+-beta\.\d+$/.test(version) || process.env.RELEASE_REF!=='refs/tags/v'+version || process.env.REPOSITORY!=='DietLedger/DietLedger' || !/^[a-f0-9]{40}$/.test(process.env.SOURCE_SHA)) throw new Error('Select the exact reviewed beta tag in the approved DietLedger registry namespace.');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${version}\n`);
+          NODE
+      - name: Require selected tag commit to be on repository default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEFAULT_BRANCH"
+          EXPECTED_REF="refs/tags/v$(node -p "require('./package.json').version")"
+          test "$RELEASE_REF" = "$EXPECTED_REF"
+          test "$(git rev-parse "$RELEASE_REF^{commit}")" = "$SOURCE_SHA"
+          git fetch --force --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/${DEFAULT_BRANCH}"
+  quality:
+    needs: gate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+  images:
+    needs: [gate, quality]
+    environment: beta-images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.2'
+      - name: Build and scan application images before publication
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_BEFORE="$(node -p "require('./package.json').version")"
+          test "$VERSION_BEFORE" = "$VERSION"
+          WEB="ghcr.io/dietledger/dietledger-web:$VERSION"
+          API="ghcr.io/dietledger/dietledger-api:$VERSION"
+          LABELS=(--label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$VERSION")
+          docker build --platform linux/amd64 --build-arg "BUILD_VERSION=$VERSION" --target runner "${LABELS[@]}" -t "$WEB" .
+          docker build --platform linux/amd64 --build-arg "BUILD_VERSION=$VERSION" "${LABELS[@]}" -t "$API" sync-server
+          for IMAGE in "$WEB" "$API"; do
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$IMAGE")" = "https://github.com/$GITHUB_REPOSITORY"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")" = "$VERSION"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$GITHUB_SHA"
+            docker save -o "$RUNNER_TEMP/image-scan.tar" "$IMAGE"
+            docker run --rm --volume "$RUNNER_TEMP/image-scan.tar:/scan.tar:ro" aquasecurity/trivy:0.69.3 image --input /scan.tar --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --no-progress
+            rm "$RUNNER_TEMP/image-scan.tar"
+          done
+          # Exercise the exact built/scanned packages, not a separately rebuilt tag.
+          # The verifier never pulls and refuses missing preloaded images.
+          docker pull postgres:17-alpine@sha256:e80acae3f1109e8e4533618b594918936f2858c63afc7204c4773148a673add8
+          DIETLEDGER_TEST_DOCKER_HOST=unix:///var/run/docker.sock \
+          DIETLEDGER_TEST_WEB_IMAGE="$WEB" DIETLEDGER_TEST_API_IMAGE="$API" \
+            node scripts/verify-compose-install.mjs
+          test "$(node -p "require('./package.json').version")" = "$VERSION_BEFORE"
+      - name: Publish scanned images and verify anonymous pulls
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="$(mktemp -d)"
+          ANON_CONFIG="$(mktemp -d)"
+          trap 'rm -rf "$DOCKER_CONFIG" "$ANON_CONFIG" "$RUNNER_TEMP/image-scan.tar"' EXIT
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          unset REGISTRY_TOKEN
+          WEB="ghcr.io/dietledger/dietledger-web:$VERSION"
+          API="ghcr.io/dietledger/dietledger-api:$VERSION"
+          WEB_ID="$(docker image inspect --format '{{.Id}}' "$WEB")"
+          API_ID="$(docker image inspect --format '{{.Id}}' "$API")"
+          docker push "$WEB"
+          docker push "$API"
+          digest_for() {
+            docker image inspect --format '{{json .RepoDigests}}' "$1" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const prefix=process.argv[1].split(":")[0]+"@";const refs=JSON.parse(s).filter(x=>x.startsWith(prefix));if(refs.length!==1||!/^sha256:[a-f0-9]{64}$/.test(refs[0].slice(prefix.length)))process.exit(1);console.log(refs[0].slice(prefix.length));});' "$1"
+          }
+          WEB_DIGEST="$(digest_for "$WEB")"
+          API_DIGEST="$(digest_for "$API")"
+          node scripts/release-manifest.cjs prepare "$VERSION" "$GITHUB_SHA" "$WEB_DIGEST" "$API_DIGEST"
+          # New packages default private. Never publish install assets until a clean,
+          # token-free Docker client can pull all exact public digests.
+          docker --config "$ANON_CONFIG" pull "ghcr.io/dietledger/dietledger-web@$WEB_DIGEST"
+          docker --config "$ANON_CONFIG" pull "ghcr.io/dietledger/dietledger-api@$API_DIGEST"
+          test "$(docker image inspect --format '{{.Id}}' "ghcr.io/dietledger/dietledger-web@$WEB_DIGEST")" = "$WEB_ID"
+          test "$(docker image inspect --format '{{.Id}}' "ghcr.io/dietledger/dietledger-api@$API_DIGEST")" = "$API_ID"
+          node scripts/release-manifest.cjs assets release-assets "$GITHUB_SHA"
+          # Install the generated release definition using the exact anonymously pulled digests.
+          DOCKER_CONFIG="$ANON_CONFIG" DIETLEDGER_TEST_DOCKER_HOST=unix:///var/run/docker.sock \
+          DIETLEDGER_TEST_COMPOSE_FILE="$PWD/release-assets/docker-compose.yml" \
+          DIETLEDGER_TEST_WEB_IMAGE="ghcr.io/dietledger/dietledger-web@$WEB_DIGEST" \
+          DIETLEDGER_TEST_API_IMAGE="ghcr.io/dietledger/dietledger-api@$API_DIGEST" \
+            node scripts/verify-compose-install.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: beta-public-assets
+          path: release-assets/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  release:
+    needs: [gate, images]
+    environment: beta-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: beta-public-assets
+          path: assets
+      - name: Publish checksummed beta metadata (no deployment)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          cd assets
+          sha256sum --check SHA256SUMS
+          node -e 'const m=require("./release.json"); if(m.status!=="candidate"||m.version!==process.env.VERSION||m.sourceCommit!==process.env.GITHUB_SHA) process.exit(1)'
+          gh release create "v$VERSION" --verify-tag --prerelease --title "DietLedger $VERSION" --notes 'Manually authorized beta. Compose files use immutable image digests. No deployment is performed by this workflow.' release.json .env.example docker-compose.yml docker-compose.portainer.yml SHA256SUMS

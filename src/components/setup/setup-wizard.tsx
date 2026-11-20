@@ -88,6 +88,7 @@ export function SetupWizard() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupClaim, setSetupClaim] = useState('');
 
   // Basics form
   const [unitSystem, setUnitSystem] = useState<'imperial' | 'metric'>('imperial');
@@ -237,6 +238,7 @@ export function SetupWizard() {
 
   const handleAccount = async () => {
     setError('');
+    if (!setupClaim.trim()) { setError('The installation setup claim is required.'); return false; }
     if (!displayName.trim() || !email.trim()) {
       setError('Name and email are required.');
       return false;
@@ -251,7 +253,8 @@ export function SetupWizard() {
     }
     setBusy(true);
     try {
-      await register(email, password, displayName);
+      await register(email, password, displayName, setupClaim);
+      setSetupClaim('');
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create account');
@@ -439,6 +442,9 @@ export function SetupWizard() {
             </Field>
             <Field label="Email">
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+            </Field>
+            <Field label="Installation setup claim">
+              <Input aria-label="Installation setup claim" type="password" value={setupClaim} onChange={(e) => setSetupClaim(e.target.value)} autoComplete="off" />
             </Field>
             <Field label="Password">
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" />

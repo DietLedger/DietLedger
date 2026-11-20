@@ -1,0 +1,30 @@
+title = "DietLedger secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed historical HMAC constructor unit-test literal only"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+paths = ['^sync-server/auth_test\.go$']
+regexes = ['^test-secret-that-is-long-enough-for-aes256$']
+
+# Reviewed deterministic test-only values. All default rules stay enabled.
+# AND is essential: neither a test path nor a fixture value is exempt by itself.
+[[allowlists]]
+description = "Exact synthetic migration/HMAC fixture in its two test helpers"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^sync-server/(runtime_roles_test|store_test_helper)\.go$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef$''']
+
+[[allowlists]]
+description = "Exact synthetic API role password in the runtime-role test only"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^sync-server/runtime_roles_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789$''']

@@ -1,0 +1,76 @@
+# Source uses an explicitly selected release version; release assets pin image digests.
+# No build, host API/database ports, socket mounts or migration credentials in API.
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:e80acae3f1109e8e4533618b594918936f2858c63afc7204c4773148a673add8
+    environment:
+      POSTGRES_DB: dietledger
+      POSTGRES_USER: dietledger_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?supply and preserve your PostgreSQL bootstrap password}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U dietledger_bootstrap -d dietledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  bootstrap:
+    image: ghcr.io/dietledger/dietledger-api:${DIETLEDGER_VERSION:?select a published release version}
+    command: [bootstrap]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://dietledger_bootstrap:${POSTGRES_PASSWORD:?required}@postgres:5432/dietledger?sslmode=disable
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?required}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:?required}
+    restart: "no"
+  migrate:
+    image: ghcr.io/dietledger/dietledger-api:${DIETLEDGER_VERSION:?select a published release version}
+    command: [migrate]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://dietledger_migrate:${MIGRATION_DB_PASSWORD:?required}@postgres:5432/dietledger?sslmode=disable
+    restart: "no"
+  api:
+    image: ghcr.io/dietledger/dietledger-api:${DIETLEDGER_VERSION:?select a published release version}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://dietledger_api:${API_DB_PASSWORD:?required}@postgres:5432/dietledger?sslmode=disable
+      HMAC_SECRET: ${HMAC_SECRET:?required}
+      SETUP_CLAIM_SECRET: ${SETUP_CLAIM_SECRET:?required}
+      AUTH_ALLOW_INSECURE_LOOPBACK: ${AUTH_ALLOW_INSECURE_LOOPBACK:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, http://localhost:8080/api/health]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  web:
+    image: ghcr.io/dietledger/dietledger-web:${DIETLEDGER_VERSION:?select a published release version}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      DOCKER: "1"
+      API_URL: http://api:8080
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, http://localhost:3000/]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+volumes:
+  pg-data:

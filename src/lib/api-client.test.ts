@@ -125,13 +125,10 @@ describe('proxy local-only guard', () => {
   it('proxies matched API routes regardless of NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY', async () => {
     process.env.NEXT_PUBLIC_DIETLEDGER_LOCAL_ONLY = 'true'
 
-    const { proxy } = await import('../proxy')
+    const { proxy } = await import('./api-proxy')
 
-    const request = {
-      nextUrl: new URL('http://localhost:3000/api/health'),
-      headers: new Headers(),
-      method: 'GET',
-    } as any
+    const { NextRequest } = await import('next/server')
+    const request = new NextRequest('http://localhost:3000/api/health')
 
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ status: 'ok' }), {
@@ -141,19 +138,17 @@ describe('proxy local-only guard', () => {
     )
     vi.stubGlobal('fetch', fetchSpy)
 
-    await proxy(request)
+    const response = await proxy(request)
+    await response.text()
 
     expect(fetchSpy).toHaveBeenCalled()
   })
 
   it('passes through non-API routes without proxying', async () => {
-    const { proxy } = await import('../proxy')
+    const { proxy } = await import('./api-proxy')
 
-    const request = {
-      nextUrl: new URL('http://localhost:3000/recipes'),
-      headers: new Headers(),
-      method: 'GET',
-    } as any
+    const { NextRequest } = await import('next/server')
+    const request = new NextRequest('http://localhost:3000/recipes')
 
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)

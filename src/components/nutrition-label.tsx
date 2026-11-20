@@ -2,8 +2,11 @@
 
 import React from 'react';
 import { fmt } from '@/lib/format';
+import { CustomNutritionNotice } from '@/components/recipe/custom-nutrition-editor';
 
 export interface NutritionData {
+  missingNutrients?: string[];
+  customNutrition?: import('@/lib/types').CustomRecipeNutrition | null;
   servings: number;
   calories: number;
   totalFat: number;
@@ -70,7 +73,7 @@ function isAllZero(data: NutritionData): boolean {
 }
 
 export default function NutritionLabel({ data, servingDescription, servingsPerContainer, highlightExceed = true }: NutritionLabelProps) {
-  if (isAllZero(data)) {
+  if (isAllZero(data) && !data.missingNutrients?.length && !data.customNutrition) {
     return (
       <div style={styles.container}>
         <p style={styles.emptyMessage}>Add ingredients to see nutrition facts</p>
@@ -111,7 +114,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Calories */}
       <div style={styles.caloriesRow}>
         <span style={{ fontWeight: 700, fontSize: 13 }}>Calories</span>
-        <span style={{ fontWeight: 900, fontSize: 24 }}>{fmt(data.calories)}</span>
+        <span style={{ fontWeight: 900, fontSize: 24 }}>{data.missingNutrients?.includes('calories') ? 'Not reported' : fmt(data.calories)}</span>
       </div>
 
       {/* Thick rule before %DV header */}
@@ -129,6 +132,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Total Fat */}
       <NutrientRow
         name="Total Fat"
+        missing={data.missingNutrients?.includes('totalFat')}
         value={data.totalFat}
         unit="g"
         dv={calcDV(data.totalFat, DV_REFERENCE.totalFat)}
@@ -140,6 +144,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Saturated Fat */}
       <NutrientRow
         name="Saturated Fat"
+        missing={data.missingNutrients?.includes('saturatedFat')}
         value={data.saturatedFat}
         unit="g"
         dv={calcDV(data.saturatedFat, DV_REFERENCE.saturatedFat)}
@@ -151,6 +156,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Trans Fat */}
       <NutrientRow
         name="Trans Fat"
+        missing={data.missingNutrients?.includes('transFat')}
         value={data.transFat}
         unit="g"
         indent
@@ -161,6 +167,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Cholesterol */}
       <NutrientRow
         name="Cholesterol"
+        missing={data.missingNutrients?.includes('cholesterol')}
         value={data.cholesterol}
         unit="mg"
         dv={calcDV(data.cholesterol, DV_REFERENCE.cholesterol)}
@@ -172,6 +179,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Sodium */}
       <NutrientRow
         name="Sodium"
+        missing={data.missingNutrients?.includes('sodium')}
         value={data.sodium}
         unit="mg"
         dv={calcDV(data.sodium, DV_REFERENCE.sodium)}
@@ -183,6 +191,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Total Carbohydrate */}
       <NutrientRow
         name="Total Carbohydrate"
+        missing={data.missingNutrients?.includes('totalCarbs')}
         value={data.totalCarbs}
         unit="g"
         dv={calcDV(data.totalCarbs, DV_REFERENCE.totalCarbs)}
@@ -194,6 +203,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Dietary Fiber */}
       <NutrientRow
         name="Dietary Fiber"
+        missing={data.missingNutrients?.includes('dietaryFiber')}
         value={data.dietaryFiber}
         unit="g"
         dv={calcDV(data.dietaryFiber, DV_REFERENCE.dietaryFiber)}
@@ -205,6 +215,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Total Sugars */}
       <NutrientRow
         name="Total Sugars"
+        missing={data.missingNutrients?.includes('totalSugars')}
         value={data.totalSugars}
         unit="g"
         indent
@@ -215,6 +226,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Added Sugars */}
       <NutrientRow
         name="Added Sugars"
+        missing={data.missingNutrients?.includes('addedSugars')}
         value={data.addedSugars}
         unit="g"
         dv={calcDV(data.addedSugars, DV_REFERENCE.addedSugars)}
@@ -226,6 +238,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Protein */}
       <NutrientRow
         name="Protein"
+        missing={data.missingNutrients?.includes('protein')}
         value={data.protein}
         unit="g"
         dv={calcDV(data.protein, DV_REFERENCE.protein)}
@@ -239,6 +252,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Vitamin D */}
       <NutrientRow
         name="Vitamin D"
+        missing={data.missingNutrients?.includes('vitaminD')}
         value={data.vitaminD}
         unit="mcg"
         dv={calcDV(data.vitaminD, DV_REFERENCE.vitaminD)}
@@ -249,6 +263,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Calcium */}
       <NutrientRow
         name="Calcium"
+        missing={data.missingNutrients?.includes('calcium')}
         value={data.calcium}
         unit="mg"
         dv={calcDV(data.calcium, DV_REFERENCE.calcium)}
@@ -259,6 +274,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Iron */}
       <NutrientRow
         name="Iron"
+        missing={data.missingNutrients?.includes('iron')}
         value={data.iron}
         unit="mg"
         dv={calcDV(data.iron, DV_REFERENCE.iron)}
@@ -269,6 +285,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Potassium */}
       <NutrientRow
         name="Potassium"
+        missing={data.missingNutrients?.includes('potassium')}
         value={data.potassium}
         unit="mg"
         dv={calcDV(data.potassium, DV_REFERENCE.potassium)}
@@ -278,6 +295,8 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
       {/* Thick rule before footnote */}
       <div style={styles.thickRule} />
 
+      <CustomNutritionNotice nutrition={data.customNutrition} />
+      {!data.customNutrition && !!data.missingNutrients?.length && <p style={styles.footnote}>Not reported: {data.missingNutrients.join(', ')}. Unknown, not measured zeros.</p>}
       {/* Footnote */}
       <div style={styles.footnote}>
         * Percent Daily Values are based on a 2,000 calorie diet. Your daily
@@ -349,6 +368,7 @@ export default function NutritionLabel({ data, servingDescription, servingsPerCo
 
 interface NutrientRowProps {
   name: string;
+  missing?: boolean;
   value: number;
   unit: string;
   dv?: number;
@@ -358,7 +378,8 @@ interface NutrientRowProps {
   highlightExceed?: boolean;
 }
 
-function NutrientRow({ name, value, unit, dv, bold, indent, noDV, highlightExceed }: NutrientRowProps) {
+function NutrientRow({ name, value, unit, dv, bold, indent, noDV, highlightExceed, missing }: NutrientRowProps) {
+  if (missing) return <div style={styles.nutrientRow}><span>{name}</span> <span>Not reported</span></div>;
   let highlightStyle: React.CSSProperties = {};
   if (highlightExceed && dv !== undefined && dv > 100) {
     highlightStyle = dv <= 125

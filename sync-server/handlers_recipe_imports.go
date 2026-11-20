@@ -64,7 +64,7 @@ func (s *Server) recipeImportsRouter(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrImportNotFound):
 			code = http.StatusNotFound
-		case errors.Is(err, ErrImportAccepted) || errors.As(err, &conflict):
+		case errors.Is(err, ErrImportAccepted) || errors.Is(err, ErrBookImportChanged) || errors.As(err, &conflict):
 			code = http.StatusConflict
 		case errors.Is(err, ErrExportForbidden):
 			code = http.StatusForbidden

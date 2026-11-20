@@ -63,12 +63,20 @@ const (
 	VisibilityPublic  = "public"
 )
 
-// normalizeVisibility returns a valid visibility tier, defaulting to public
-// when the supplied value is empty or unrecognized.
-func normalizeVisibility(v string) string {
+func validVisibility(v string) bool {
 	switch v {
 	case VisibilityPrivate, VisibilityUsers, VisibilityPublic:
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeVisibility is retained for legacy internal callers; unrecognized or
+// omitted visibility is private by default, never an implicit publication.
+func normalizeVisibility(v string) string {
+	if validVisibility(v) {
 		return v
 	}
-	return VisibilityPublic
+	return VisibilityPrivate
 }

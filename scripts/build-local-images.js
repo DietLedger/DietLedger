@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict';
+/* eslint-disable @typescript-eslint/no-require-imports -- Standalone CommonJS developer build helper. */
 
 const { spawnSync } = require('child_process');
 const path = require('path');
@@ -77,8 +78,8 @@ function main() {
   console.log('  mode: build/load local Docker daemon only (no remote deploy)');
   console.log('');
 
-  // Build/load-only for Portainer: buildx --load installs both compose images
-  // into the local Docker daemon. Do not add ssh/scp/deploy/deploy.sh here.
+  // Build/load only the web and API application images. Do not add
+  // ssh/scp/deploy/deploy.sh or remote deployment commands here.
   run('docker', [
     'buildx',
     'bake',

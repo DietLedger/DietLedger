@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useTemplate, useUpdateTemplate, useDeleteTemplate } from '@/hooks/use-templates';
+import { useTemplate, useUpdateTemplate, useDeleteTemplate, useDuplicateTemplate } from '@/hooks/use-templates';
+import { useAuth } from '@/hooks/use-auth';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,10 +16,12 @@ import type { TemplateRecord } from '@/lib/types';
 export default function EditTemplatePage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const id = params.id as string;
   const { data: template, isLoading } = useTemplate(id);
   const updateMutation = useUpdateTemplate();
   const deleteMutation = useDeleteTemplate();
+  const duplicateMutation = useDuplicateTemplate();
   const [draft, setDraft] = useState<TemplateRecord | null>(null);
 
   useSetBreadcrumbLabel('/settings/templates', 'Templates');
@@ -28,7 +31,7 @@ export default function EditTemplatePage() {
   }, [template]);
 
   const handleSave = async () => {
-    if (!draft) return;
+    if (!draft || !template || (template.isDefault && !user?.isAdmin)) return;
     await updateMutation.mutateAsync({
       id: draft.id,
       data: { name: draft.name, layout: draft.layout },
@@ -37,7 +40,7 @@ export default function EditTemplatePage() {
   };
 
   const handleDelete = async () => {
-    if (!draft) return;
+    if (!draft || !template || (template.isDefault && !user?.isAdmin)) return;
     await deleteMutation.mutateAsync(draft.id);
     router.push('/settings/templates');
   };
@@ -57,6 +60,19 @@ export default function EditTemplatePage() {
         <Button variant="outline" size="sm" onClick={() => router.push('/settings/templates')}>
           Back to Templates
         </Button>
+      </div>
+    );
+  }
+
+  if (template.isDefault && !user?.isAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
+        <p className="mb-4">Default templates are read-only. Make a copy to edit your own version.</p>
+        <Button onClick={async () => {
+          const copy = await duplicateMutation.mutateAsync(template.id);
+          router.push(`/settings/templates/${copy.id}`);
+        }} disabled={duplicateMutation.isPending}>Make a copy</Button>
       </div>
     );
   }

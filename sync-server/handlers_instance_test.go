@@ -15,7 +15,7 @@ import (
 // testStore/testEnv integration pattern as the rest of the package and require
 // TEST_DATABASE_URL (each test drops and re-creates the public schema).
 //
-// Contract source: plans/onboarding-wizard.md
+// Contract source: docs/plans/onboarding-wizard.md
 //   - GET  /api/instance/state                 — public
 //   - POST /api/instance/onboarding/complete    — admin-only
 //   - PUT/PATCH /api/instance/registration      — admin-only
@@ -31,7 +31,7 @@ func newBareServer(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("new auth: %v", err)
 	}
-	server := NewServer(store, auth, "*", 10, NewRateLimiter())
+	server := NewServer(store, auth, "https://app.example", 10, NewRateLimiter())
 	return &testEnv{store: store, auth: auth, server: server}
 }
 
@@ -55,6 +55,7 @@ func (e *testEnv) requestWith(t *testing.T, token, method, path string, body int
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://app.example")
 	w := httptest.NewRecorder()
 	e.server.Routes().ServeHTTP(w, req)
 	return w
@@ -135,7 +136,7 @@ func TestRegisterFirstUserAllowedWhenDisabled(t *testing.T) {
 	}
 
 	w := env.doRequestNoAuth("POST", "/api/auth/register", RegisterRequest{
-		Email: "first@example.com", Password: "Password123", DisplayName: "First Admin",
+		Email: "first@example.com", Password: "Password123", DisplayName: "First Admin", SetupClaim: securityClaim,
 	})
 	if w.Code != 201 {
 		t.Fatalf("first-user register status = %d, want 201, body = %s", w.Code, w.Body.String())

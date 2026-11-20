@@ -183,4 +183,26 @@ describe('App Shell Smoke Test', () => {
     })
     expect(container.innerHTML).toBe('')
   })
+
+  it('provides breadcrumb context to anonymous public recipe pages', async () => {
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
+      usePathname: () => '/share/published-recipe',
+      useSearchParams: () => new URLSearchParams(),
+    }))
+    vi.doMock('@/hooks/use-auth', () => ({
+      useAuth: () => ({ user: null, isLoading: false, isAuthenticated: false }),
+      AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    }))
+    const { default: AppLayout } = await import('@/app/(app)/layout')
+    const { useBreadcrumbLabels, useSetBreadcrumbLabel } = await import('@/components/breadcrumb-context')
+    function PublicRecipe() {
+      useSetBreadcrumbLabel('/share/published-recipe', 'Published chicken')
+      const { dynamicLabels } = useBreadcrumbLabels()
+      return <div>{dynamicLabels['/share/published-recipe']}</div>
+    }
+    render(wrapWithQueryClient(<AppLayout><PublicRecipe /></AppLayout>))
+    expect(await screen.findByText('Published chicken')).toBeInTheDocument()
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
 })

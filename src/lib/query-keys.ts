@@ -14,6 +14,8 @@ export const queryKeys = {
     all: ['dietary-profiles'] as const,
     lists: () => [...queryKeys.dietary.all, 'list'] as const,
     detail: (id: string) => [...queryKeys.dietary.all, 'detail', id] as const,
+    // Recipe mutations already invalidate this prefix, even if list refetch fails.
+    recipeAssessments: () => [...queryKeys.recipes.lists(), 'dietary-assessments'] as const,
     allergenRules: (profileId: string) => [...queryKeys.dietary.all, 'allergen-rules', profileId] as const,
   },
   nutrition: {

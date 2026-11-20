@@ -32,7 +32,8 @@ import type {
 import { getApiClient } from '@/lib/api-client';
 import { searchFDAFoods, type FDASearchResult } from '@/lib/fda-client';
 import { hasMeaningfulNutrition } from '@/lib/food-eligibility';
-import { convertToGrams } from '@/lib/recipe-types';
+import { convertToGrams, recipeMissingNutrients, recipeNutrition as authoritativeNutrition } from '@/lib/recipe-types';
+import { CustomNutritionNotice } from '@/components/recipe/custom-nutrition-editor';
 import { Search, Loader2, Store, Apple, PenLine, Salad } from 'lucide-react';
 
 const MEAL_OPTIONS: { value: MealSlot; label: string }[] = [
@@ -133,7 +134,7 @@ export function AddFoodLogDialog({
 
   const [recipes, setRecipes] = useState<RecipeRecord[]>([]);
   const [customFoods, setCustomFoods] = useState<CustomFoodRecord[]>([]);
-  const [selectedItem, setSelectedItem] = useState<{ id: string; name: string; type: FoodSourceType; nutrition: Record<string, number> } | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ id: string; name: string; type: FoodSourceType; nutrition: Record<string, number>; missingNutrients?: string[]; customNutrition?: import('@/lib/types').CustomRecipeNutrition | null } | null>(null);
 
   const [fdaResults, setFdaResults] = useState<FDASearchResult[]>([]);
   const [fdaSearching, setFdaSearching] = useState(false);
@@ -210,19 +211,7 @@ export function AddFoodLogDialog({
     return () => clearTimeout(timer);
   }, [searchQuery, tab]);
 
-  const recipeNutrition = useCallback((recipe: RecipeRecord): Record<string, number> => {
-    const totals: Record<string, number> = {};
-    for (const f of NUTRIENT_FIELDS) totals[f.key] = 0;
-    for (const ing of recipe.ingredients ?? []) {
-      for (const f of NUTRIENT_FIELDS) {
-        totals[f.key] += ing[f.key] ?? 0;
-      }
-    }
-    if (recipe.servings > 0) {
-      for (const f of NUTRIENT_FIELDS) totals[f.key] /= recipe.servings;
-    }
-    return totals;
-  }, []);
+  const recipeNutrition = useCallback((recipe: RecipeRecord): Record<string, number> => authoritativeNutrition(recipe, 1 / (recipe.servings || 1)), []);
 
   const filteredRecipes = useMemo(() => {
     if (!searchQuery) return recipes;
@@ -240,7 +229,7 @@ export function AddFoodLogDialog({
     const full = await getApiClient().getRecipe(recipe.id);
     const r = full ?? recipe;
     const perServing = recipeNutrition(r);
-    setSelectedItem({ id: r.id, name: r.name, type: 'recipe', nutrition: perServing });
+    setSelectedItem({ id: r.id, name: r.name, type: 'recipe', nutrition: perServing, missingNutrients: recipeMissingNutrients(r), customNutrition: r.customNutrition });
     setName(r.name);
     const n: Record<string, string> = {};
     for (const f of NUTRIENT_FIELDS) n[f.key] = perServing[f.key]?.toFixed(2) ?? '0';
@@ -418,6 +407,8 @@ export function AddFoodLogDialog({
           </div>
         </div>
 
+        <CustomNutritionNotice nutrition={selectedItem?.customNutrition} />
+        {!selectedItem?.customNutrition && !!selectedItem?.missingNutrients?.length && <p className="text-xs">Not reported: {selectedItem.missingNutrients.join(', ')}. Unknown, not measured zeros.</p>}
         {!editEntry && (
           <Tabs value={tab} onValueChange={handleTabChange}>
             <TabsList className="w-full grid grid-cols-4">
@@ -625,7 +616,7 @@ export function AddFoodLogDialog({
         <div className="flex items-center gap-3 mt-2">
           <div className="flex-1">
             <Label className="text-xs">Servings</Label>
-            <Input type="number" step="0.5" min="0.25" value={servings} onChange={(e) => setServings(e.target.value)} className="h-8 w-20 text-sm" />
+            <Input aria-label="Servings" type="number" step="0.5" min="0.25" value={servings} onChange={(e) => setServings(e.target.value)} className="h-8 w-20 text-sm" />
           </div>
           <div className="text-right text-sm text-muted-foreground pt-4">
             Total: {Math.round((parseFloat(nutrients.calories) || 0) * (parseFloat(servings) || 1))} kcal

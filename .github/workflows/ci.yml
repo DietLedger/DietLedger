@@ -1,0 +1,98 @@
+name: Read-only quality checks
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # Official tag refs resolved via api.github.com/repos/actions/*/git/ref/tags, 2026-11-19.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: node --test eslint.config.test.mjs scripts/compose-install.test.cjs scripts/runtime-image-contract.test.cjs scripts/release-manifest.test.cjs
+      - run: npx tsc --noEmit
+      - run: npm test
+      - name: Build web without changing the reviewed package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_BEFORE="$(node -p "require('./package.json').version")"
+          npm run build:web
+          VERSION_AFTER="$(node -p "require('./package.json').version")"
+          test "$VERSION_BEFORE" = "$VERSION_AFTER"
+      - run: npm audit --audit-level=low
+      - run: npm audit --omit=dev --audit-level=low
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:e80acae3f1109e8e4533618b594918936f2858c63afc7204c4773148a673add8
+        env:
+          POSTGRES_USER: tester
+          POSTGRES_DB: dietledger_ci
+          # Synthetic runner-local test credential, never used by installation.
+          POSTGRES_PASSWORD: ci-only-disposable-database-credential
+        ports:
+          - 127.0.0.1:5432:5432
+        options: --health-cmd "pg_isready -U tester -d dietledger_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: sync-server/go.sum
+      - run: go mod verify
+        working-directory: sync-server
+      - run: go vet ./...
+        working-directory: sync-server
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+        working-directory: sync-server
+      - run: go test -p 1 ./... -count=1
+        working-directory: sync-server
+        env:
+          TEST_DATABASE_URL: postgres://tester:ci-only-disposable-database-credential@127.0.0.1:5432/dietledger_ci?sslmode=disable
+  source-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      # Full local refs plus explicit remote branch/tag refspecs make --all cover every retained source ref.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all retained branch and tag refs
+        run: git fetch --force --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.4'
+      - name: Install the reviewed Gitleaks release
+        # v8.30.0's go.mod still declares the original upstream module path.
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.2'
+      - name: Verify fixture exceptions with the installed scanner
+        run: GITLEAKS_BIN="$(go env GOPATH)/bin/gitleaks" node --test scripts/release-gitleaks.test.cjs
+      - name: Scan all retained git history (redacted)
+        run: '"$(go env GOPATH)/bin/gitleaks" git --log-opts=--all --redact --exit-code 1 .'
+      - name: Scan checked-out source (redacted)
+        run: '"$(go env GOPATH)/bin/gitleaks" dir --redact --exit-code 1 .'

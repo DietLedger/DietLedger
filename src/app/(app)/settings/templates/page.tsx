@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
 import { useTemplates, useDeleteTemplate, useDuplicateTemplate } from '@/hooks/use-templates';
 import { useSetBreadcrumbLabel } from '@/components/breadcrumb-context';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,7 @@ function typeBadgeColor(type: TemplateRecord['type']) {
 
 export default function TemplatesPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const { data: templates = [] } = useTemplates();
   const deleteMutation = useDeleteTemplate();
   const duplicateMutation = useDuplicateTemplate();
@@ -55,6 +57,8 @@ export default function TemplatesPage() {
   const filtered = templates.filter((t) => t.type === activeTab);
 
   const handleEdit = (id: string) => {
+    const template = templates.find(item => item.id === id);
+    if (!template || (template.isDefault && !user?.isAdmin)) return;
     router.push(`/settings/templates/${id}`);
   };
 
@@ -64,7 +68,7 @@ export default function TemplatesPage() {
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || (deleteTarget.isDefault && !user?.isAdmin)) return;
     await deleteMutation.mutateAsync(deleteTarget.id);
     setDeleteTarget(null);
   };
@@ -137,30 +141,37 @@ export default function TemplatesPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
+                          {(!template.isDefault || user?.isAdmin) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              aria-label={`Edit ${template.name}`}
+                              onClick={() => handleEdit(template.id)}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0"
-                            onClick={() => handleEdit(template.id)}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0"
+                            aria-label={`Copy ${template.name}`}
                             onClick={() => handleDuplicate(template.id)}
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            onClick={() => setDeleteTarget(template)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          {(!template.isDefault || user?.isAdmin) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                              aria-label={`Delete ${template.name}`}
+                              onClick={() => setDeleteTarget(template)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                       <div className="text-xs text-stone-400 mt-2">

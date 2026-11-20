@@ -1,0 +1,54 @@
+# Authoritative custom recipe nutrition
+
+## Authorization and objective
+User explicitly authorized implementation without further approval: recipes with published nutrition must feed official DietLedger nutrition, remain usable as ingredients in other recipes, and need no individual ingredient matches. Deliver the first two recipes from `recipe_meals_pdfs/Delicously Healthy Family Meals.pdf` as a native bundle.
+
+## Design and contract
+- Reuse recipes, ingredients, ownership, portable identities and linked-recipe references. Add a one-to-one `custom_recipe_nutrition` table with recipe FK/ON DELETE CASCADE rather than duplicate the recipe domain.
+- API and bundle recipes optionally carry `customNutrition: { basis: "recipeTotal", nutrients: <canonical 15 nutrient numbers>, source: string, sourceLabel?: string, missingNutrients?: string[] }`. Nutrients are **whole original recipe totals**, never per-100g or per-serving values. Explicit basis prevents ambiguity. Validate finite/nonnegative bounded nutrients, basis, missing nutrient names and source.
+- Optional recipe `description` is distinct from cooking steps and survives API, staging, sharing and native transfer.
+- Published custom totals are authoritative: do not sum ingredient nutrition into them. Whole-recipe totals divided by recipe servings provide one serving; a linked recipe uses the existing whole-recipe multiplier. Editing ingredients does not silently replace custom facts. Changing yield redistributes fixed totals; scaling a recipe scales totals too.
+- Custom recipes do not require individual food links to promote from staging. Their ingredient rows are descriptive source content, not zero-nutrition consent and not fabricated food matches. Regular recipes keep existing readiness rules. Parent dependencies must use custom totals, including after repair.
+- Ingredient snapshots and bundle ingredients optionally carry validated `missingNutrients: string[]`, persisted as `ingredients.missing_nutrients` JSONB. Linking a custom child copies its missing keys; ordinary parent uncertainty is the union of ingredient missing keys, recursively preserved in linked snapshots and labels. Do not turn a child's unknown nutrient into a parent's measured zero. Custom recipe facts remain authoritative over ingredient uncertainty.
+- Existing recipes without custom nutrition retain existing behavior. Historical food-log snapshots remain immutable. Log updates must authorize the authenticated owner/profile/entry and must not rebase historical nutrient facts for metadata-only edits.
+- Custom recipe readiness may waive food matches, but must preserve dependency ordering and actual child links. Evaluated snapshots must be used in v4 pending-import restoration too. Validate all derived/scaled numeric snapshots before persistence so backups remain restorable.
+- Native bundles with custom nutrition/description use version **4** so old readers reject instead of silently losing facts. Current readers accept 1/2/3/4; pending-import rules remain supported in v4. Ordinary exports without these fields retain existing v2/v3 behavior. Include metadata in hashing/identity comparisons and backup validation.
+- UI supports viewing/editing custom nutrition and source, displays source/missing-value notice, and uses authoritative totals in nutrition labels, selection, logs, meal plans, sharing and PDF. Missing nutrients are not claimed as measured zero; original label text is retained. No extra nutrition ingredient/custom-food surrogate.
+
+## PDF acceptance criteria
+1. Only Crunchy Chicken Fingers with Tangy Dipping Sauce (printed p3, PDF p19) and Baked Pork Chops with Apple Cranberry Sauce (p4/PDF p20), in order.
+2. Yield 4 servings each. Serving labels exactly identify `3 chicken strips, ¼ cup sauce` and `1 pork chop, ¼ cup sauce, 2 orange segments`.
+3. Preserve both ingredient groups, all ingredients, alternatives, preparation details and eight cooking steps each; no individual USDA/custom-food links.
+4. Prep 10 minutes each, cook 12/30 minutes in existing fields. Preserve introductory descriptions and red Chefs in Training/Healthy Eating Two Ways callouts in description.
+5. Use printed per-serving nutrition multiplied by four for custom totals. Preserve original %DV values/unsupported vitamins in sourceLabel/description. Unreported nutrients remain explicitly marked missing; do not fabricate grams or nutrient values. Convert %DV only with a verified source-era reference and disclose reference/rounding.
+6. Import, export, backup, recipe-as-ingredient and food logging retain supplied facts without double counting or quarantine.
+
+## Plan and ownership
+1. Backend slice: migrations, model/validation, atomic create/update/read, authoritative totals, staging and versioned native round trips. Focused failing tests first, then integration checks against a disposable PostgreSQL database.
+2. Frontend slice (parallel against contract): types, conversions, shared authoritative nutrition helper, all recipe consumers, minimal custom-nutrition editor/description. Focused failing tests first, then Vitest/typecheck.
+3. Artifact slice: transcribe PDF and compare page renders; generate bundle and provenance README. Validate with native Go validation/import tests and exact printed nutrition assertions.
+4. Integration/review: full relevant Go/Vitest suites, TypeScript and lint/build checks where available. Update architecture, decisions, domain, project and API docs. Never deploy/restart without a request.
+
+## Commands and conventions
+- Backend: `cd sync-server && go test ./...` (integration tests need isolated `TEST_DATABASE_URL`; helpers destroy public schema).
+- Frontend: `npx vitest run`; `npx tsc --noEmit`; focused ESLint via `npx eslint <changed files>`.
+- Use existing Go structs, parameterized SQL, migration up/down pairs, React Query state and explicit TypeScript types. No new dependency.
+- Always preserve unrelated dirty files; never use production DB for tests, invent ingredient nutrition, deploy implicitly or rewrite historical logs.
+
+## Runtime integration correction
+Real-browser verification exposed an existing public-share crash: the anonymous app-layout branch omitted `BreadcrumbProvider` although the shared recipe page registers a breadcrumb. Provide the same context in that public branch, with a focused regression; otherwise authoritative custom recipes cannot be viewed anonymously through the existing public sharing workflow. Keep auth/onboarding routing unchanged.
+
+## Verification evidence
+- Artifact: `recipe_meals_pdfs/deliciously-healthy-family-meals-first-two.recipe-bundle.json`; accompanying provenance README and standard-library verification script.
+- `python recipe_meals_pdfs/verify-family-meals-bundle.py`: 5/5 checks pass, including all 23 ingredient quantities/groups, source order, yield/serving/time, printed nutrients and red callouts.
+- Independent read-only visual review of rendered PDF pages 19–20 found no transcription discrepancies. Source date verified as December 2010, NIH Publication No. 10-7531. Calcium/iron conversions verified against FDA's historical DV table; original rounded percentages retained.
+- Final frontend verification: `npx vitest run` reports **46 files / 317 tests passed** (`/tmp/dietledger-custom-final-vitest.log`). `npx tsc --noEmit --incremental false` passes. ESLint across 31 feature-owned files passes without warnings; layout files checked separately after the runtime correction. `git diff --check` passes.
+- Runtime public-layout regression: focused test first failed with `useBreadcrumbLabels must be used within BreadcrumbProvider`; after adding context to the anonymous branch, all 5 layout tests pass.
+- `NEXT_TELEMETRY_DISABLED=1 API_URL=http://127.0.0.1:18081 npm run build:web`: production build passes (Next 16.2.6, webpack). Separate typecheck is required because the repository config skips build-time type errors; it passed.
+- Final Go/PostgreSQL 17.12 suite: `TEST_DATABASE_URL=<isolated disposable database> go test -json -count=1 ./...` passes **255 top-level tests + 166 subtests**, **0 failures and 0 skips**, in 56.583s. Evidence: `/tmp/custom-nutrition-pg17-final.json`. Backend `go vet` and build pass. Focused tests cover strict validation, CRUD/atomic rollback/cascade, source/description/unknown metadata, child/grandparent fractions, logs/history/ownership, readiness, dependency order, derived bounds, v4 pending restore/backup/retry/conflicts and the actual PDF artifact public import/export journey.
+- Final current-code real HTTP smoke on the separate disposable browser database passes: artifact v4 import immediately promotes both recipes without food links, 13+10 ingredient rows, official totals/yield/callouts retained, v4 owner backup and duplicate retry succeed, and a tampered half-recipe ingredient is corrected to 496 kcal.
+- Production-build browser smoke (headless Vivaldi via CDP) passes: public share displays published 248 kcal/serving plus source/unknown notices and red-callout description; authenticated library shows 992/928 whole totals; source edited through the real UI survives reload; half-recipe parent shows 496 total and inherited unknown nutrients. **0 JavaScript exceptions and 0 HTTP >=400 responses** in the final run. Temporary evidence: `/tmp/dietledger-custom-browser-report.json`. No live account data is involved.
+- Host Docker/containerd became unavailable during later verification (direct PostgreSQL reported read-only filesystem; containerd socket refused). No host service restart was performed. Built a SHA256-verified official PostgreSQL 17.12 source fixture entirely under `/tmp`, bound only to loopback, with separate destructive-suite and browser databases. Both final integration checks used that fixture; no production database was reset.
+- Independent final bounded review found no remaining important/critical issues; all five earlier findings (log ownership, custom dependency order, evaluated pending-restore snapshots, derived numeric bounds and nested missing-value propagation) have focused regressions. Reviewer independently reran 20 frontend and three non-DB Go tests.
+- Temporary API, Next server, browser and local PostgreSQL fixture were stopped; temporary local PostgreSQL binaries/source were removed. Removing the earlier task-owned Docker fixtures (`dietledger-custom-ui-1794851965`, `dietledger-custom-nutrition-1794851064`) failed because the host container runtime could not deliver an exit event. No host daemon was restarted to force cleanup; these fixtures can be removed after the local Docker/containerd fault is repaired.
+- No deployment or live-account import is requested/performed. This v4 artifact requires the updated application; a local build alone does not update the remote Docker services.

@@ -1,0 +1,15 @@
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.sqlite
+*.sqlite3
+*.exe
+dietledger-sync
+dietledger-api
+dist
+.git
+.codegraph

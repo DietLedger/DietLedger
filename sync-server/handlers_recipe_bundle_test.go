@@ -79,6 +79,17 @@ func TestRecipeBundleCandidatesRespectExportEligibility(t *testing.T) {
 	if seen["book:"+adminBookID] || seen["nutritionProfile:"+adminProfileID] || seen["mealPlan:"+adminMealPlanID] {
 		t.Fatalf("non-admin should not see another user's private book, profile, or meal plan")
 	}
+	// Administrator status is not a private-data export capability either.
+	w = env.doRequest("GET", "/api/recipe-bundles/candidates", nil)
+	securityStatus(t, w, 200)
+	for _, privateID := range []string{ownRecipeID, ownProfileID, ownMealPlanID} {
+		if bytes.Contains(w.Body.Bytes(), []byte(privateID)) {
+			t.Fatalf("admin candidate enumeration exposed private ID %s", privateID)
+		}
+	}
+	for field, ids := range map[string][]string{"recipeIds": {ownRecipeID}, "profileIds": {ownProfileID}, "mealPlanIds": {ownMealPlanID}} {
+		securityStatus(t, env.doRequest("POST", "/api/recipe-bundles/export", map[string]interface{}{field: ids}), 403)
+	}
 }
 
 func TestRecipeBundleExportAuthorization(t *testing.T) {

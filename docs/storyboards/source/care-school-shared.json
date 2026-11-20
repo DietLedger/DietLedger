@@ -1,0 +1,222 @@
+[
+  {
+    "id": "O1",
+    "route": "shared",
+    "title": "The invitation",
+    "headline": "The next chapter starts at your table.",
+    "composition": "Sketch the DietLedger logo above a copper-outlined table, with three warm pools of light suggesting personal, family, and care journeys.",
+    "demo": "none",
+    "cta": "For myself · For my family · For people in my care",
+    "motion_name": "Three lights",
+    "duration": "600 ms",
+    "implementation": "Use SVG stroke-dashoffset for the table and CSS transforms for the three light pools.",
+    "reduced_motion": "Show the completed table and three distinct, labeled choices without movement.",
+    "guardrail": "Keep all choices and setup navigation immediately usable without collecting health details.",
+    "frames": [
+      {"label": "Identity", "action": "Place the existing DietLedger logo in an emerald field."},
+      {"label": "Table", "action": "Trace a copper line into a shared table outline."},
+      {"label": "Lights", "action": "Form three pools of light around the table."},
+      {"label": "Doors", "action": "Resolve the pools into personal, family, and care choices."}
+    ]
+  },
+  {
+    "id": "G1",
+    "route": "shared",
+    "title": "Beyond your own table",
+    "headline": "A good meal is an everyday act of care.",
+    "composition": "Sketch a copper line bridging a school lunch table and a welcoming adult care table, each leading to its own labeled doorway.",
+    "demo": "none",
+    "cta": "Nourish the next generation · Bring care to the table",
+    "motion_name": "Care branches",
+    "duration": "600 ms",
+    "implementation": "Animate an SVG path drawing from the shared table into two separately labeled spaces.",
+    "reduced_motion": "Show both labeled spaces and their connecting line together as a static illustration.",
+    "guardrail": "Distinguish school from older-adult and illness care without implying connected records or institutional surveillance.",
+    "frames": [
+      {"label": "Shared table", "action": "Extend the copper line beyond the opening table."},
+      {"label": "School", "action": "Branch toward a school lunch table and colorful ingredients."},
+      {"label": "Care", "action": "Branch toward a welcoming table for older people and people living with illness."},
+      {"label": "Choose", "action": "Present the two labeled paths side by side."}
+    ]
+  },
+  {
+    "id": "S1",
+    "route": "schools",
+    "title": "The possibility",
+    "headline": "What if lunch were something to look forward to?",
+    "composition": "Sketch an imagined school-day timeline opening onto a colorful lunch table with appealing ingredients and room for individual tastes.",
+    "demo": "none",
+    "cta": "Start behind the meal",
+    "motion_name": "Lunch in the day",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms and SVG path drawing to expand the lunch point into an illustrated table.",
+    "reduced_motion": "Show the full timeline and lunch table together with the lunch point labeled.",
+    "guardrail": "Present an aspiration, not a customer success story or evidence of student outcomes.",
+    "frames": [
+      {"label": "Morning", "action": "Sketch a school-day line with lesson markers."},
+      {"label": "Lunch", "action": "Pause the line at a clearly marked lunch interval."},
+      {"label": "Table", "action": "Open the lunch marker into a shared table."},
+      {"label": "Possibility", "action": "Arrange varied, colorful ingredients across the table."}
+    ]
+  },
+  {
+    "id": "S2",
+    "route": "schools",
+    "title": "Ingredients of a plan",
+    "headline": "Put the recipe and the nutrition in the same conversation.",
+    "composition": "Sketch ingredients beside a conceptual recipe card, servings, nutrient details, and a visible missing-data note.",
+    "demo": "D2",
+    "cta": "Give the menu some shape",
+    "motion_name": "Recipe conversation",
+    "duration": "700 ms",
+    "implementation": "Move SVG ingredient icons with CSS transforms and reveal labeled conceptual detail panels using CSS.",
+    "reduced_motion": "Show ingredients, serving information, nutrient details, and the missing-data note together.",
+    "guardrail": "This conceptual placeholder is not product proof; show source and missing-nutrient notices, never school-standard approval.",
+    "frames": [
+      {"label": "Ingredients", "action": "Gather illustrated ingredients beside a recipe card."},
+      {"label": "Recipe", "action": "Unfold the card to show ingredients and servings."},
+      {"label": "Nutrition", "action": "Place per-serving nutrient details beside the recipe."},
+      {"label": "Caveat", "action": "Attach source and missing-nutrient notes to the details."}
+    ]
+  },
+  {
+    "id": "S3",
+    "route": "schools",
+    "title": "From idea to preparation",
+    "headline": "Connect the menu to what needs preparing.",
+    "composition": "Sketch a small menu, modest serving markers, and an ingredient list beside an ordinary preparation surface.",
+    "demo": "D3",
+    "cta": "Begin with a pilot",
+    "motion_name": "Menu to counter",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms to place SVG recipe cards on a plan and draw ingredient lines toward a list.",
+    "reduced_motion": "Show the plan, serving markers, and ingredient list side by side with their connection labeled.",
+    "guardrail": "This conceptual placeholder is not product proof; independently evaluate quantities and kitchen suitability without implying institutional scaling or ordering.",
+    "frames": [
+      {"label": "Menu", "action": "Place two sample recipe cards onto a short menu."},
+      {"label": "Servings", "action": "Add modest planned-serving markers to each card."},
+      {"label": "Ingredients", "action": "Draw ingredient lines from the menu into a combined list."},
+      {"label": "Review", "action": "Set the list beside a preparation surface and suitability reminder."}
+    ]
+  },
+  {
+    "id": "S4",
+    "route": "schools",
+    "title": "A future worth trying",
+    "headline": "Tomorrow's lunch starts with what we try today.",
+    "composition": "Sketch a school table receding into a small fictional-data pilot workspace with a visible independent-review boundary.",
+    "demo": "none",
+    "cta": "Plan a school-meal pilot",
+    "motion_name": "Small school pilot",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms to scale the illustrated table into an SVG pilot-workspace frame.",
+    "reduced_motion": "Show the fictional-data pilot workspace and its independent-review boundary alongside the school table.",
+    "guardrail": "Label this beta pilot and require independent checks of standards, food safety, allergies, quantities, and operational suitability; do not imply compliance.",
+    "frames": [
+      {"label": "Table", "action": "Gather the imagined school lunch table into view."},
+      {"label": "Sample", "action": "Place a few fictional recipe cards and a sample week on it."},
+      {"label": "Review", "action": "Add an independent kitchen and nutrition review reminder."},
+      {"label": "Pilot", "action": "Frame the sample materials inside a fictional-data pilot workspace."}
+    ]
+  },
+  {
+    "id": "C1",
+    "route": "care",
+    "title": "The person first",
+    "headline": "There's a person behind every meal.",
+    "composition": "Sketch a dignified adult place setting surrounded by favorite flavors, familiar ingredients, and handwritten recipe notes.",
+    "demo": "none",
+    "cta": "Give the details room",
+    "motion_name": "A familiar setting",
+    "duration": "600 ms",
+    "implementation": "Use CSS transforms to arrange SVG ingredient and note illustrations around a stationary place setting.",
+    "reduced_motion": "Show the complete place setting, ingredients, and notes in a calm static composition.",
+    "guardrail": "Represent adult dignity and individual preferences without medical charts, inferred diagnoses, or rescue imagery.",
+    "frames": [
+      {"label": "Place", "action": "Set an ordinary plate and utensils at the table."},
+      {"label": "Familiar", "action": "Bring familiar ingredients beside the plate."},
+      {"label": "Preferences", "action": "Open a handwritten note of favorite flavors."},
+      {"label": "Person", "action": "Arrange the notes and ingredients around the personal place setting."}
+    ]
+  },
+  {
+    "id": "C2",
+    "route": "care",
+    "title": "Make information visible",
+    "headline": "Give care more context.",
+    "composition": "Sketch a recipe surrounded by readable ingredients, nutrient details, and source and missing-information notes.",
+    "demo": "D2",
+    "cta": "Turn attention into a plan",
+    "motion_name": "Context around a recipe",
+    "duration": "700 ms",
+    "implementation": "Use CSS grid and transforms to arrange SVG conceptual information cards around a recipe illustration.",
+    "reduced_motion": "Show the recipe and all information notes together in a readable static arrangement.",
+    "guardrail": "This conceptual placeholder is not product proof or clinical advice; do not imply therapeutic approval or patient-specific prescriptions.",
+    "frames": [
+      {"label": "Recipe", "action": "Center a sample recipe on the table."},
+      {"label": "Ingredients", "action": "Unfold its ingredient list beside the recipe."},
+      {"label": "Details", "action": "Arrange available nutrient details in a separate panel."},
+      {"label": "Limits", "action": "Place source and missing-information notes alongside the nutrient details."}
+    ]
+  },
+  {
+    "id": "C3",
+    "route": "care",
+    "title": "Practical preparation",
+    "headline": "Bring the next few meals into view.",
+    "composition": "Sketch a few recipe cards settling onto a short meal plan, connected to a simple ingredient list.",
+    "demo": "D3",
+    "cta": "Create room for thoughtful care",
+    "motion_name": "Meals into view",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms to place SVG recipe cards on a plan and draw connecting ingredient lines to a list.",
+    "reduced_motion": "Show the short meal plan and connected ingredient list together without movement.",
+    "guardrail": "This conceptual placeholder is not product proof; do not imply medication management, swallowing checks, coordination, or client records.",
+    "frames": [
+      {"label": "Recipes", "action": "Gather a few sample recipe cards."},
+      {"label": "Plan", "action": "Place the cards in separate slots of a short meal plan."},
+      {"label": "List", "action": "Connect ingredient lines from the planned meals to a list."},
+      {"label": "Review", "action": "Set the plan and list side by side for human review."}
+    ]
+  },
+  {
+    "id": "C4",
+    "route": "care",
+    "title": "Begin with consideration",
+    "headline": "Make room for the human part of care.",
+    "composition": "Sketch a welcoming care table becoming a fictional-data evaluation workspace, with a prominent safety and privacy review reminder.",
+    "demo": "none",
+    "cta": "Explore a care-planning pilot",
+    "motion_name": "Thoughtful pilot",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms to transition the SVG care table into a framed evaluation workspace.",
+    "reduced_motion": "Show the fictional-data evaluation workspace, sample plan, and safety and privacy reminder together.",
+    "guardrail": "This beta is not a clinical system; independently verify diets, allergies, texture, safety, organizational policy, and privacy before deployment.",
+    "frames": [
+      {"label": "Care table", "action": "Gather recipe notes at a welcoming adult care table."},
+      {"label": "Sample plan", "action": "Arrange a small fictional recipe collection and meal plan."},
+      {"label": "Consideration", "action": "Add a reminder for nutrition, care, preparation, and privacy review."},
+      {"label": "Pilot", "action": "Frame the fictional examples inside an evaluation workspace."}
+    ]
+  },
+  {
+    "id": "H1",
+    "route": "shared",
+    "title": "Now make it yours",
+    "headline": "Now make it yours.",
+    "composition": "Sketch an own or fictional-data pilot workspace leading to beginner and experienced setup choices, then a machine-to-browser hosting diagram.",
+    "demo": "none",
+    "cta": "Guide me through self-hosting · Show me the technical steps",
+    "motion_name": "Choose your setup",
+    "duration": "700 ms",
+    "implementation": "Use CSS transforms and SVG paths to connect a workspace to two choices and an explanatory hosting diagram.",
+    "reduced_motion": "Show the workspace, both setup choices, and the hosting explanation as a labeled static diagram.",
+    "guardrail": "Do not deploy automatically or promise unverified installation options; link to verified guidance and the full Community Care License.",
+    "frames": [
+      {"label": "Arrival", "action": "Frame the visitor's own workspace or fictional-data pilot workspace."},
+      {"label": "Choices", "action": "Open beginner guidance and experienced technical-guide choices beside the workspace."},
+      {"label": "Hosting", "action": "Draw a machine the visitor administers containing the app and database."},
+      {"label": "Browser", "action": "Connect that machine to a browser and show hosting responsibilities and license links."}
+    ]
+  }
+]

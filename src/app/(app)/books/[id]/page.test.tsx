@@ -18,7 +18,7 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
 });
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'book-1' }), useRouter: () => ({ push }) }));
 vi.mock('@/components/breadcrumb-context', () => ({ useSetBreadcrumbLabel: () => {} }));
-vi.mock('@/hooks/use-recipes', () => ({ useRecipes: () => ({ data: [] }) }));
+vi.mock('@/hooks/use-recipes', () => ({ useRecipes: () => ({ data: [{ id: 'recipe-2', name: 'Tomato Soup', ingredients: [] }] }) }));
 vi.mock('@/hooks/use-books', () => {
   const mutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue({}) });
   return {
@@ -50,6 +50,16 @@ describe('book detail', () => {
     expect(within(dialog).getByText(/Source: PublicDomainRecipes.com/)).toBeInTheDocument();
     expect(within(dialog).getByText(/UNLICENSE/)).toBeInTheDocument();
     expect(container.textContent).toContain('https://unlicense.org');
+  });
+  it('keeps the add-recipe list inside the dialog and provides its scrollbar', () => {
+    render(<BookDetailPage />);
+    fireEvent.click(screen.getByRole('button', { name: /Breakfast & brunch/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recipe' })[0]);
+    const dialog = screen.getByRole('dialog');
+    const list = dialog.querySelector('[data-slot="scroll-area"]');
+    expect(list).toHaveClass('h-[min(300px,50vh)]');
+    expect(list?.querySelector('[data-slot="scroll-area-viewport"]')).toBeInTheDocument();
+    expect(within(dialog).getByText('Tomato Soup')).toBeInTheDocument();
   });
   it('does not hide other books’ descriptions when they mention an author', () => {
     bookDescription.current = 'Author: Ada. Organized and compiled by Grace. Collection of family recipes.';

@@ -43,6 +43,7 @@ type recipeImportBatch struct {
 	Cancelled    bool             `json:"-"`
 	Context      RecipeBundle     `json:"bundle"`
 	Placements   importPlacements `json:"placements"`
+	BookState    importBookState  `json:"bookState,omitempty"`
 	CreatedAt    time.Time        `json:"createdAt"`
 }
 type stagedImportRecipe struct {
@@ -61,13 +62,16 @@ type PendingRecipeImports struct {
 }
 
 func validatePendingRecipeImports(bundle RecipeBundle) error {
-	if bundle.Version != 3 {
+	if bundle.Version != 3 && bundle.Version != 4 {
 		if bundle.PendingImports != nil {
-			return errors.New("pendingImports requires recipe bundle version 3")
+			return errors.New("pendingImports requires recipe bundle version 3 or 4")
 		}
 		return nil
 	}
 	p := bundle.PendingImports
+	if bundle.Version == 4 && p == nil {
+		return nil
+	}
 	if p == nil || p.Version != 1 {
 		return errors.New("version 3 requires supported pendingImports version 1")
 	}
@@ -86,6 +90,9 @@ func validatePendingRecipeImports(bundle RecipeBundle) error {
 		}
 		if err := ValidateRecipeBundle(b.Context); err != nil {
 			return fmt.Errorf("pending import context: %w", err)
+		}
+		if err := validatePendingBookState(b); err != nil {
+			return err
 		}
 		batches[b.ID] = b
 	}
@@ -135,14 +142,14 @@ func lockImportOwner(tx *sql.Tx, userID string) error {
 func (s *PostgresStore) loadImportState(userID string) ([]*recipeImportBatch, []*stagedImportRecipe, error) {
 	batches := []*recipeImportBatch{}
 	recipes := []*stagedImportRecipe{}
-	rows, err := s.reader().Query(`SELECT id,accepted,materialized,cancelled,context,placements,created_at FROM recipe_import_batches WHERE user_id=$1 AND NOT cancelled ORDER BY created_at,id`, userID)
+	rows, err := s.reader().Query(`SELECT id,accepted,materialized,cancelled,context,placements,book_state,created_at FROM recipe_import_batches WHERE user_id=$1 AND NOT cancelled ORDER BY created_at,id`, userID)
 	if err != nil {
 		return nil, nil, err
 	}
 	for rows.Next() {
 		b := &recipeImportBatch{}
-		var context, placements []byte
-		if err := rows.Scan(&b.ID, &b.Accepted, &b.Materialized, &b.Cancelled, &context, &placements, &b.CreatedAt); err != nil {
+		var context, placements, bookState []byte
+		if err := rows.Scan(&b.ID, &b.Accepted, &b.Materialized, &b.Cancelled, &context, &placements, &bookState, &b.CreatedAt); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -151,6 +158,10 @@ func (s *PostgresStore) loadImportState(userID string) ([]*recipeImportBatch, []
 			return nil, nil, err
 		}
 		if err := json.Unmarshal(placements, &b.Placements); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		if err := json.Unmarshal(bookState, &b.BookState); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -188,7 +199,11 @@ func (s *PostgresStore) saveImportBatchTx(tx *sql.Tx, userID string, b *recipeIm
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`UPDATE recipe_import_batches SET accepted=$1,cancelled=$2,context=$3,placements=$4,materialized=$7,updated_at=NOW() WHERE id=$5 AND user_id=$6`, b.Accepted, b.Cancelled, string(context), string(placements), b.ID, userID, b.Materialized)
+	bookState, err := json.Marshal(b.BookState)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE recipe_import_batches SET accepted=$1,cancelled=$2,context=$3,placements=$4,materialized=$7,book_state=$8,updated_at=NOW() WHERE id=$5 AND user_id=$6`, b.Accepted, b.Cancelled, string(context), string(placements), b.ID, userID, b.Materialized, string(bookState))
 	return err
 }
 func insertStagedRecipeTx(tx *sql.Tx, userID string, r *stagedImportRecipe) error {
@@ -203,6 +218,10 @@ func insertStagedRecipeTx(tx *sql.Tx, userID string, r *stagedImportRecipe) erro
 // StageRecipeBundle is the public import boundary. No main-library dependency,
 // shell or book is written until the whole incoming batch is accepted.
 func (s *PostgresStore) StageRecipeBundle(userID string, bundle RecipeBundle) (*RecipeBundleImportSummary, error) {
+	return s.StageRecipeBundleWithDecisions(userID, bundle, nil)
+}
+
+func (s *PostgresStore) StageRecipeBundleWithDecisions(userID string, bundle RecipeBundle, decisions []BookImportDecision) (*RecipeBundleImportSummary, error) {
 	// Missing link metadata is an unresolved ingredient, not unsafe structure.
 	// Unknown or conflicting supplied identities still go through validation.
 	bundle.Recipes = append([]BundleRecipe(nil), bundle.Recipes...)
@@ -226,55 +245,6 @@ func (s *PostgresStore) StageRecipeBundle(userID string, bundle RecipeBundle) (*
 	if err := lockImportOwner(tx, userID); err != nil {
 		return nil, err
 	}
-	if bundle.Version == 3 {
-		// A v3 envelope is not permission to publish unverified main content.
-		// The internal raw restore primitive remains available for historical
-		// snapshots; the public import boundary verifies the main section too.
-		main := bundle
-		main.Version = 2
-		main.PendingImports = nil
-		mainBatch := &recipeImportBatch{ID: "restore-main", Accepted: true, Context: main}
-		mainRows := []*stagedImportRecipe{}
-		for _, r := range main.Recipes {
-			key := r.PortableID
-			if key == "" {
-				key = "dietledger:recipe:" + uuid.NewString()
-				r.PortableID = key
-			}
-			mainRows = append(mainRows, &stagedImportRecipe{BatchID: mainBatch.ID, Recipe: r})
-		}
-		mainBatch.Context.Recipes = nil
-		for _, r := range mainRows {
-			mainBatch.Context.Recipes = append(mainBatch.Context.Recipes, r.Recipe)
-		}
-		eval := newImportEvaluator(&PostgresStore{db: s.db, readTx: tx}, userID, []*recipeImportBatch{mainBatch}, mainRows)
-		for _, r := range mainRows {
-			result, err := eval.recipeByIdentity(r.Recipe.PortableID)
-			if err != nil {
-				return nil, err
-			}
-			if !result.ready {
-				return nil, errors.New("version 3 main section contains unresolved recipes; keep them in pendingImports")
-			}
-		}
-		recipes, foods := map[string]string{}, map[string]string{}
-		summary, err := s.importRecipeBundleTx(tx, userID, bundle, recipes, foods, true)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.restorePendingImportsTx(tx, userID, bundle, recipes, foods); err != nil {
-			return nil, err
-		}
-		var n int
-		if err := tx.QueryRow(`SELECT count(*) FROM recipe_import_staged WHERE user_id=$1`, userID).Scan(&n); err != nil {
-			return nil, err
-		}
-		summary.Quarantined = n
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
-		return summary, nil
-	}
 	hash, err := importRequestHash(bundle)
 	if err != nil {
 		return nil, err
@@ -297,14 +267,42 @@ func (s *PostgresStore) StageRecipeBundle(userID string, bundle RecipeBundle) (*
 				prior = b
 			}
 		}
-		summary, err := s.importStateSummaryTx(tx, userID, prior, batches, recipes)
+		if len(decisions) > 0 && (prior == nil || !sameBookChoices(prior.BookState.Decisions, decisions)) {
+			return nil, ErrBookImportChanged
+		}
+		summary, err := s.reconcileImportReceiptTx(tx, userID, prior, batches, recipes)
 		if err != nil {
 			return nil, err
 		}
+		batches, recipes, err = snapshot.loadImportState(userID)
+		if err != nil {
+			return nil, err
+		}
+		state, err := s.importStateSummaryTx(tx, userID, prior, batches, recipes)
+		if err != nil {
+			return nil, err
+		}
+		summary.PendingImportID = state.PendingImportID
+		summary.RequiresDecision = state.RequiresDecision
+		summary.Quarantined = state.Quarantined
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
 		return summary, nil
+	}
+	conflicts, err := bookConflictsTx(tx, userID, bundle)
+	if err != nil {
+		return nil, err
+	}
+	complete, err := validateBookChoices(conflicts, decisions)
+	if err != nil {
+		return nil, err
+	}
+	if !complete {
+		summary := newRecipeBundleImportSummary()
+		summary.RequiresBookDecision = true
+		summary.BookConflicts = conflicts
+		return &summary, nil
 	}
 	if cancelled {
 		if _, err := tx.Exec(`DELETE FROM recipe_import_batches WHERE id=$1 AND user_id=$2`, priorID, userID); err != nil {
@@ -315,7 +313,17 @@ func (s *PostgresStore) StageRecipeBundle(userID string, bundle RecipeBundle) (*
 	if err != nil {
 		return nil, err
 	}
-	b := &recipeImportBatch{ID: uuid.NewString(), Context: bundle, Placements: importPlacements{}, CreatedAt: time.Now().UTC()}
+	if bundle.PendingImports != nil {
+		summary, err := s.stagePendingBackupTx(tx, userID, bundle, hash, decisions, batches)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return summary, nil
+	}
+	b := &recipeImportBatch{ID: uuid.NewString(), Context: bundle, Placements: importPlacements{}, BookState: importBookState{Version: 1, Decisions: decisions}, CreatedAt: time.Now().UTC()}
 	// Legacy payloads acquire identities only once in saved batch context. Retry
 	// hashes use the original file, so a retry cannot regenerate identities.
 	for i := range b.Context.Recipes {
@@ -336,7 +344,11 @@ func (s *PostgresStore) StageRecipeBundle(userID string, bundle RecipeBundle) (*
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(`INSERT INTO recipe_import_batches(id,user_id,request_hash,context) VALUES($1,$2,$3,$4)`, b.ID, userID, hash, string(context)); err != nil {
+	bookState, err := json.Marshal(b.BookState)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`INSERT INTO recipe_import_batches(id,user_id,request_hash,context,book_state) VALUES($1,$2,$3,$4,$5)`, b.ID, userID, hash, string(context), string(bookState)); err != nil {
 		return nil, err
 	}
 	for _, r := range b.Context.Recipes {
@@ -780,6 +792,11 @@ func (s *PostgresStore) promoteImportsTx(tx *sql.Tx, userID string, batches []*r
 	// recipes and historical logs are never rewritten here.
 	for _, row := range rows {
 		result := eval.results[row.Recipe.PortableID]
+		if recipeHasV4Metadata(result.recipe) {
+			if b := eval.batches[row.BatchID]; b != nil {
+				b.Context.Version = 4
+			}
+		}
 		if result.changed && !result.ready {
 			payload, err := json.Marshal(result.recipe)
 			if err != nil {
@@ -804,10 +821,13 @@ func (s *PostgresStore) promoteImportsTx(tx *sql.Tx, userID string, batches []*r
 			}
 		}
 	}
+	if err := s.validateDeferredBooksTx(tx, userID, batches); err != nil {
+		return err
+	}
 	// Materialize structure at acceptance, even if all recipes remain blocked.
 	for _, b := range batches {
 		if b.Accepted && !b.Cancelled && active[b.ID] {
-			if err := s.persistImportSliceTx(tx, userID, b, nil, summary); err != nil {
+			if err := s.persistImportSliceTx(tx, userID, b, batches, nil, summary); err != nil {
 				return err
 			}
 		}
@@ -821,7 +841,7 @@ func (s *PostgresStore) promoteImportsTx(tx *sql.Tx, userID string, batches []*r
 		if !result.ready {
 			continue
 		}
-		if err := s.persistImportSliceTx(tx, userID, b, []BundleRecipe{result.recipe}, summary); err != nil {
+		if err := s.persistImportSliceTx(tx, userID, b, batches, []BundleRecipe{result.recipe}, summary); err != nil {
 			return err
 		}
 		var id string
@@ -837,14 +857,19 @@ func (s *PostgresStore) promoteImportsTx(tx *sql.Tx, userID string, batches []*r
 	// batch. Append its requested joins once that identity has been promoted.
 	for _, b := range batches {
 		if b.Accepted && !b.Cancelled && active[b.ID] {
-			if err := s.persistImportSliceTx(tx, userID, b, nil, summary); err != nil {
+			if err := s.persistImportSliceTx(tx, userID, b, batches, nil, summary); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
 }
-func (s *PostgresStore) persistImportSliceTx(tx *sql.Tx, userID string, b *recipeImportBatch, recipes []BundleRecipe, summary *RecipeBundleImportSummary) error {
+func (s *PostgresStore) persistImportSliceTx(tx *sql.Tx, userID string, b *recipeImportBatch, batches []*recipeImportBatch, recipes []BundleRecipe, summary *RecipeBundleImportSummary, restoreMissing ...bool) error {
+	if !b.Materialized {
+		if err := s.initializeBookChoicesTx(tx, userID, b, batches, summary); err != nil {
+			return err
+		}
+	}
 	// Restore this batch's mappings before append-only persistence. Main IDs are
 	// retained only internally; backup exports them as remappable transport keys.
 	for kind, mappings := range b.Placements {
@@ -872,7 +897,26 @@ func (s *PostgresStore) persistImportSliceTx(tx *sql.Tx, userID string, b *recip
 	for k, v := range fm {
 		foods[k] = v
 	}
-	slice := b.Context
+	slice := effectiveBookContext(b)
+	if b.Materialized && (len(restoreMissing) == 0 || !restoreMissing[0]) {
+		slice, err = liveImportBookContextTx(tx, userID, b)
+		if err != nil {
+			return err
+		}
+		// Append joins for newly promoted identities only. Retained context
+		// must not undo a user's removal of an already-published placement.
+		joins := slice.ChapterRecipes
+		slice.ChapterRecipes = nil
+		for _, join := range joins {
+			include := containsString(summary.PromotedRecipeIDs, refs[join.BundleRecipeID])
+			for _, recipe := range recipes {
+				include = include || recipe.BundleRecipeID == join.BundleRecipeID
+			}
+			if include {
+				slice.ChapterRecipes = append(slice.ChapterRecipes, join)
+			}
+		}
+	}
 	slice.PendingImports = nil
 	slice.Recipes = recipes
 	if b.Materialized {
@@ -882,6 +926,20 @@ func (s *PostgresStore) persistImportSliceTx(tx *sql.Tx, userID string, b *recip
 		slice.CustomFoods = nil
 		slice.FoodItems = nil
 		slice.Templates = nil
+		slice.Categories = nil
+		if len(restoreMissing) > 0 && restoreMissing[0] {
+			// Reuse live template IDs for restored chapters, without replaying
+			// template contents or resurrecting a deleted dependency.
+			for _, template := range b.Context.Templates {
+				var exists bool
+				if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM templates WHERE id=$1 AND user_id=$2)`, b.Placements["template"][template.BundleTemplateID], userID).Scan(&exists); err != nil {
+					return err
+				}
+				if exists {
+					slice.Templates = append(slice.Templates, template)
+				}
+			}
+		}
 	}
 	result, err := s.importRecipeBundleTx(tx, userID, slice, refs, foods, true)
 	if err != nil {
@@ -905,7 +963,7 @@ func (s *PostgresStore) persistImportSliceTx(tx *sql.Tx, userID string, b *recip
 	if b.Placements == nil {
 		b.Placements = importPlacements{}
 	}
-	for kind, keys := range placementKeys(b.Context) {
+	for kind, keys := range placementKeys(effectiveBookContext(b)) {
 		if b.Placements[kind] == nil {
 			b.Placements[kind] = map[string]string{}
 		}
@@ -988,19 +1046,20 @@ func (s *PostgresStore) ListQuarantinedRecipes(userID string) ([]QuarantinedReci
 		seen := map[string]bool{}
 		// Include placements from batches reusing this staged identity as well.
 		for _, placementBatch := range batches {
-			for _, candidate := range placementBatch.Context.Recipes {
+			placementContext := effectiveBookContext(placementBatch)
+			for _, candidate := range placementContext.Recipes {
 				if candidate.PortableID != row.Recipe.PortableID {
 					continue
 				}
-				for _, join := range placementBatch.Context.ChapterRecipes {
+				for _, join := range placementContext.ChapterRecipes {
 					if join.BundleRecipeID != candidate.BundleRecipeID {
 						continue
 					}
-					for _, chapter := range placementBatch.Context.Chapters {
+					for _, chapter := range placementContext.Chapters {
 						if chapter.BundleChapterID != join.BundleChapterID {
 							continue
 						}
-						for _, book := range placementBatch.Context.Books {
+						for _, book := range placementContext.Books {
 							if book.BundleBookID == chapter.BundleBookID && !seen[book.Title] {
 								titles = append(titles, book.Title)
 								seen[book.Title] = true
@@ -1034,10 +1093,10 @@ func (s *PostgresStore) ListQuarantinedRecipes(userID string) ([]QuarantinedReci
 func stagedRecipeModel(userID string, row *stagedImportRecipe) Recipe {
 	r := row.Recipe
 	groups, _ := json.Marshal(bundleGroupsToIngredientGroups(r.IngredientGroups))
-	recipe := Recipe{ID: row.ID, PortableID: r.PortableID, UserID: userID, Name: r.Name, Servings: r.Servings, ServingName: emptyDefault(r.ServingName, "serving"), PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage, IngredientGroupsJSON: string(groups), CreatedAt: row.CreatedAt, UpdatedAt: row.CreatedAt, Ingredients: []Ingredient{}}
+	recipe := Recipe{Description: r.Description, CustomNutrition: r.CustomNutrition, ID: row.ID, PortableID: r.PortableID, UserID: userID, Name: r.Name, Servings: r.Servings, ServingName: emptyDefault(r.ServingName, "serving"), PrepTime: r.PrepTime, CookTime: r.CookTime, Instructions: r.Instructions, LeftoverStorage: r.LeftoverStorage, IngredientGroupsJSON: string(groups), CreatedAt: row.CreatedAt, UpdatedAt: row.CreatedAt, Ingredients: []Ingredient{}}
 	for pos, ing := range orderedBundleIngredients(r.Ingredients) {
 		n := ing.Nutrients
-		i := Ingredient{ID: ing.BundleIngredientID, RecipeID: row.ID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, GroupID: ing.BundleGroupID, SourceType: ing.Source.Type, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Position: pos, ZeroNutritionOverride: ing.ZeroNutritionOverride, UnconfirmedNutrition: ing.SuppliedNutrition, Calories: n.Calories, TotalFat: n.TotalFat, SaturatedFat: n.SaturatedFat, TransFat: n.TransFat, Cholesterol: n.Cholesterol, Sodium: n.Sodium, TotalCarbs: n.TotalCarbs, DietaryFiber: n.DietaryFiber, TotalSugars: n.TotalSugars, AddedSugars: n.AddedSugars, Protein: n.Protein, VitaminD: n.VitaminD, Calcium: n.Calcium, Iron: n.Iron, Potassium: n.Potassium}
+		i := Ingredient{MissingNutrients: ing.MissingNutrients, ID: ing.BundleIngredientID, RecipeID: row.ID, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, GroupID: ing.BundleGroupID, SourceType: ing.Source.Type, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Position: pos, ZeroNutritionOverride: ing.ZeroNutritionOverride, UnconfirmedNutrition: ing.SuppliedNutrition, Calories: n.Calories, TotalFat: n.TotalFat, SaturatedFat: n.SaturatedFat, TransFat: n.TransFat, Cholesterol: n.Cholesterol, Sodium: n.Sodium, TotalCarbs: n.TotalCarbs, DietaryFiber: n.DietaryFiber, TotalSugars: n.TotalSugars, AddedSugars: n.AddedSugars, Protein: n.Protein, VitaminD: n.VitaminD, Calcium: n.Calcium, Iron: n.Iron, Potassium: n.Potassium}
 		if ing.ZeroNutritionOverride {
 			i.FdcID = -3
 		} else {

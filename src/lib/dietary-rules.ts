@@ -3,6 +3,7 @@ import type {
   DietaryTag,
   AllergenDetection,
   DietaryProfileRecord,
+  DietaryRecipeAssessment,
 } from '@/lib/types';
 import { ALLERGEN_KEYWORDS, ALLERGEN_EXCLUSIONS, DIETARY_RULES } from '@/data/allergen-keywords';
 
@@ -123,6 +124,17 @@ export function isRecipeCompliant(
     compliant: violations.length === 0,
     violations,
   };
+}
+
+/** Select server-confirmed nutrition matches, then apply the existing name-based rules. */
+export function filterByNutritionAssessment<T extends { id: string; ingredients: Array<{ name: string }> }>(
+  recipes: T[],
+  assessments: DietaryRecipeAssessment[] | undefined,
+  profile: DietaryProfileRecord,
+): T[] {
+  const matchedIds = new Set(assessments?.filter(a => a.status === 'match').map(a => a.recipeId));
+  const ingredientProfile = { ...profile, dietaryTags: profile.dietaryTags.filter(tag => tag !== 'diabetesAware') };
+  return recipes.filter(recipe => matchedIds.has(recipe.id) && isRecipeCompliant(recipe, ingredientProfile).compliant);
 }
 
 export function getAllergenNames(allergens: Allergen[]): string[] {

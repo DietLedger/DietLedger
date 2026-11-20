@@ -10,6 +10,7 @@ interface IngredientForGL {
 
 interface RecipeForGL {
   id: string;
+  customNutrition?: import('./types').CustomRecipeNutrition | null;
   servings: number;
   ingredients: IngredientForGL[];
 }
@@ -27,8 +28,9 @@ export function computeRecipeGL(
   servings: number = 1,
   allRecipes?: RecipeForGL[],
   depth: number = 0
-): GLResult {
+): GLResult | null {
   const gl = computeRecipeGLInternal(recipe, servings, allRecipes, depth);
+  if (gl === null) return null;
   const category = glCategory(gl);
   return {
     gl: Math.round(gl * 10) / 10,
@@ -44,18 +46,25 @@ function computeRecipeGLInternal(
   servings: number,
   allRecipes?: RecipeForGL[],
   depth: number = 0
-): number {
+): number | null {
+  // Published totals do not supply an ingredient-level glycemic index.
+  if (recipe.customNutrition) return null;
   if (depth > 3) return 0;
   const perServing = 1 / (recipe.servings || 1);
   const multiplier = perServing * servings;
   let totalGL = 0;
 
   for (const ing of recipe.ingredients) {
-    if (ing.linkedRecipeId && allRecipes) {
-      const linked = allRecipes.find((r) => r.id === ing.linkedRecipeId);
+    if (ing.linkedRecipeId) {
+      const linked = allRecipes?.find((r) => r.id === ing.linkedRecipeId);
+      // A linked total alone has no ingredient-level GI; lack of a cached child
+      // must not turn a published recipe's unknown GL into a Low/0 claim.
+      if (!linked) return null;
       if (linked) {
         const linkedServings = (ing.amount * multiplier) / (linked.servings || 1);
-        totalGL += computeRecipeGLInternal(linked, linkedServings, allRecipes, depth + 1);
+        const linkedGL = computeRecipeGLInternal(linked, linkedServings, allRecipes, depth + 1);
+        if (linkedGL === null) return null;
+        totalGL += linkedGL;
         continue;
       }
     }
@@ -106,6 +115,8 @@ export function computeEntryGL(
 }
 
 export function sumGL(results: (GLResult | null)[]): GLResult | null {
+  // Do not advertise a partial known sum as the load of an unknown meal.
+  if (results.some(result => result === null)) return null;
   const valid = results.filter((r): r is GLResult => r !== null);
   if (valid.length === 0) return null;
   const gl = valid.reduce((sum, r) => sum + r.gl, 0);

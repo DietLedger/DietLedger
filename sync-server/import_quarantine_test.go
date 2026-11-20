@@ -114,7 +114,7 @@ func TestImportStagingCompleteAndRepair(t *testing.T) {
 		t.Fatal("repair did not atomically promote")
 	}
 	var desc, prep, storage string
-	if err := env.store.(*PostgresStore).db.QueryRow(`SELECT description,prep_instructions,storage_location FROM ingredients i JOIN recipes r ON r.id=i.recipe_id WHERE r.name='repair'`).Scan(&desc, &prep, &storage); err != nil {
+	if err := env.store.(*PostgresStore).db.QueryRow(`SELECT i.description,i.prep_instructions,i.storage_location FROM ingredients i JOIN recipes r ON r.id=i.recipe_id WHERE r.name='repair'`).Scan(&desc, &prep, &storage); err != nil {
 		t.Fatal(err)
 	}
 	if desc != "retained" || prep != "[\"chopped\"]" || storage != "Pantry" {

@@ -15,6 +15,7 @@ function bundleIngredient(ingredient: Partial<IngredientRecord>, id: string, pos
     description: ingredient.description ?? '', bundleGroupId: ingredient.groupId ?? null,
     prepInstructions: ingredient.prepInstructions ?? [], storageLocation: ingredient.storageLocation ?? '',
     source, nutrients, zeroNutritionOverride: ingredient.zeroNutritionOverride ?? false,
+    ...(ingredient.missingNutrients?.length ? { missingNutrients: ingredient.missingNutrients } : {}),
     ...(ingredient.unconfirmedNutrition ? { suppliedNutrition: ingredient.unconfirmedNutrition } : {}),
   };
 }
@@ -61,7 +62,10 @@ export function sharedRecipeToBundle(shared: SharedRecipeRecord): RecipeBundle {
   const raw = JSON.parse(shared.recipeData);
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.ingredients)) throw new Error('Invalid shared recipe snapshot');
   const bundle = bundleEnvelope();
+  if (raw.customNutrition || raw.description || raw.ingredients.some((ingredient: Partial<IngredientRecord>) => ingredient.missingNutrients?.length)) bundle.version = 4;
   bundle.recipes = [{
+    description: raw.description,
+    customNutrition: raw.customNutrition,
     bundleRecipeId: `shared:${shared.id}`, name: raw.name || shared.title, servings: raw.servings ?? 1,
     servingName: raw.servingName || 'servings', prepTime: raw.prepTime, cookTime: raw.cookTime, leftoverStorage: raw.leftoverStorage,
     instructions: Array.isArray(raw.instructionSteps)

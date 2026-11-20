@@ -24,6 +24,9 @@ interface NutrientAlert {
 const NUTRIENT_FIELDS: Record<string, keyof FoodLogEntryRecord> = {
   sodium: 'sodium',
   sugar: 'totalSugars',
+  totalSugars: 'totalSugars',
+  addedSugars: 'addedSugars',
+  dietaryFiber: 'dietaryFiber',
   saturatedFat: 'saturatedFat',
   cholesterol: 'cholesterol',
   calories: 'calories',
@@ -36,6 +39,9 @@ const NUTRIENT_FIELDS: Record<string, keyof FoodLogEntryRecord> = {
 const UNITS: Record<string, string> = {
   sodium: 'mg',
   sugar: 'g',
+  totalSugars: 'g',
+  addedSugars: 'g',
+  dietaryFiber: 'g',
   saturatedFat: 'g',
   cholesterol: 'mg',
   calories: '',
@@ -61,7 +67,7 @@ export function ThresholdAlerts({ entries, profile, dietaryProfile }: ThresholdA
 
     for (const threshold of dietaryProfile.nutrientThresholds) {
       const current = totals[threshold.nutrient] ?? 0;
-      const max = threshold.dailyMax ?? threshold.perMealMax ?? 0;
+      const max = threshold.dailyMax ?? 0;
       if (max <= 0) continue;
 
       const percent = Math.round((current / max) * 100);

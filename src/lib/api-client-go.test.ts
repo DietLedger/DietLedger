@@ -1,6 +1,47 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GoApiClient } from './api-client-go';
 
+describe('dietary nutrition assessments', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('restores the server-owned editable starter with no client-selected criteria', async () => {
+    const profile = { id: 'p', name: 'Edited name', allergens: '[]', dietaryTags: '["diabetesAware"]', nutrientThresholds: '[{"nutrient":"dietaryFiber","per1000KcalMin":14,"alertLevel":"warning"}]', isActive: false };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: profile }) }));
+    const result = await new GoApiClient('').restoreDiabetesAwareProfile();
+    expect(result.name).toBe('Edited name');
+    expect(result.dietaryTags).toEqual(['diabetesAware']);
+    expect(fetch).toHaveBeenCalledWith('/api/dietary-profiles/diabetes-aware-starter', expect.objectContaining({ method: 'POST', body: undefined }));
+  });
+  it('reads server assessments for the selected profile without submitting client nutrient facts', async () => {
+    const assessments = [{ recipeId: 'recipe', status: 'notAssessed', reasons: ['Fiber not reported'] }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: assessments }) }));
+    const result = await new GoApiClient('').getDietaryRecipeAssessments('my/profile');
+    expect(result).toEqual(assessments);
+    expect(fetch).toHaveBeenCalledWith('/api/dietary-profiles/my%2Fprofile/recipe-assessments', expect.objectContaining({ method: 'GET', body: undefined }));
+  });
+});
+
+describe('dietary profile wire validation', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('normalizes a successful null list after reset without hiding request failure', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const api = new GoApiClient('');
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, data: null }) });
+    await expect(api.getDietaryProfiles()).resolves.toEqual([]);
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Profiles unavailable' }), { status: 500 }));
+    await expect(api.getDietaryProfiles()).rejects.toThrow('Profiles unavailable');
+  });
+  const profile = { id: 'p', name: 'Legacy profile', allergens: '[]', dietaryTags: '["diabetesAware"]', nutrientThresholds: '[]' };
+  it.each([
+    { dietaryTags: 'null' }, { dietaryTags: '{}' }, { dietaryTags: '["unknownRestriction"]' },
+    { allergens: 'null' }, { allergens: '["unknownAllergen"]' },
+    { nutrientThresholds: '{}' }, { nutrientThresholds: '[null]' },
+  ])('rejects malformed legacy profile fields without silently dropping restrictions: %j', async overrides => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: [{ ...profile, ...overrides }] }) }));
+    await expect(new GoApiClient('').getDietaryProfiles()).rejects.toThrow(/dietary profile/i);
+  });
+});
+
 describe('owner recipe/book backup', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -37,11 +78,36 @@ describe('owner recipe/book backup', () => {
 describe('staged recipe import API', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('submits duplicate-book decisions with the original bundle for server revalidation', async () => {
+    const bundle = { format: 'dietledger.recipe-bundle' as const, version: 2 as const, exportedAt: '2026-11-19T00:00:00Z', books: [] };
+    const decisions = [{ bundleBookId: 'incoming', targetBookId: 'existing', action: 'replace' as const, targetFingerprint: 'fingerprint' }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: { created: {}, updated: {}, reused: {}, skipped: {}, conflicts: [] } }) }));
+    await new GoApiClient('').importRecipeBundle(bundle, decisions);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/recipe-bundles/import', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ bundle, bookDecisions: decisions }),
+    }));
+  });
+
+  it('normalizes a successful null staging list but rejects failed or malformed responses', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const api = new GoApiClient('');
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, data: null }) });
+    await expect(api.getQuarantinedRecipes()).resolves.toEqual([]);
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Database unavailable' }), { status: 500 }));
+    await expect(api.getQuarantinedRecipes()).rejects.toThrow('Database unavailable');
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: false, error: 'Read failed', data: null }) });
+    await expect(api.getQuarantinedRecipes()).rejects.toThrow();
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, data: {} }) });
+    await expect(api.getQuarantinedRecipes()).rejects.toThrow();
+  });
+
   it('reads staging and submits keep/cancel and ingredient writes only to staging endpoints', async () => {
     const result = { quarantined: 2, promotedRecipeIds: ['promoted'] };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, data: result }) }));
     const api = new GoApiClient('');
-    await expect(api.getQuarantinedRecipes()).resolves.toEqual(result);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, data: [] }) } as Response);
+    await expect(api.getQuarantinedRecipes()).resolves.toEqual([]);
     await expect(api.decideRecipeImport('batch/id', 'keep')).resolves.toEqual(result);
     await api.decideRecipeImport('batch/id', 'cancel');
     const data = { name: 'Salt', amount: 2, unit: 'g', sourceType: 'usda' as const, fdcId: 123 };

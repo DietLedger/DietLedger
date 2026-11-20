@@ -1,0 +1,17 @@
+# Explicit developer override only; do not use as a standalone stack definition.
+# Use with docker-compose.yml or docker-compose.portainer.yml on the SAME daemon
+# where build-local-images.js loaded these images. Set DIETLEDGER_VERSION=local;
+# base-file interpolation is still required. No application registry pulls.
+services:
+  bootstrap:
+    image: recipetool-api:latest
+    pull_policy: never
+  migrate:
+    image: recipetool-api:latest
+    pull_policy: never
+  api:
+    image: recipetool-api:latest
+    pull_policy: never
+  web:
+    image: recipetool-dietledger:latest
+    pull_policy: never

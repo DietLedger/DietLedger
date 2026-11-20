@@ -161,6 +161,10 @@ func portableRecipeForComparisonTx(tx *sql.Tx, userID, id string) (BundleRecipe,
 	if err != nil {
 		return r, err
 	}
+	r.Description, r.CustomNutrition, err = readRecipeMetadata(tx, id)
+	if err != nil {
+		return r, err
+	}
 	var localGroups []IngredientGroupJSON
 	if err := json.Unmarshal([]byte(groups), &localGroups); err != nil {
 		return r, err
@@ -193,7 +197,7 @@ func portableRecipeForComparisonTx(tx *sql.Tx, userID, id string) (BundleRecipe,
 			src.Type = "manual"
 		}
 		position := ing.Position
-		r.Ingredients = append(r.Ingredients, BundleIngredient{Position: &position, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride, SuppliedNutrition: ing.UnconfirmedNutrition})
+		r.Ingredients = append(r.Ingredients, BundleIngredient{MissingNutrients: ing.MissingNutrients, Position: &position, Name: ing.Name, Amount: ing.Amount, Unit: ing.Unit, Description: ing.Description, BundleGroupID: ing.GroupID, PrepInstructions: ing.PrepInstructions, StorageLocation: ing.StorageLocation, Source: src, Nutrients: nutrientsFromIngredient(ing), ZeroNutritionOverride: ing.ZeroNutritionOverride, SuppliedNutrition: ing.UnconfirmedNutrition})
 	}
 	return r, nil
 }

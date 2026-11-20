@@ -15,6 +15,8 @@ export function useAppSettings(options?: { enabled?: boolean }) {
         defaultMealSlotTimes: { ...DEFAULT_MEAL_SLOT_TIMES, ...(settings.defaultMealSlotTimes as MealSlotTimes | undefined) },
         unitSystem: (settings.unitSystem as 'imperial' | 'metric') || 'imperial',
         theme: (settings.theme as string) || 'light',
+        savedTheme: typeof settings.theme === 'string' ? settings.theme : undefined,
+        appearanceMode: settings.appearanceMode as 'light' | 'dark' | undefined,
         onboardingComplete: Boolean(settings.onboardingComplete),
       };
     },
@@ -28,17 +30,18 @@ export function useUpdateSettings() {
       await getApiClient().updateSettings(settings);
       return settings;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-    },
+    // Navigation guards must not observe the old onboarding flag after save.
+    // /welcome unmounts the layout observer, so refresh inactive cache too.
+    // Returning the promise keeps mutation callbacks pending through refetch.
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings.all, refetchType: 'all' }),
   });
 }
 
 export function useUpdateMealSlotTimes() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ times, unitSystem, theme }: { times: MealSlotTimes; unitSystem: 'imperial' | 'metric'; theme: string }) => {
-      await getApiClient().updateSettings({ defaultMealSlotTimes: times, unitSystem, theme });
+    mutationFn: async (times: MealSlotTimes) => {
+      await getApiClient().updateSettings({ defaultMealSlotTimes: times });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
@@ -49,8 +52,8 @@ export function useUpdateMealSlotTimes() {
 export function useUpdateUnitSystem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitSystem, defaultMealSlotTimes, theme }: { unitSystem: 'imperial' | 'metric'; defaultMealSlotTimes: MealSlotTimes; theme: string }) => {
-      await getApiClient().updateSettings({ defaultMealSlotTimes, unitSystem, theme });
+    mutationFn: async (unitSystem: 'imperial' | 'metric') => {
+      await getApiClient().updateSettings({ unitSystem });
       localStorage.setItem('dietledger-unit-system', unitSystem);
     },
     onSuccess: () => {
@@ -62,8 +65,8 @@ export function useUpdateUnitSystem() {
 export function useUpdateTheme() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ theme, defaultMealSlotTimes, unitSystem }: { theme: string; defaultMealSlotTimes: MealSlotTimes; unitSystem: 'imperial' | 'metric' }) => {
-      await getApiClient().updateSettings({ defaultMealSlotTimes, unitSystem, theme });
+    mutationFn: async (theme: string) => {
+      await getApiClient().updateSettings({ theme });
       localStorage.setItem('dietledger-theme', theme);
     },
     onSuccess: () => {
@@ -75,9 +78,9 @@ export function useUpdateTheme() {
 export function useUpdateSingleSlotTime() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ slot, time, currentTimes, unitSystem, theme }: { slot: DaySlot; time: string; currentTimes: MealSlotTimes; unitSystem: 'imperial' | 'metric'; theme: string }) => {
+    mutationFn: async ({ slot, time, currentTimes }: { slot: DaySlot; time: string; currentTimes: MealSlotTimes }) => {
       const updated = { ...currentTimes, [slot]: time };
-      await getApiClient().updateSettings({ defaultMealSlotTimes: updated, unitSystem, theme });
+      await getApiClient().updateSettings({ defaultMealSlotTimes: updated });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });

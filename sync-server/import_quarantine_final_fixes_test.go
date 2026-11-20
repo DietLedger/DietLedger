@@ -41,6 +41,11 @@ func TestFinalStagingPartialDependencyEdits(t *testing.T) {
 			}
 			b.CustomFoods = []BundleCustomFood{food}
 			b.FoodItems = []BundleFoodItem{{FdcID: 76234, Description: "Portioned", DataType: "Foundation", Nutrients: BundleNutrients{Calories: 100}, Portions: []FoodPortion{{Amount: 1, MeasureUnit: "piece", GramWeight: 42}}}}
+			// This test exercises edits to an already trusted canonical dependency,
+			// not certification of package food facts by import.
+			if _, err := s.db.Exec(`INSERT INTO food_items(fdc_id,description,data_type,calories,portions) VALUES(76234,'Portioned','Foundation',100,'[{"amount":1,"measureUnit":"piece","gramWeight":42}]')`); err != nil {
+				t.Fatal(err)
+			}
 			b.Templates = []BundleTemplate{{BundleTemplateID: "template", Name: "Original template", Type: "recipe", Layout: json.RawMessage(`{}`)}}
 			template := "template"
 			b.Books = []BundleBook{{BundleBookID: "book", Title: "Partial book"}}
@@ -101,6 +106,9 @@ func TestFinalStagingDeletedMaterializedFoodStaysMissing(t *testing.T) {
 			} else {
 				b.FoodItems = []BundleFoodItem{{FdcID: 76234, Description: "Food", DataType: "Foundation", Nutrients: BundleNutrients{Calories: 100}}}
 				linked.Source = BundleIngredientSourceRef{Type: "usda", FdcID: 76234}
+				if _, err := s.db.Exec(`INSERT INTO food_items(fdc_id,description,data_type,calories) VALUES(76234,'Food','Foundation',100)`); err != nil {
+					t.Fatal(err)
+				}
 			}
 			b.Recipes[0].Ingredients = append(b.Recipes[0].Ingredients, linked)
 			summary := finalFixStage(t, env, b)

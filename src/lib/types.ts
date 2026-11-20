@@ -202,7 +202,8 @@ export type DietaryTag =
   | 'paleo'
   | 'lowFodmap'
   | 'dASH'
-  | 'mediterranean';
+  | 'mediterranean'
+  | 'diabetesAware';
 
 export interface AllergenDetection {
   allergen: Allergen;
@@ -213,7 +214,10 @@ export interface AllergenDetection {
 export interface NutrientThreshold {
   nutrient: string;
   dailyMax?: number;
+  /** In recipe screening, this is the maximum for one current recipe serving. */
   perMealMax?: number;
+  /** Minimum amount of this nutrient per 1,000 kcal, not a daily maximum. */
+  per1000KcalMin?: number;
   alertLevel: 'warning' | 'danger';
 }
 
@@ -226,6 +230,12 @@ export interface DietaryProfileRecord {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DietaryRecipeAssessment {
+  recipeId: string;
+  status: 'match' | 'noMatch' | 'notAssessed';
+  reasons: string[];
 }
 
 export interface AllergenRuleRecord {
@@ -279,6 +289,9 @@ export interface ScaleOptions {
   multiplier?: number;
   calorieTarget?: number;
   originalCalories?: number;
+  largeBatchBeta?: boolean;
+  seasoningScalePercent?: number;
+  proportionalIngredientIds?: string[];
 }
 
 export type IngredientClassification = 'linear' | 'spice' | 'leavening' | 'acid' | 'count';
@@ -292,10 +305,12 @@ export interface ScaledIngredient {
   scaledUnit: string;
   displayAmount: string;
   classification: IngredientClassification;
+  largeBatchEligible: boolean;
   scaleReason?: string;
 }
 
 export interface ScaledRecipe {
+  customNutrition?: CustomRecipeNutrition | null;
   recipeId: string;
   scaleFactor: number;
   servings: number;
@@ -365,6 +380,7 @@ export interface UnconfirmedIngredientNutrition {
 }
 
 export interface IngredientRecord {
+  missingNutrients?: string[];
   id: string;
   recipeId: string;
   fdcId: number;
@@ -409,7 +425,17 @@ export interface ExportCandidateRecord {
   access: 'owned' | 'public' | 'admin';
 }
 
+export interface CustomRecipeNutrition {
+  basis: 'recipeTotal';
+  nutrients: Record<import('./recipe-types').NutrientKeys, number>;
+  source: string;
+  sourceLabel?: string;
+  missingNutrients?: string[];
+}
+
 export interface RecipeRecord {
+  description?: string;
+  customNutrition?: CustomRecipeNutrition | null;
   id: string;
   readonly portableId?: string;
   name: string;

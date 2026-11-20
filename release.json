@@ -1,0 +1,8 @@
+{
+  "status": "unreleased",
+  "version": "1.0.0-beta.175",
+  "platform": "linux/amd64",
+  "sourceCommit": null,
+  "images": { "web": null, "api": null },
+  "postgres": "postgres:17-alpine@sha256:e80acae3f1109e8e4533618b594918936f2858c63afc7204c4773148a673add8"
+}

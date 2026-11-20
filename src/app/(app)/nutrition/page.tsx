@@ -170,6 +170,7 @@ function NutritionDashboard() {
         const recipe = recipes.find((r) => r.id === entry.sourceId);
         if (recipe) {
           const result = computeRecipeGL(recipe, entry.servings, recipes);
+          if (result === null) continue;
           entryGL = result.gl;
         }
       }

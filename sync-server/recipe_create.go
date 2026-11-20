@@ -15,6 +15,9 @@ var errRecipeCreateConflict = errors.New("requestKey already used with a differe
 
 // createRecipeAtomic keeps a failed ingredient write from leaving an incomplete recipe.
 func (s *PostgresStore) createRecipeAtomic(userID string, req *CreateRecipeRequest) (*Recipe, error) {
+	if err := validateRecipeMetadata(req.Description, req.CustomNutrition); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -73,7 +76,13 @@ func (s *PostgresStore) createRecipeAtomic(userID string, req *CreateRecipeReque
 	if err != nil {
 		return nil, fmt.Errorf("insert recipe: %w", err)
 	}
+	if err := writeRecipeMetadataTx(tx, id, req.Description, req.CustomNutrition, true); err != nil {
+		return nil, err
+	}
 	for position, ing := range req.Ingredients {
+		if err := canonicalizeLinkedCustomIngredient(tx, id, &ing); err != nil {
+			return nil, err
+		}
 		sourceType := ing.SourceType
 		if sourceType == "" {
 			sourceType = "manual"
@@ -86,12 +95,16 @@ func (s *PostgresStore) createRecipeAtomic(userID string, req *CreateRecipeReque
 		if err != nil {
 			return nil, err
 		}
+		ingredientID := uuid.New().String()
 		_, err = tx.Exec(
 			`INSERT INTO ingredients (id, recipe_id, fdc_id, name, amount, unit, description, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, prep_instructions, storage_location, group_id, linked_recipe_id, source_type, source_key, position, zero_nutrition_override, unresolved_source_ref, unconfirmed_nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
-			uuid.New().String(), id, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, PrepInstructionsJSON(ing.PrepInstructions), ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, position, requestedZeroOverride(ing.ZeroNutritionOverride), unresolvedJSON, unconfirmedJSON,
+			ingredientID, id, ing.FdcID, ing.Name, ing.Amount, ing.Unit, ing.Description, ing.Calories, ing.TotalFat, ing.SaturatedFat, ing.TransFat, ing.Cholesterol, ing.Sodium, ing.TotalCarbs, ing.DietaryFiber, ing.TotalSugars, ing.AddedSugars, ing.Protein, ing.VitaminD, ing.Calcium, ing.Iron, ing.Potassium, PrepInstructionsJSON(ing.PrepInstructions), ing.StorageLocation, ing.GroupID, ing.LinkedRecipeID, sourceType, ing.SourceKey, position, requestedZeroOverride(ing.ZeroNutritionOverride), unresolvedJSON, unconfirmedJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create ingredient: %w", err)
+		}
+		if err := writeIngredientMissingTx(tx, ingredientID, ing.MissingNutrients); err != nil {
+			return nil, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
