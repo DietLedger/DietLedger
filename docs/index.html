@@ -922,6 +922,7 @@ function mountScene(container,kind,options) {
   const branches = kind === "branches";
   const hosting = kind==="hosting";
   if (kind === "opening") find('[data-action="restart"]').hidden = true;
+  if (hosting) find('[data-action="setup"]').hidden = true;
   const arrival = hosting ? {...SCHOOL_SETUP_COPY,...options.arrival} : null;
   const pilot = kind === "pilot";
   const menu = kind === "menu";
