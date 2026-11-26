@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Store interface {
 	WithOwnedBook(userID, bookID string, fn func(Store) error) error
@@ -16,6 +19,10 @@ type Store interface {
 	RotateSession(refreshHash, nextHash string) (string, string, time.Time, error)
 	SessionActive(sessionID, userID string) (bool, error)
 	RevokeSession(refreshHash string) error
+	LookupPersonalKey(ctx context.Context, digest [32]byte) (*personalKeyDiscovery, error)
+	CreatePersonalKey(ctx context.Context, owner, name string, scopes []string, digest [32]byte) (*personalKeyMetadata, error)
+	ListPersonalKeys(ctx context.Context, owner string) ([]personalKeyMetadata, error)
+	DeletePersonalKey(ctx context.Context, owner, id string) (bool, error)
 	GetUserByID(id string) (*User, error)
 	GetUserByEmail(email string) (*User, error)
 	UpdateUserLastLogin(id string) error
@@ -69,12 +76,12 @@ type Store interface {
 	DeleteProfile(userID, id string) error
 
 	// Food log entries
-	ListFoodLogEntries(profileID, date string) ([]FoodLogEntry, error)
-	ListFoodLogEntriesByDateRange(profileID, startDate, endDate string) ([]FoodLogEntry, error)
+	ListFoodLogEntries(profileID, date string, owners ...string) ([]FoodLogEntry, error)
+	ListFoodLogEntriesByDateRange(profileID, startDate, endDate string, owners ...string) ([]FoodLogEntry, error)
 	CreateFoodLogEntry(userID, profileID string, e *CreateFoodLogRequest) (*FoodLogEntry, error)
 	OwnsFoodLogEntry(userID, profileID, id string) (bool, error)
-	UpdateFoodLogEntry(id string, e *CreateFoodLogRequest) (*FoodLogEntry, error)
-	DeleteFoodLogEntry(id string) error
+	UpdateFoodLogEntry(id string, e *CreateFoodLogRequest, scope ...foodLogOwner) (*FoodLogEntry, error)
+	DeleteFoodLogEntry(id string, scope ...foodLogOwner) error
 
 	// Weight entries
 	ListWeightEntries(userID, profileID, fromDate, toDate string) ([]WeightEntry, error)

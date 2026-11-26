@@ -31,6 +31,7 @@ const PROXY_ROUTES = [
   '/api/health',
   '/api/about',
   '/api/keys',
+  '/api/personal-keys',
   '/api/nutrition/sync',
   '/api/settings',
   '/api/templates',

@@ -22,6 +22,7 @@ func resetSeedRemainingContent(t *testing.T, s *PostgresStore, owner, recipe, bo
 	resetExec(t, s, `INSERT INTO user_locations(id,user_id,country,region) VALUES ('location',$1,'US','CA')`, owner)
 	resetExec(t, s, `INSERT INTO devices(id,user_id,device_name) VALUES ('device',$1,'Device')`, owner)
 	resetExec(t, s, `INSERT INTO api_keys(id,user_id,name,key_hash,key_prefix) VALUES ('api',$1,'API','hash','prefix')`, owner)
+	resetExec(t, s, `INSERT INTO personal_api_keys(id,user_id,name,scopes,secret_digest,expires_at) VALUES ('01b6d676-c158-4eed-b7ed-312b8aadd7d0',$1,'Personal','["profiles:read"]',decode(repeat('00',32),'hex'),NOW()+INTERVAL '1 hour')`, owner)
 }
 
 func TestResetDataPersonalCommitFailure(t *testing.T) {

@@ -130,6 +130,9 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		bucket := "api"
 		rps := 30.0
 		burst := 60
+		if r.Method == http.MethodPost && r.URL.Path == "/api/personal-keys" {
+			bucket, rps, burst = "personal-key-issue", 1, 10
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
 			// Never retain a caller-controlled path in a visitor key. Unknown
 			// auth paths share one bucket, regardless of their length/uniqueness.

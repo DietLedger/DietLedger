@@ -245,6 +245,18 @@ func (s *PostgresStore) StageRecipeBundleWithDecisions(userID string, bundle Rec
 	if err := lockImportOwner(tx, userID); err != nil {
 		return nil, err
 	}
+	if s.personalOnly {
+		if err := s.importBundleCategoriesTx(tx, userID, bundle.Categories, map[string]string{}); err != nil {
+			return nil, err
+		}
+		if bundle.PendingImports != nil {
+			for _, batch := range bundle.PendingImports.Batches {
+				if err := s.importBundleCategoriesTx(tx, userID, batch.Context.Categories, map[string]string{}); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	hash, err := importRequestHash(bundle)
 	if err != nil {
 		return nil, err

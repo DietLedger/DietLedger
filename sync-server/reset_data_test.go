@@ -8,7 +8,7 @@ import (
 
 // This inventory is deliberately independent of the implementation: every actual
 // public table must be classified when migrations add new persistence.
-var resetCustomTables = strings.Fields(`ingredients recipes recipe_categories recipe_ratings categories chapter_recipes chapter_pages book_pages chapters recipe_books shared_recipes community_categories day_plan_entries meal_groups grocery_checklists meal_plans food_log_entries weight_entries person_profiles custom_foods food_storage_defaults allergen_rules dietary_profiles templates brand_kits pantry_staples seasonal_foods user_secrets user_locations devices api_keys recipe_completions import_object_mappings recipe_create_requests recipe_import_batches recipe_import_staged recipe_import_resolutions custom_recipe_nutrition`)
+var resetCustomTables = strings.Fields(`ingredients recipes recipe_categories recipe_ratings categories chapter_recipes chapter_pages book_pages chapters recipe_books shared_recipes community_categories day_plan_entries meal_groups grocery_checklists meal_plans food_log_entries weight_entries person_profiles custom_foods food_storage_defaults allergen_rules dietary_profiles templates brand_kits pantry_staples seasonal_foods user_secrets user_locations devices api_keys personal_api_keys recipe_completions import_object_mappings recipe_create_requests recipe_import_batches recipe_import_staged recipe_import_resolutions custom_recipe_nutrition`)
 var resetPreservedTables = strings.Fields(`users refresh_tokens auth_sessions auth_refresh_tokens bootstrap_claim_consumptions user_settings instance_meta food_items seed_jobs schema_migrations`)
 
 func resetCount(t *testing.T, s *PostgresStore, table string) int {
@@ -171,6 +171,11 @@ func TestResetDataPersonalAndRollback(t *testing.T) {
 		resetExec(t, s, `INSERT INTO recipe_completions(user_id,recipe_id,completed_date) VALUES ($1,'orphan','2025-01-01')`, id)
 		resetExec(t, s, `INSERT INTO recipe_import_resolutions VALUES ($1,'s','i','hash')`, id)
 		resetExec(t, s, `INSERT INTO devices(id,user_id) VALUES ($1,$1)`, id)
+		digest := [32]byte{1}
+		if id == other.User.ID {
+			digest[0] = 2
+		}
+		resetExec(t, s, `INSERT INTO personal_api_keys(id,user_id,name,scopes,secret_digest,expires_at) VALUES (gen_random_uuid(),$1,'Personal','["profiles:read"]',$2,NOW()+INTERVAL '1 hour')`, id, digest[:])
 		resetExec(t, s, `INSERT INTO recipes(id,user_id,name) VALUES ($1,$1,'Personal recipe')`, id)
 		resetExec(t, s, `INSERT INTO grocery_checklists(id,user_id,week_start) VALUES ($1,$1,'2025-01-06')`, id)
 		resetExec(t, s, `INSERT INTO recipe_import_batches(id,user_id,request_hash,context) VALUES ($1,$1,'hash','{}')`, id)
@@ -189,7 +194,7 @@ func TestResetDataPersonalAndRollback(t *testing.T) {
 	if w.Code != 500 {
 		t.Errorf("failure status %d %s", w.Code, w.Body.String())
 	}
-	for _, table := range []string{"recipes", "grocery_checklists", "recipe_completions", "recipe_import_batches", "recipe_import_staged", "recipe_import_resolutions", "import_object_mappings", "devices"} {
+	for _, table := range []string{"recipes", "grocery_checklists", "recipe_completions", "recipe_import_batches", "recipe_import_staged", "recipe_import_resolutions", "import_object_mappings", "devices", "personal_api_keys"} {
 		if n := resetCount(t, s, table); n != 2 {
 			t.Errorf("rollback %s count %d", table, n)
 		}
@@ -199,7 +204,10 @@ func TestResetDataPersonalAndRollback(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("personal %d %s", w.Code, w.Body.String())
 	}
-	for _, table := range []string{"recipes", "grocery_checklists", "recipe_completions", "recipe_import_batches", "recipe_import_staged", "recipe_import_resolutions", "import_object_mappings", "devices"} {
+	for _, table := range []string{"recipes", "grocery_checklists", "recipe_completions", "recipe_import_batches", "recipe_import_staged", "recipe_import_resolutions", "import_object_mappings", "devices", "personal_api_keys"} {
+		if n := resetCount(t, s, table); n != 1 {
+			t.Errorf("personal reset %s count %d, want 1", table, n)
+		}
 		var owner string
 		err := s.db.QueryRow(fmt.Sprintf(`SELECT user_id FROM %s`, table)).Scan(&owner)
 		if err != nil || owner != other.User.ID {

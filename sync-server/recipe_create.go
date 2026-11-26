@@ -80,7 +80,7 @@ func (s *PostgresStore) createRecipeAtomic(userID string, req *CreateRecipeReque
 		return nil, err
 	}
 	for position, ing := range req.Ingredients {
-		if err := canonicalizeLinkedCustomIngredient(tx, id, &ing); err != nil {
+		if err := s.canonicalizeLinkedCustomIngredient(tx, id, &ing); err != nil {
 			return nil, err
 		}
 		sourceType := ing.SourceType

@@ -30,9 +30,10 @@ type PostgresStore struct {
 	db *sql.DB
 	// Set only on request-local stores used for a stable read or book-owner
 	// authorization transaction. The shared pool/store is never mutated.
-	readTx  *sql.Tx
-	writeTx *sql.Tx
-	ownerID string
+	readTx       *sql.Tx
+	writeTx      *sql.Tx
+	ownerID      string
+	personalOnly bool
 }
 
 func (s *PostgresStore) reader() postgresReader {
@@ -255,7 +256,7 @@ var userDataTables = []string{
 	"food_log_entries", "weight_entries", "person_profiles",
 	"custom_foods", "food_storage_defaults", "allergen_rules", "dietary_profiles",
 	"templates", "brand_kits", "pantry_staples", "seasonal_foods",
-	"user_secrets", "user_locations", "devices", "api_keys",
+	"user_secrets", "user_locations", "devices", "api_keys", "personal_api_keys",
 }
 
 // ResetUserData deletes all user-generated content but keeps accounts,
@@ -468,7 +469,7 @@ func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest
 		return nil, err
 	}
 	if req.Ingredients != nil {
-		if err := replaceIngredientsTx(tx, id, *req.Ingredients); err != nil {
+		if err := s.replaceIngredientsTx(tx, id, *req.Ingredients); err != nil {
 			return nil, err
 		}
 	}
@@ -479,6 +480,9 @@ func (s *PostgresStore) UpdateRecipe(userID, id string, req *UpdateRecipeRequest
 }
 
 func (s *PostgresStore) DeleteRecipe(userID, id string) error {
+	if s.personalOnly {
+		return s.deletePersonalRecipe(userID, id)
+	}
 	res, err := s.db.Exec(`DELETE FROM recipes WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		return err
@@ -571,7 +575,7 @@ func (s *PostgresStore) CreateIngredient(recipeID string, ing *CreateIngredientR
 	if err := tx.QueryRow(`SELECT id FROM recipes WHERE id=$1 FOR UPDATE`, recipeID).Scan(&lockedRecipeID); err != nil {
 		return nil, err
 	}
-	if err := canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
+	if err := s.canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
 		return nil, err
 	}
 	position := 0
@@ -623,9 +627,6 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 		return nil, err
 	}
 
-	if err := canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
-		return nil, err
-	}
 	// Lock the existing ingredient: both authorization and the first-choice
 	// transition must refer to this same row, even under concurrent updates.
 	var oldLocation, oldType string
@@ -645,6 +646,9 @@ func (s *PostgresStore) UpdateIngredient(userID, recipeID, id string, ing *Creat
 		return nil, err
 	}
 
+	if err := s.canonicalizeLinkedCustomIngredient(tx, recipeID, ing); err != nil {
+		return nil, err
+	}
 	prepJSON := PrepInstructionsJSON(ing.PrepInstructions)
 	sourceType := ing.SourceType
 	if sourceType == "" {
@@ -798,19 +802,19 @@ func (s *PostgresStore) ReplaceIngredients(recipeID string, ingredients []Create
 		return err
 	}
 	defer tx.Rollback()
-	if err := replaceIngredientsTx(tx, recipeID, ingredients); err != nil {
+	if err := s.replaceIngredientsTx(tx, recipeID, ingredients); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func replaceIngredientsTx(tx *sql.Tx, recipeID string, ingredients []CreateIngredientReq) error {
+func (s *PostgresStore) replaceIngredientsTx(tx *sql.Tx, recipeID string, ingredients []CreateIngredientReq) error {
 	if _, err := tx.Exec(`DELETE FROM ingredients WHERE recipe_id = $1`, recipeID); err != nil {
 		tx.Rollback()
 		return err
 	}
 	for position, ing := range ingredients {
-		if err := canonicalizeLinkedCustomIngredient(tx, recipeID, &ing); err != nil {
+		if err := s.canonicalizeLinkedCustomIngredient(tx, recipeID, &ing); err != nil {
 			return err
 		}
 		id := uuid.New().String()
@@ -1238,7 +1242,9 @@ func (s *PostgresStore) UpdateProfile(userID, id string, req *CreateProfileReque
 }
 
 func (s *PostgresStore) DeleteProfile(userID, id string) error {
-	res, err := s.db.Exec(`DELETE FROM person_profiles WHERE user_id = $1 AND id = $2`, userID, id)
+	res, err := s.db.Exec(`DELETE FROM person_profiles p WHERE p.user_id=$1 AND p.id=$2 AND (NOT $3 OR (
+        NOT EXISTS (SELECT 1 FROM food_log_entries e WHERE e.profile_id=p.id AND e.user_id<>p.user_id) AND
+        NOT EXISTS (SELECT 1 FROM weight_entries w WHERE w.profile_id=p.id AND w.user_id<>p.user_id)))`, userID, id, s.personalOnly)
 	if err != nil {
 		return err
 	}
@@ -1250,11 +1256,21 @@ func (s *PostgresStore) DeleteProfile(userID, id string) error {
 
 // ── Food Log Entries ─────────────────────────────────────────────────
 
-func (s *PostgresStore) ListFoodLogEntries(profileID, date string) ([]FoodLogEntry, error) {
+type foodLogOwner struct{ userID, profileID string }
+
+func firstOwner(owners []string) string {
+	if len(owners) > 0 {
+		return owners[0]
+	}
+	return ""
+}
+
+func (s *PostgresStore) ListFoodLogEntries(profileID, date string, owners ...string) ([]FoodLogEntry, error) {
 	query := `SELECT id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM food_log_entries WHERE profile_id = $1`
-	args := []interface{}{profileID}
+	args := []interface{}{profileID, firstOwner(owners)}
+	query += ` AND ($2='' OR (user_id=$2 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=$1 AND p.user_id=$2)))`
 	if date != "" {
-		query += ` AND date = $2 ORDER BY time ASC`
+		query += ` AND date = $3 ORDER BY time ASC`
 		args = append(args, date)
 	} else {
 		query += ` ORDER BY date DESC, time ASC`
@@ -1275,9 +1291,9 @@ func (s *PostgresStore) ListFoodLogEntries(profileID, date string) ([]FoodLogEnt
 	return entries, nil
 }
 
-func (s *PostgresStore) ListFoodLogEntriesByDateRange(profileID, startDate, endDate string) ([]FoodLogEntry, error) {
-	query := `SELECT id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM food_log_entries WHERE profile_id = $1 AND date >= $2 AND date <= $3 ORDER BY date ASC, time ASC`
-	rows, err := s.db.Query(query, profileID, startDate, endDate)
+func (s *PostgresStore) ListFoodLogEntriesByDateRange(profileID, startDate, endDate string, owners ...string) ([]FoodLogEntry, error) {
+	query := `SELECT id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at FROM food_log_entries WHERE profile_id = $1 AND date >= $2 AND date <= $3 AND ($4='' OR (user_id=$4 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=$1 AND p.user_id=$4))) ORDER BY date ASC, time ASC`
+	rows, err := s.db.Query(query, profileID, startDate, endDate, firstOwner(owners))
 	if err != nil {
 		return nil, err
 	}
@@ -1301,11 +1317,14 @@ func (s *PostgresStore) CreateFoodLogEntry(userID, profileID string, req *Create
 	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := s.db.Exec(
-		`INSERT INTO food_log_entries (id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$28)`,
-		id, userID, profileID, req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now,
+	res, err := s.db.Exec(
+		`INSERT INTO food_log_entries (id, user_id, profile_id, date, time, meal_slot, source_type, source_id, name, servings, serving_amount, serving_unit, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, vitamin_d, calcium, iron, potassium, created_at, updated_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$28 WHERE NOT $29 OR EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=$3 AND p.user_id=$2)`,
+		id, userID, profileID, req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, now, s.personalOnly,
 	)
 	if err != nil {
+		return nil, err
+	}
+	if err := requirePersonalRow(res); err != nil {
 		return nil, err
 	}
 	e := &FoodLogEntry{ID: id, UserID: userID, ProfileID: profileID, Date: req.Date, Time: req.Time, MealSlot: req.MealSlot, SourceType: req.SourceType, SourceID: req.SourceID, Name: req.Name, Servings: req.Servings, ServingAmount: req.ServingAmount, ServingUnit: req.ServingUnit, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium, CreatedAt: now, UpdatedAt: now}
@@ -1318,34 +1337,61 @@ func (s *PostgresStore) OwnsFoodLogEntry(userID, profileID, id string) (bool, er
 	return exists, err
 }
 
-func (s *PostgresStore) UpdateFoodLogEntry(id string, req *CreateFoodLogRequest) (*FoodLogEntry, error) {
+func (s *PostgresStore) UpdateFoodLogEntry(id string, req *CreateFoodLogRequest, scope ...foodLogOwner) (*FoodLogEntry, error) {
 	copy := *req
 	req = &copy
 	if err := s.canonicalizeCustomLogUpdate(id, req); err != nil {
 		return nil, err
 	}
-	_, err := s.db.Exec(
-		`UPDATE food_log_entries SET date=$1, time=$2, meal_slot=$3, source_type=$4, source_id=$5, name=$6, servings=$7, serving_amount=$8, serving_unit=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25`,
-		req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id,
+	var owner foodLogOwner
+	if len(scope) > 0 {
+		owner = scope[0]
+	}
+	res, err := s.db.Exec(
+		`UPDATE food_log_entries SET date=$1, time=$2, meal_slot=$3, source_type=$4, source_id=$5, name=$6, servings=$7, serving_amount=$8, serving_unit=$9, calories=$10, total_fat=$11, saturated_fat=$12, trans_fat=$13, cholesterol=$14, sodium=$15, total_carbs=$16, dietary_fiber=$17, total_sugars=$18, added_sugars=$19, protein=$20, vitamin_d=$21, calcium=$22, iron=$23, potassium=$24, updated_at=NOW() WHERE id=$25 AND (NOT $28 OR (user_id=$26 AND profile_id=$27 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=$27 AND p.user_id=$26)))`,
+		req.Date, req.Time, req.MealSlot, req.SourceType, req.SourceID, req.Name, req.Servings, req.ServingAmount, req.ServingUnit, req.Calories, req.TotalFat, req.SaturatedFat, req.TransFat, req.Cholesterol, req.Sodium, req.TotalCarbs, req.DietaryFiber, req.TotalSugars, req.AddedSugars, req.Protein, req.VitaminD, req.Calcium, req.Iron, req.Potassium, id, owner.userID, owner.profileID, s.personalOnly,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if s.personalOnly {
+		if err := requirePersonalRow(res); err != nil {
+			return nil, err
+		}
 	}
 	e := &FoodLogEntry{ID: id, Date: req.Date, Time: req.Time, MealSlot: req.MealSlot, SourceType: req.SourceType, SourceID: req.SourceID, Name: req.Name, Servings: req.Servings, ServingAmount: req.ServingAmount, ServingUnit: req.ServingUnit, Calories: req.Calories, TotalFat: req.TotalFat, SaturatedFat: req.SaturatedFat, TransFat: req.TransFat, Cholesterol: req.Cholesterol, Sodium: req.Sodium, TotalCarbs: req.TotalCarbs, DietaryFiber: req.DietaryFiber, TotalSugars: req.TotalSugars, AddedSugars: req.AddedSugars, Protein: req.Protein, VitaminD: req.VitaminD, Calcium: req.Calcium, Iron: req.Iron, Potassium: req.Potassium}
 	return e, nil
 }
 
-func (s *PostgresStore) DeleteFoodLogEntry(id string) error {
-	_, err := s.db.Exec(`DELETE FROM food_log_entries WHERE id = $1`, id)
-	return err
+func (s *PostgresStore) DeleteFoodLogEntry(id string, scope ...foodLogOwner) error {
+	var owner foodLogOwner
+	if len(scope) > 0 {
+		owner = scope[0]
+	}
+	res, err := s.db.Exec(`DELETE FROM food_log_entries WHERE id=$1 AND (NOT $4 OR (user_id=$2 AND profile_id=$3 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=$3 AND p.user_id=$2)))`, id, owner.userID, owner.profileID, s.personalOnly)
+	if err != nil || !s.personalOnly {
+		return err
+	}
+	return requirePersonalRow(res)
+}
+
+func requirePersonalRow(res sql.Result) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ── Weight Entries ───────────────────────────────────────────────────
 
 func (s *PostgresStore) ListWeightEntries(userID, profileID, fromDate, toDate string) ([]WeightEntry, error) {
-	query := `SELECT w.id, w.user_id, w.profile_id, w.date, w.time, COALESCE(w.weight_kg,0), w.notes, w.blood_sugar, w.blood_pressure_systolic, w.blood_pressure_diastolic, w.measurement_context, w.created_at, w.updated_at FROM weight_entries w JOIN person_profiles p ON p.id=w.profile_id WHERE p.user_id=$1 AND w.profile_id=$2`
-	args := []interface{}{userID, profileID}
-	n := 3
+	query := `SELECT w.id, w.user_id, w.profile_id, w.date, w.time, COALESCE(w.weight_kg,0), w.notes, w.blood_sugar, w.blood_pressure_systolic, w.blood_pressure_diastolic, w.measurement_context, w.created_at, w.updated_at FROM weight_entries w JOIN person_profiles p ON p.id=w.profile_id WHERE p.user_id=$1 AND w.profile_id=$2 AND (NOT $3 OR w.user_id=$1)`
+	args := []interface{}{userID, profileID, s.personalOnly}
+	n := 4
 	if fromDate != "" {
 		query += fmt.Sprintf(` AND w.date >= $%d`, n)
 		args = append(args, fromDate)
@@ -1396,8 +1442,8 @@ func (s *PostgresStore) CreateWeightEntry(userID, profileID string, req *CreateW
 
 func (s *PostgresStore) UpdateWeightEntry(userID, profileID, id string, req *CreateWeightEntryRequest) (*WeightEntry, error) {
 	res, err := s.db.Exec(
-		`UPDATE weight_entries w SET date=$1, time=$2, weight_kg=$3, notes=$4, blood_sugar=$5, blood_pressure_systolic=$6, blood_pressure_diastolic=$7, measurement_context=$8, updated_at=NOW() WHERE w.id=$9 AND w.profile_id=$10 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=w.profile_id AND p.user_id=$11)`,
-		req.Date, req.Time, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id, profileID, userID,
+		`UPDATE weight_entries w SET date=$1, time=$2, weight_kg=$3, notes=$4, blood_sugar=$5, blood_pressure_systolic=$6, blood_pressure_diastolic=$7, measurement_context=$8, updated_at=NOW() WHERE w.id=$9 AND w.profile_id=$10 AND EXISTS (SELECT 1 FROM person_profiles p WHERE p.id=w.profile_id AND p.user_id=$11) AND (NOT $12 OR w.user_id=$11)`,
+		req.Date, req.Time, req.WeightKg, req.Notes, req.BloodSugar, req.BloodPressureSystolic, req.BloodPressureDiastolic, req.MeasurementContext, id, profileID, userID, s.personalOnly,
 	)
 	if err != nil {
 		return nil, err
@@ -1409,7 +1455,7 @@ func (s *PostgresStore) UpdateWeightEntry(userID, profileID, id string, req *Cre
 }
 
 func (s *PostgresStore) DeleteWeightEntry(userID, profileID, id string) error {
-	res, err := s.db.Exec(`DELETE FROM weight_entries w USING person_profiles p WHERE w.id=$1 AND w.profile_id=$2 AND p.id=w.profile_id AND p.user_id=$3`, id, profileID, userID)
+	res, err := s.db.Exec(`DELETE FROM weight_entries w USING person_profiles p WHERE w.id=$1 AND w.profile_id=$2 AND p.id=w.profile_id AND p.user_id=$3 AND (NOT $4 OR w.user_id=$3)`, id, profileID, userID, s.personalOnly)
 	if err != nil {
 		return err
 	}
@@ -1731,6 +1777,9 @@ func (s *PostgresStore) ListChapters(bookID string) ([]Chapter, error) {
 }
 
 func (s *PostgresStore) CreateChapter(bookID string, req *CreateChapterRequest) (*Chapter, error) {
+	if err := s.personalChapterTemplates(s.ownerID, req.PageTemplateID, req.RecipeTemplateID); err != nil {
+		return nil, err
+	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	_, err := s.executor().Exec(`INSERT INTO chapters (id, book_id, title, position, page_template_id, recipe_template_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, id, bookID, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, now)
@@ -1741,6 +1790,9 @@ func (s *PostgresStore) CreateChapter(bookID string, req *CreateChapterRequest) 
 }
 
 func (s *PostgresStore) UpdateChapter(id string, req *CreateChapterRequest) (*Chapter, error) {
+	if err := s.personalChapterTemplates(s.ownerID, req.PageTemplateID, req.RecipeTemplateID); err != nil {
+		return nil, err
+	}
 	_, err := s.executor().Exec(`UPDATE chapters SET title=$1, position=$2, page_template_id=$3, recipe_template_id=$4, updated_at=NOW() WHERE id=$5`, req.Title, req.Position, req.PageTemplateID, req.RecipeTemplateID, id)
 	if err != nil {
 		return nil, err
@@ -2044,6 +2096,9 @@ func (s *PostgresStore) UpdateCustomFood(userID, id string, req *CreateCustomFoo
 }
 
 func (s *PostgresStore) DeleteCustomFood(userID, id string) error {
+	if s.personalOnly {
+		return s.deletePersonalCustomFood(userID, id)
+	}
 	res, err := s.db.Exec(`DELETE FROM custom_foods WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		return err
@@ -2417,6 +2472,25 @@ func (s *PostgresStore) ConvertBookPageToChapterPage(pageID, chapterID string, p
 
 // ── API Keys ─────────────────────────────────────────────────────────
 
+func (s *PostgresStore) LookupPersonalKey(ctx context.Context, digest [32]byte) (*personalKeyDiscovery, error) {
+	var match personalKeyDiscovery
+	var scopes []byte
+	err := s.db.QueryRowContext(ctx, `SELECT u.id,COALESCE(u.display_name,''),k.id,k.scopes,k.expires_at
+		FROM personal_api_keys k JOIN users u ON u.id=k.user_id
+		WHERE k.secret_digest=$1 AND k.expires_at>NOW()`, digest[:]).Scan(
+		&match.Account.ID, &match.Account.DisplayName, &match.Key.ID, &scopes, &match.Key.ExpiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(scopes, &match.Key.Scopes); err != nil {
+		return nil, nil // Invalid grant metadata is an invalid credential.
+	}
+	return &match, nil
+}
+
 func (s *PostgresStore) ListAPIKeys(userID string) ([]ApiKey, error) {
 	rows, err := s.db.Query(`SELECT id, user_id, name, key_hash, key_prefix, permissions, last_used_at, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -2782,7 +2856,7 @@ func (s *PostgresStore) GetTemplate(userID, id string) (*Template, error) {
 func (s *PostgresStore) CreateTemplate(userID string, req *CreateTemplateRequest) (*Template, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	err := s.db.QueryRow(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) SELECT $1,$2,$3,$4,$5,$6,$7,$7 WHERE NOT $5 OR EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin) RETURNING id`, id, userID, req.Name, req.Type, req.IsDefault, req.Layout, now).Scan(&id)
+	err := s.db.QueryRow(`INSERT INTO templates (id, user_id, name, type, is_default, layout_json, created_at, updated_at) SELECT $1,$2,$3,$4,$5,$6,$7,$7 WHERE NOT $5 OR ($8 AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin)) RETURNING id`, id, userID, req.Name, req.Type, req.IsDefault, req.Layout, now, !s.personalOnly).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -2814,7 +2888,7 @@ func (s *PostgresStore) UpdateTemplate(userID, id string, req *UpdateTemplateReq
 	// earlier owner read; administrator authority comes from PostgreSQL.
 	result, err := s.db.Exec(`UPDATE templates SET name=$1, layout_json=$2, is_default=$3, updated_at=NOW() WHERE id=$4 AND (
 	 (user_id=$5 AND NOT is_default AND NOT $3) OR
-	 (EXISTS(SELECT 1 FROM users WHERE id=$5 AND is_admin) AND (is_default OR user_id=$5)))`, name, layout, isDefault, id, userID)
+	 ($6 AND EXISTS(SELECT 1 FROM users WHERE id=$5 AND is_admin) AND (is_default OR user_id=$5)))`, name, layout, isDefault, id, userID, !s.personalOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -2829,7 +2903,7 @@ func (s *PostgresStore) UpdateTemplate(userID, id string, req *UpdateTemplateReq
 }
 
 func (s *PostgresStore) DeleteTemplate(userID, id string) error {
-	result, err := s.db.Exec(`DELETE FROM templates WHERE id=$1 AND ((user_id=$2 AND NOT is_default) OR (is_default AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin)))`, id, userID)
+	result, err := s.db.Exec(`DELETE FROM templates WHERE id=$1 AND ((user_id=$2 AND NOT is_default) OR ($3 AND is_default AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND is_admin)))`, id, userID, !s.personalOnly)
 	if err != nil {
 		return err
 	}
@@ -3191,7 +3265,7 @@ func (s *PostgresStore) DeleteUserData(userID string) error {
 		"recipe_ratings", "shared_recipes", "recipe_books", "recipes",
 		"grocery_checklists", "meal_plans", "food_log_entries", "weight_entries", "person_profiles",
 		"allergen_rules", "dietary_profiles", "food_storage_defaults", "custom_foods",
-		"templates", "brand_kits", "pantry_staples", "user_secrets", "user_locations", "api_keys", "devices",
+		"templates", "brand_kits", "pantry_staples", "user_secrets", "user_locations", "api_keys", "personal_api_keys", "devices",
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -67,6 +67,10 @@ func (s *Server) recipeImportsRouter(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrImportAccepted) || errors.Is(err, ErrBookImportChanged) || errors.As(err, &conflict):
 			code = http.StatusConflict
 		case errors.Is(err, ErrExportForbidden):
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			code = http.StatusForbidden
 		}
 		writeError(w, code, err.Error())

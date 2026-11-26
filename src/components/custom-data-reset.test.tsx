@@ -225,7 +225,8 @@ describe('administrator complete custom-data reset', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'API Keys' }));
     expect(screen.queryByText('Old developer key')).not.toBeInTheDocument();
-    expect(screen.getByText('Existing keys cannot authenticate; revoke them below. New key issuance is disabled until scoped authentication is supported.')).toBeInTheDocument();
+    expect(screen.getByText('No legacy keys.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Personal API keys' })).toHaveAttribute('href', '/settings/personal-keys');
   });
 });
 

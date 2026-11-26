@@ -101,6 +101,8 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("/api/keys/", s.requireAuth(s.apiKeyRoutes))
 	mux.HandleFunc("/api/keys", s.requireAuth(s.apiKeysRouter))
+	mux.HandleFunc("/api/personal-keys", s.requireAuth(s.personalKeysRouter))
+	mux.HandleFunc("/api/personal-keys/{keyId}", s.requireAuth(s.revokePersonalKey))
 
 	mux.HandleFunc("/api/share", s.requireAuth(s.shareRouter))
 	mux.HandleFunc("/api/share/", s.shareItemRouter)
@@ -128,7 +130,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/secrets/", s.requireAuth(s.secretRoutes))
 	mux.HandleFunc("/api/secrets", s.requireAuth(s.secretsRouter))
 
-	var handler http.Handler = mux
+	var handler http.Handler = s.routePersonalKeys(mux)
 	if s.rateLimiter != nil {
 		handler = s.rateLimiter.AccountMiddleware(handler)
 	}
@@ -580,7 +582,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
-		if r.Method == "OPTIONS" {
+		if r.Method == "OPTIONS" && !isPersonalKeyRequest(r) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

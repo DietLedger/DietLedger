@@ -235,6 +235,9 @@ export default function AppNav() {
                 <div className="flex-1 min-h-0 overflow-y-auto mt-4">
                 <TabsContent value="general" className="mt-0">
                   <div className="space-y-5">
+                    <Link href="/settings/personal-keys" onClick={() => setSettingsOpen(false)} className="inline-flex items-center gap-2 text-sm text-brand-600 underline">
+                      <Key className="h-4 w-4" />Personal API keys
+                    </Link>
                     <div>
                       <label className="text-sm font-medium text-stone-700 flex items-center gap-2 mb-2">
                         <Key className="w-3.5 h-3.5 text-brand-600" />USDA FoodData Central API Key

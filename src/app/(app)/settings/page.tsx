@@ -441,14 +441,14 @@ export default function SettingsPage() {
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2"><Key className="w-4 h-4 text-brand-600" />Developer API Keys</CardTitle>
-                    <Button size="sm" disabled>Key issuance unavailable</Button>
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2"><Key className="w-4 h-4 text-brand-600" />Legacy API Keys</CardTitle>
+                    <Button asChild size="sm"><Link href="/settings/personal-keys">Personal API keys</Link></Button>
                   </div>
-                  <p className="text-xs text-stone-400">Existing keys cannot authenticate and can be revoked below. Issuance is disabled until scoped authentication is supported.</p>
+                  <p className="text-xs text-stone-400">Legacy keys cannot authenticate and can be revoked below. Create and manage new scoped keys in Personal API keys.</p>
                 </CardHeader>
                 <CardContent>
                   {keys.length === 0 ? (
-                    <div className="text-center py-6 text-stone-400"><Key className="w-8 h-8 mx-auto mb-2 text-stone-300" /><p className="text-sm">Existing keys cannot authenticate; revoke them below. New key issuance is disabled until scoped authentication is supported.</p></div>
+                    <div className="text-center py-6 text-stone-400"><Key className="w-8 h-8 mx-auto mb-2 text-stone-300" /><p className="text-sm">No legacy keys.</p></div>
                   ) : (
                     <div className="space-y-2">
                       {keys.map((k) => (
