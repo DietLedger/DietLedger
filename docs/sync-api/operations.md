@@ -2,7 +2,7 @@
 
 See [connection and sessions](connection.md), [workflows and constraints](workflows.md), and [wire types](wire-types.md). This is the canonical path catalog: use the paths shown, including the trailing slash for the chapters collection. Explicit aliases are listed; incidental matches of loose path or method dispatch are not additional capabilities. `{...}` denotes a required URL path parameter. Opaque local IDs are strings unless noted. A dash means no query/body. A `!` marks a required query parameter. `page/perPage` are two optional integer parameters, default 1/20, with `perPage` capped at 100. Request bodies are JSON unless noted.
 
-**Access**: `Public` = no credentials; `Optional` = valid Bearer adds privileges, invalid/absent is anonymous; `Session` = Bearer required (also subject to ownership); `Admin` = Bearer and server-confirmed administrator; `Origin` = configured Origin and POST; `Cookie` = configured Origin and CSRF header, see session protocol. Access labels do not substitute for row-level authorization. `Envelope<T>` means `{"ok":true,"data":...}`, `OK` means `{"ok":true}`, `Page<T>` means a bare `PaginatedResponse` containing a `T[]` in `data`. Other results are bare JSON unless wrapped. Shapes use JSON keys and Go type names. Statuses shown are success statuses unless the row expressly documents an unavailable operation. See [common and workflow-specific errors](connection.md#http-conventions).
+**Access**: `Public` = no credentials; `Optional` = valid Bearer adds privileges, invalid/absent is anonymous; `Session` = Bearer required (also subject to ownership); `Admin` = Bearer and server-confirmed administrator; `Origin` = configured Origin and POST; `Cookie` = configured Origin and CSRF header, see session protocol; `PersonalKey` = personal-key Bearer only. For exact operations usable by either a session or a scoped personal key, see [personal key scopes](key-scopes.md). Access labels do not substitute for row-level authorization. `Envelope<T>` means `{"ok":true,"data":...}`, `OK` means `{"ok":true}`, `Page<T>` means a bare `PaginatedResponse` containing a `T[]` in `data`. Other results are bare JSON unless wrapped. Shapes use JSON keys and Go type names. Statuses shown are success statuses unless the row expressly documents an unavailable operation. See [common and workflow-specific errors](connection.md#http-conventions).
 
 The **Go handler** column names traceable symbols in the pinned backend. The repository/commit and lookup instructions are in [Start here](README.md); named DTOs link by name to the bundled wire type reference, not to frontend types.
 
@@ -16,6 +16,7 @@ The **Go handler** column names traceable symbols in the pinned backend. The rep
 | POST | `/api/auth/login` | Origin | — | `LoginRequest` | `200 AuthResponse` + Set-Cookie | `loginHandler` | Bad credentials: 401. |
 | POST | `/api/auth/refresh` | Cookie | — | — | `200 AuthResponse` + Set-Cookie | `refreshHandler` | Rotates cookie; invalid/missing session: 401. No JSON refresh token. |
 | POST | `/api/auth/logout` | Cookie | — | — | `200 OK` + clearing Set-Cookie | `logoutHandler` | Revokes the cookie session; missing cookie succeeds but does not revoke a session. |
+| GET | `/api/auth/key` | PersonalKey | — | — | `200 Envelope<personalKeyDiscovery>` | `routePersonalKeys` | Identity and grants; never issues tokens or sets cookies. |
 
 ## Instance and account
 
@@ -32,6 +33,9 @@ The **Go handler** column names traceable symbols in the pinned backend. The rep
 | GET | `/api/keys` | Session | — | — | `200 Envelope<ApiKey[]>` | `apiKeysRouter` | Legacy metadata only, not credentials. |
 | POST | `/api/keys` | Session | — | — | `410 error` | `apiKeysRouter` | Issuance intentionally disabled. Never use a legacy API key to authenticate. |
 | DELETE | `/api/keys/{keyId}` | Session | — | — | `200 OK` | `apiKeyItemRouter` | Revokes caller's legacy key. |
+| GET | `/api/personal-keys` | Session | — | — | `200 Envelope<personalKeyMetadata[]>` | `personalKeysRouter` | Caller-owned metadata; includes stored expired keys. |
+| POST | `/api/personal-keys` | Session | — | `createPersonalKeyRequest` | `201 Envelope<issuedPersonalKey>` | `personalKeysRouter` | Exact configured HTTPS Origin and CSRF marker required. Requires current password; only response to include the plaintext key. |
+| DELETE | `/api/personal-keys/{keyId}` | Session | — | — | `200 OK` | `revokePersonalKey` | Exact configured HTTPS Origin and CSRF marker required. Caller-owned; missing or foreign is 404. |
 
 ## Recipes, ingredients and categorization
 
@@ -78,7 +82,7 @@ The **Go handler** column names traceable symbols in the pinned backend. The rep
 | POST | `/api/custom-foods` | Session | — | `CreateCustomFoodRequest` | `201 Envelope<CustomFood>` | `customFoodsRouter` | Name required; omit `portableId`. |
 | PUT | `/api/custom-foods/{foodId}` | Session | — | `CreateCustomFoodRequest` | `200 Envelope<CustomFood>` | `customFoodItemRouter` | Full write; `portableId` is immutable. |
 | DELETE | `/api/custom-foods/{foodId}` | Session | — | — | `200 OK` | `customFoodItemRouter` | Caller-owned deletion. |
-| POST | `/api/custom-foods/{foodId}/share` | Session | — | — | `404 error` | `customFoodItemRouter` | Intended share action passes `foodId/share` to the store instead of `foodId`; no supported workaround on this revision. |
+| POST | `/api/custom-foods/{foodId}/share` | Session | — | — | `404 error` | `customFoodItemRouter` | Intended share action passes `foodId/share` to the store instead of `foodId`; no session workaround; [the exact key route](key-scopes.md) supports owner-only publication. |
 | GET | `/api/custom-foods/community` | Session | `page/perPage` | — | `200 Page<CustomFood>` | `communityCustomFoodsRouter` | Shared custom foods, not anonymous. |
 | GET | `/api/food-storage-defaults` | Session | — | — | `200 Envelope<FoodStorageDefault[]>` | `foodStorageDefaultsRouter` | Per caller and source identity. |
 | PUT | `/api/food-storage-defaults/{sourceType}/{sourceKey}` | Session | — | `{location:string}` | `200 Envelope<FoodStorageDefault>` | `foodStorageDefaultItemRouter` | `usda` + canonical positive decimal FDC ID or `custom_food` + accessible local ID. |

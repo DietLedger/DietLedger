@@ -1516,6 +1516,16 @@ Source: `sync-server/models.go`.
 | `createdAt` | `time.Time` | no |
 | `updatedAt` | `time.Time` | no |
 
+## `createPersonalKeyRequest`
+
+Source: `sync-server/personal_key_management.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `name` | `string` | no |
+| `scopes` | `[]string` | no |
+| `password` | `string` | no |
+
 ## `datasetStatus`
 
 Source: `sync-server/handlers_food.go`.
@@ -1547,6 +1557,19 @@ Source: `sync-server/import_quarantine.go`.
 
 `map[string]map[string]string`
 
+## `issuedPersonalKey`
+
+Source: `sync-server/personal_key_management.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `id` | `string` | no |
+| `name` | `string` | no |
+| `scopes` | `[]string` | no |
+| `createdAt` | `time.Time` | no |
+| `expiresAt` | `time.Time` | no |
+| `key` | `string` | no |
+
 ## `nutrientThreshold`
 
 Source: `sync-server/dietary_assessment.go`.
@@ -1558,6 +1581,47 @@ Source: `sync-server/dietary_assessment.go`.
 | `perMealMax` | `*float64` | yes |
 | `per1000KcalMin` | `*float64` | yes |
 | `alertLevel` | `string` | no |
+
+## `personalKeyAccount`
+
+Source: `sync-server/personal_key_auth.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `id` | `string` | no |
+| `displayName` | `string` | no |
+
+## `personalKeyDiscovery`
+
+Source: `sync-server/personal_key_auth.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `contractVersion` | `int` | no |
+| `account` | `personalKeyAccount` | no |
+| `key` | `personalKeyInfo` | no |
+
+## `personalKeyInfo`
+
+Source: `sync-server/personal_key_auth.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `id` | `string` | no |
+| `scopes` | `[]string` | no |
+| `expiresAt` | `time.Time` | no |
+
+## `personalKeyMetadata`
+
+Source: `sync-server/personal_key_management.go`.
+
+| JSON field | Go type | Omit empty on encode |
+| --- | --- | --- |
+| `id` | `string` | no |
+| `name` | `string` | no |
+| `scopes` | `[]string` | no |
+| `createdAt` | `time.Time` | no |
+| `expiresAt` | `time.Time` | no |
 
 ## `recipeBundleExportRequest`
 
