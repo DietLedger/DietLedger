@@ -155,6 +155,8 @@ Avoid features that introduce disproportionate maintenance cost.
 
 # Target Users
 
+The [GitHub Pages introduction](index.html) highlights three ways to use DietLedger before visitors start the interactive adventure: personal nutrition tracking, household meal planning, and planning around health-related dietary requirements. The last highlights recipe screening and weekly planning, not medical or allergen certification. See the [introduction spec](specs/github-pages-introduction.md).
+
 ## Home Cooks
 
 Users who create recipes and want accurate nutrition information.

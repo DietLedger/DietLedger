@@ -1,0 +1,9 @@
+# GitHub Pages introduction
+
+Give first-time visitors a quick overview before the existing choose-your-own-adventure opening in `docs/index.html`. Tell the story through three everyday kitchen moments: understanding a personal favorite, feeding the family, and adapting meals to required diet changes. Use a food-magazine cover composition: one illustrated spaghetti supper, an oversized serif headline, a prominent invitation, and three short stories about the same dish. Reuse the adventure’s original art, copper accents and paper textures; keep any entrance motion brief and honor reduced motion. Emphasize entering your own dietary requirements with your care provider’s guidance; do not name conditions or promise medical suitability. Invite the reader to see how DietLedger fits into their life.
+
+The tiles are informational. One clearly labeled button enters the existing opening and focuses its heading; Back from that opening returns to the welcome button. Existing adventure paths and setup are unchanged. Restart returns to the introduction. Preserve the page’s visual style, readable mobile layout and keyboard navigation. No app or API behavior changes.
+
+Verify first load, three tiles, keyboard entry/return, narrow and wide layout, reduced motion, and the existing personal, family, and care paths. Keep the public-page scope to the requested introduction; no new content dependencies or deploy/publish steps.
+
+Verification: a local headless Chromium/Vivaldi smoke check first failed because the welcome was absent, then passed at 320px and 1280px with reduced motion enabled. It checked tile layout and overflow, keyboard entry and focus, Back, all three existing opening paths, setup, restart, and absence of JavaScript exceptions. `git diff --check` passed. No hosted deployment was exercised.

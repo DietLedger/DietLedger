@@ -4,10 +4,92 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DietLedger</title>
-<style>html,body{margin:0;background:#102e28}</style>
+<style>
+  html,body { margin:0; background:#102e28; }
+  #introduction {
+    min-height:100svh; box-sizing:border-box; padding:clamp(24px,6vw,80px) clamp(16px,5vw,56px);
+    display:grid; align-content:center; justify-items:center; color:#fff5dc; font:16px/1.55 system-ui,sans-serif;
+    background:radial-gradient(ellipse at 50% 15%,#365548,transparent 68%),linear-gradient(125deg,#183b31,#102e28);
+  }
+  #introduction[hidden] { display:none; }
+  .intro-mast,.intro-cover { width:min(100%,68rem); }
+  .intro-mast { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; padding-bottom:8px; border-bottom:1px solid #c39768; color:#f9e8c6; font:1.5rem Georgia,serif; }
+  .intro-mast small,.intro-kicker { font:600 .76rem/1.4 system-ui,sans-serif; text-transform:uppercase; letter-spacing:.13em; }
+  .intro-cover { display:grid; grid-template-columns:1.1fr 1fr; align-items:center; gap:1rem; padding-top:clamp(20px,3vw,40px); }
+  .intro-header h1 { margin:0; font:normal clamp(44px,6.8vw,96px)/.98 Georgia,serif; letter-spacing:-.055em; }
+  .intro-header h1 em { color:#ffc489; }
+  .intro-header p { max-width:36ch; margin:1.2em 0; color:#f2ebdc; font-size:clamp(1rem,1.5vw,1.2rem); }
+  .intro-platter { display:block; width:100%; max-width:34rem; justify-self:center; }
+  @media(prefers-reduced-motion:no-preference) {
+    .intro-dish { transform-origin:220px 132px; animation:serve-dinner .8s ease-out both; }
+    @keyframes serve-dinner { from { transform:translate(12px,-10px) rotate(-7deg); } to { transform:none; } }
+  }
+  .intro-tiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; width:min(100%,68rem); margin:clamp(20px,4vw,44px) 0 26px; }
+  .intro-tile {
+    padding:clamp(16px,2.2vw,28px); border:1px solid #cdb68a; border-radius:8px;
+    background:linear-gradient(140deg,#fff8e6,#efe2c6); color:#223b30; box-shadow:0 5px 12px #06150e4d;
+  }
+  .intro-tile:nth-child(2) { background:#f6dfbb; }
+  .intro-tile:nth-child(3) { background:#dce5cc; }
+  .intro-tile h2 { margin:.5em 0 .35em; font:normal clamp(23px,2.6vw,30px)/1.13 Georgia,serif; }
+  .intro-tile p { margin:0; }
+  .intro-tile .intro-kicker { color:#475745; border-bottom:1px solid #65775870; padding-bottom:.6em; }
+  #start-adventure {
+    min-height:48px; padding:10px 20px; border:1px solid #d3a36d; border-radius:6px;
+    background:#f1cb91; color:#223b30; font:1.15rem Georgia,serif; cursor:pointer;
+  }
+  #start-adventure:hover { background:#ffe2ae; }
+  #start-adventure:focus-visible { outline:3px solid #fff5dc; outline-offset:4px; }
+  @media(max-width:720px) {
+    .intro-cover { grid-template-columns:1fr; gap:0; }
+    .intro-platter { width:min(100%,22rem); }
+    .intro-tiles { grid-template-columns:1fr; margin-top:10px; }
+    .intro-header p { max-width:44ch; }
+  }
+</style>
 </head>
 <body>
-<main id="preview"></main>
+<main>
+  <section id="introduction" aria-labelledby="intro-title">
+    <div class="intro-mast"><span>DietLedger</span><small>The Sunday Edition</small></div>
+    <div class="intro-cover">
+      <header class="intro-header">
+        <h1 id="intro-title">Sunday’s spaghetti.<br><em>Monday’s lunch.</em></h1>
+        <p>One pot does a lot. So should your cookbook. Save the recipe in DietLedger and it becomes a nutrition label, a dinner plan, a grocery list, and a meal you can log.</p>
+        <button type="button" id="start-adventure" hidden>See how DietLedger fits into your life <span aria-hidden="true">→</span></button>
+      </header>
+      <svg class="intro-platter" viewBox="0 0 440 304" aria-hidden="true" focusable="false">
+        <g transform="translate(220 132) rotate(-12)">
+          <rect x="-125" y="-95" width="250" height="210" rx="4" fill="#c66e4c"/>
+          <path d="M-115-95v210m5-210v210m213-210v210m5-210v210" fill="none" stroke="#f6d5ad" stroke-width="2"/>
+        </g>
+        <g class="intro-dish"><g transform="translate(220 132) rotate(7) scale(1.9)"><use href="#dish-family"/><use href="#cutlery"/></g></g>
+        <g transform="translate(255 231) rotate(-6)">
+          <path d="M0 0h150v52H0z" fill="#f9e9c9" stroke="#c99d6c"/><path d="M10 34h129" stroke="#c8ae85"/>
+          <text x="12" y="27" fill="#344838" font-family="Georgia,serif" font-style="italic" font-size="21">Save me a bowl.</text>
+        </g>
+      </svg>
+    </div>
+    <div class="intro-tiles">
+      <article class="intro-tile">
+        <p class="intro-kicker">01 / Your nutrition</p>
+        <h2>Your sauce won’t scan. It doesn’t need to.</h2>
+        <p>Build the recipe the way you cook it. See the protein, fiber, and calories in your serving, then log your bowl and see how it fits your day.</p>
+      </article>
+      <article class="intro-tile">
+        <p class="intro-kicker">02 / Your family</p>
+        <h2>Cook for four. Pack two lunches.</h2>
+        <p>Put spaghetti on Sunday’s menu and plan for six servings. DietLedger turns the week’s meals into one shopping list. At home, each family member can have their own nutrition profile.</p>
+      </article>
+      <article class="intro-tile">
+        <p class="intro-kicker">03 / Your health</p>
+        <h2>Less sodium? Start with the sauce.</h2>
+        <p>When your diet needs to change, enter your own requirements with guidance from your care provider. Filter your recipes by the targets you set, then pick this week’s dinners from the dishes that fit.</p>
+      </article>
+    </div>
+  </section>
+  <div id="preview"></div>
+</main>
 
 <template id="ledger-shell">
 <style>
@@ -1320,7 +1402,6 @@ function showSetup(meal, onBack = () => showPilot(meal,true)) {
   });
   scene.focusHeading();
 }
-showOpening();
 </script>
 <!-- BEGIN ADVENTURE EXTENSION -->
 <script>
@@ -1936,6 +2017,7 @@ showOpening = function(returning = false, returnPath = 'care') {
   adventureRoute = null;
   scene?.destroy();
   scene = mountThreeLights(preview, {
+    onBack: showIntroduction,
     onSetup:() => showAdventureSetup('personal',0,() => showOpening(true)),
     onChoose(path) {
       if (path === 'care') showBranches();
@@ -1956,7 +2038,24 @@ showBranches = function(returning = false, returnPath = 'schools') {
   });
   if (returning) {scene.skip(); scene.focusPath(returnPath);} else scene.focusHeading();
 };
-showOpening();
+const introduction = document.getElementById('introduction');
+const startAdventure = document.getElementById('start-adventure');
+
+function showIntroduction() {
+  scene?.destroy();
+  scene = null;
+  introduction.hidden = false;
+  startAdventure.focus();
+}
+
+startAdventure.addEventListener('click', () => {
+  introduction.hidden = true;
+  showOpening();
+  scene.focusHeading();
+});
+// Give the cover the same illustrated dinnerware as the adventure scenes.
+introduction.querySelector('.intro-platter').prepend(document.querySelector('#ledger-art').content.querySelector('defs').cloneNode(true));
+startAdventure.hidden = false;
 
 </script>
 <!-- END ADVENTURE EXTENSION -->
