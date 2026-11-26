@@ -71,6 +71,10 @@ The license permits non-commercial personal or household use, specified internal
 
 Read [LICENSE.md](LICENSE.md) in full before use. For commercial licensing inquiries, see the contact information in the license and on [dietledger.app](https://www.dietledger.app).
 
+## Build a native client
+
+The [Go Sync API handoff](docs/sync-api/README.md) covers the HTTP contract and native client workflows without depending on the web GUI. For a separate Android or iOS repository, [download the AI agent kit](download/dietledger-sync-api-agent-kit.zip?raw=true), then start with its `AGENTS.md` and `BUILD.md`.
+
 ## Learn more
 
 - **GitHub repository:** [DietLedger/DietLedger](https://github.com/DietLedger/DietLedger)
