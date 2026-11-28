@@ -1,6 +1,6 @@
 {
   "name": "dietledger",
-  "version": "1.0.0-beta.175",
+  "version": "1.0.0-beta.176",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 --webpack",

@@ -46,7 +46,7 @@ Both are text-only transcriptions from the National Heart, Lung, and Blood Insti
 
 Portainer CE Docker Standalone can use Web editor/Upload with the reviewed release Compose asset, or a Git stack with the approved repository, **exact approved tag/ref** and `docker-compose.portainer.yml`. Explicitly enter/import variables in Portainer; it does not read a host `.env` automatically. Keep identical service health/successful-completion dependencies, disable automatic updates, and use a new stack/volume. No relative bind mounts or Business Edition feature is required. Source review identifies a candidate version; actual Portainer runtime verification remains pending—see the guide.
 
-Developer source builds are separate and may require Node/buildx: `npm run docker:build:local` builds/loads web and API only, without deployment. Local runtime tests need explicit approval and disposable resources; they do not prove anonymous GHCR installation.
+Developer source builds are separate and may require Node/buildx. Before each local container build, run `npm run version:sync -- bump` and update the version in the unreleased `release.json` to match. Then run `npm run docker:build:local` to build and load both images at the new version without deploying them. The GitHub release workflow rebuilds the approved tag without changing its version. Local runtime tests need explicit approval and disposable resources; they do not prove anonymous GHCR installation.
 
 ### Reruns, upgrades and recovery
 
