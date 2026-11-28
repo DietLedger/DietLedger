@@ -143,7 +143,7 @@ The owner selected standard Docker Compose and Portainer CE Docker Standalone, p
 
 ## Authentication and setup
 
-A fresh installation requires its operator's one-use setup claim to create the first administrator. After a factory reset, the operator must provide a different claim; the previous one cannot be reused. Existing browser sessions must sign in again after the session-security upgrade. Developer API-key creation is unavailable until scoped authentication is supported; existing keys cannot authenticate and may be revoked. Account and recipe data are preserved by the authentication cutover.
+A fresh installation requires its operator's one-use setup claim to create the first administrator. After a factory reset, the operator must provide a different claim; the previous one cannot be reused. Existing browser sessions must sign in again after the session-security upgrade. Legacy developer keys cannot authenticate and may be revoked. Independent clients use separate personal keys issued from web Settings, with opt-in full personal access or narrower grants. Account deletion, personal wipes, credential management, and instance administration are never key capabilities. Account and recipe data are preserved by the authentication cutover.
 
 ## Maintainability Matters
 

@@ -4,7 +4,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,6 +140,10 @@ func (s *Server) templatesRouter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.IsDefault && !user.IsAdmin {
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusForbidden, "administrator access required to publish a default template")
 			return
 		}
@@ -186,14 +192,26 @@ func (s *Server) templateItemRouter(w http.ResponseWriter, r *http.Request, id s
 			return
 		}
 		if current.IsDefault && !user.IsAdmin {
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusForbidden, "administrator access required")
 			return
 		}
 		if req.IsDefault != nil && *req.IsDefault && !user.IsAdmin {
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusForbidden, "administrator access required to publish a default template")
 			return
 		}
 		t, err := s.store.UpdateTemplate(user.ID, id, &req)
+		if personalKeyFromContext(r) != nil && errors.Is(err, sql.ErrNoRows) {
+			denyPersonalKey(w)
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update template")
 			return
@@ -210,10 +228,18 @@ func (s *Server) templateItemRouter(w http.ResponseWriter, r *http.Request, id s
 			return
 		}
 		if t.IsDefault && !user.IsAdmin {
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusForbidden, "administrator access required")
 			return
 		}
 		if err := s.store.DeleteTemplate(user.ID, id); err != nil {
+			if personalKeyFromContext(r) != nil && errors.Is(err, sql.ErrNoRows) {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to delete template")
 			return
 		}

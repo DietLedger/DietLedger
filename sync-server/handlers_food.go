@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -30,7 +31,8 @@ func (s *Server) foodSearchHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Local miss: try the live USDA API using the user's FDA key, then cache
 	// the results so subsequent searches are served locally.
-	if total == 0 && q != "" && page == 1 {
+	key := personalKeyFromContext(r)
+	if total == 0 && q != "" && page == 1 && (key == nil || slices.Contains(key.Key.Scopes, "catalog:live")) {
 		liveFoods, src := s.tryUSDAFallback(r, q)
 		if len(liveFoods) > 0 {
 			foods = liveFoods
@@ -83,8 +85,10 @@ func (s *Server) tryUSDAFallback(r *http.Request, query string) ([]FoodItem, str
 
 	// Cache into the shared local DB so future searches are local. Errors are
 	// non-fatal — we still return the live results to the caller.
-	if _, err := s.store.CreateFoodItems(liveFoods); err != nil {
-		log.Printf("Warning: failed to cache USDA results: %v", err)
+	if personalKeyFromContext(r) == nil {
+		if _, err := s.store.CreateFoodItems(liveFoods); err != nil {
+			log.Printf("Warning: failed to cache USDA results: %v", err)
+		}
 	}
 	return liveFoods, "fda"
 }

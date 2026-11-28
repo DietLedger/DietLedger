@@ -1304,6 +1304,9 @@ func (s *PostgresStore) findOrCreateCategoryTx(tx *sql.Tx, userID, name string, 
 	if err != sql.ErrNoRows {
 		return "", err
 	}
+	if s.personalOnly {
+		return "", fmt.Errorf("administrator must provision new global categories before import: %w", ErrExportForbidden)
+	}
 	id = uuid.New().String()
 	err = tx.QueryRow(`INSERT INTO categories (id,name,parent_id,created_at,updated_at) SELECT $1,$2,$3,NOW(),NOW() WHERE EXISTS(SELECT 1 FROM users WHERE id=$4 AND is_admin) RETURNING id`, id, name, parentID, userID).Scan(&id)
 	if err == sql.ErrNoRows {
@@ -1442,7 +1445,7 @@ func (s *PostgresStore) ExportOwnerRecipeBookBackup(userID string) (*RecipeBundl
 		return nil, err
 	}
 	defer tx.Rollback()
-	snapshot := &PostgresStore{db: s.db, readTx: tx}
+	snapshot := &PostgresStore{db: s.db, readTx: tx, personalOnly: s.personalOnly}
 	recipeIDs, err := snapshot.listOwnedBundleIDs(`SELECT id FROM recipes WHERE user_id=$1 ORDER BY created_at, id`, userID)
 	if err != nil {
 		return nil, err
@@ -1655,7 +1658,11 @@ func (s *PostgresStore) addNutritionProfileToBundleForUser(user *User, profileID
 		return err
 	}
 	bundle.NutritionProfiles = append(bundle.NutritionProfiles, *profile)
-	logs, err := s.ListFoodLogEntries(profileID, "")
+	owner := ""
+	if s.personalOnly {
+		owner = user.ID
+	}
+	logs, err := s.ListFoodLogEntries(profileID, "", owner)
 	if err != nil {
 		return err
 	}

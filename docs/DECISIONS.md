@@ -946,6 +946,18 @@ Protect the generic error body with a focused HTTP assertion and retain the disc
 
 ---
 
+# ADR: Owner-scoped Sync API Keys Separate from Sessions
+
+## Status
+
+Owner approved; candidate implementation, not released. See [spec and evidence](specs/scoped-personal-sync-api-keys.md).
+
+## Decision and consequences
+
+Use expiring, explicitly granted credentials in a new digest-only PostgreSQL relation, not legacy key rows or a shortcut around DB-backed sessions. The personal-key route allowlist denies access by default; its owner identity never confers admin authority, including in SQL predicates. Offer full personal workflow access (including sharing and record-level deletes) or narrower grants in web; keep destructive account actions and credential management web-session-only. Preserve browser/session behavior and the private Go/database boundary behind trusted HTTPS ingress. Account and content resets retain existing revocation intent. The release gate includes isolated HTTPS transport and session compatibility; deployment and publication are separate decisions.
+
+---
+
 # Future Decision Guidelines
 
 Before creating a new architectural decision:

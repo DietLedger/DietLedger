@@ -333,6 +333,9 @@ func (s *Server) createRecipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recipe, err := s.store.CreateRecipe(user.ID, &req)
+	if keySourceNotFound(w, r, err) {
+		return
+	}
 	if err != nil {
 		if errors.Is(err, errRecipeCreateConflict) {
 			writeError(w, http.StatusConflict, err.Error())
@@ -377,6 +380,9 @@ func (s *Server) updateRecipe(w http.ResponseWriter, r *http.Request, id string)
 		}
 	}
 	recipe, err := s.store.UpdateRecipe(user.ID, id, &req)
+	if keySourceNotFound(w, r, err) {
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update recipe")
 		return
@@ -391,6 +397,10 @@ func (s *Server) updateRecipe(w http.ResponseWriter, r *http.Request, id string)
 func (s *Server) deleteRecipe(w http.ResponseWriter, r *http.Request, id string) {
 	user := getUserFromContext(r)
 	if err := s.store.DeleteRecipe(user.ID, id); err != nil {
+		if personalKeyFromContext(r) != nil && errors.Is(err, errPersonalForeignDependency) {
+			denyPersonalKey(w)
+			return
+		}
 		writeError(w, http.StatusNotFound, "recipe not found")
 		return
 	}
@@ -419,6 +429,9 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 				return
 			}
 			ing, err := s.store.CreateIngredient(recipeID, &req)
+			if keySourceNotFound(w, r, err) {
+				return
+			}
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to create ingredient")
 				return
@@ -445,6 +458,9 @@ func (s *Server) ingredientRouter(w http.ResponseWriter, r *http.Request, recipe
 			return
 		}
 		ing, err := s.store.UpdateIngredient(user.ID, recipeID, ingID, &req)
+		if keySourceNotFound(w, r, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update ingredient")
 			return
@@ -572,13 +588,15 @@ func (s *Server) profilesRouter(w http.ResponseWriter, r *http.Request) {
 func (s *Server) profileItemRouter(w http.ResponseWriter, r *http.Request, id string) {
 	user := getUserFromContext(r)
 	path := r.URL.Path
-	if strings.Contains(path, "/log") {
-		s.foodLogRouter(w, r, id)
-		return
-	}
-	if strings.Contains(path, "/weight") {
-		s.weightRouter(w, r, id)
-		return
+	if personalKeyFromContext(r) == nil {
+		if strings.Contains(path, "/log") {
+			s.foodLogRouter(w, r, id)
+			return
+		}
+		if strings.Contains(path, "/weight") {
+			s.weightRouter(w, r, id)
+			return
+		}
 	}
 	switch r.Method {
 	case "GET":
@@ -647,10 +665,14 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 		endDate := r.URL.Query().Get("endDate")
 		var entries []FoodLogEntry
 		var err error
+		owner := ""
+		if personalKeyFromContext(r) != nil {
+			owner = user.ID
+		}
 		if startDate != "" && endDate != "" {
-			entries, err = s.store.ListFoodLogEntriesByDateRange(profileID, startDate, endDate)
+			entries, err = s.store.ListFoodLogEntriesByDateRange(profileID, startDate, endDate, owner)
 		} else {
-			entries, err = s.store.ListFoodLogEntries(profileID, date)
+			entries, err = s.store.ListFoodLogEntries(profileID, date, owner)
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list food log")
@@ -675,6 +697,10 @@ func (s *Server) foodLogRouter(w http.ResponseWriter, r *http.Request, profileID
 			return
 		}
 		entry, err := s.store.CreateFoodLogEntry(user.ID, profileID, &req)
+		if personalKeyFromContext(r) != nil && errors.Is(err, sql.ErrNoRows) {
+			writeError(w, 404, "profile or source not found")
+			return
+		}
 		if err != nil {
 			log.Printf("Error creating food log entry (profileID=%s, sourceType=%s, mealSlot=%s): %v", profileID, req.SourceType, req.MealSlot, err)
 			writeError(w, http.StatusInternalServerError, "failed to create food log entry")
@@ -708,14 +734,22 @@ func (s *Server) foodLogEntryRouter(w http.ResponseWriter, r *http.Request, prof
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		entry, err := s.store.UpdateFoodLogEntry(id, &req)
+		entry, err := s.store.UpdateFoodLogEntry(id, &req, foodLogOwner{user.ID, profileID})
+		if personalKeyFromContext(r) != nil && errors.Is(err, sql.ErrNoRows) {
+			writeError(w, 404, "entry or source not found")
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update food log entry")
 			return
 		}
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: entry})
 	case "DELETE":
-		if err := s.store.DeleteFoodLogEntry(id); err != nil {
+		if err := s.store.DeleteFoodLogEntry(id, foodLogOwner{user.ID, profileID}); err != nil {
+			if personalKeyFromContext(r) != nil && errors.Is(err, sql.ErrNoRows) {
+				writeError(w, 404, "food log entry not found")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to delete food log entry")
 			return
 		}
@@ -953,6 +987,9 @@ func (s *Server) dayPlanEntriesRouter(w http.ResponseWriter, r *http.Request, me
 			return
 		}
 		entry, err := s.store.CreateDayPlanEntry(user.ID, mealPlanID, &req)
+		if keySourceNotFound(w, r, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create entry")
 			return
@@ -994,6 +1031,9 @@ func (s *Server) dayPlanEntryItemRouter(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		entry, err := s.store.UpdateDayPlanEntry(user.ID, mealPlanID, id, &req)
+		if keySourceNotFound(w, r, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update entry")
 			return
@@ -1115,7 +1155,7 @@ func (s *Server) booksRouter(w http.ResponseWriter, r *http.Request) {
 func (s *Server) bookItemRouter(w http.ResponseWriter, r *http.Request, id string) {
 	user := getUserFromContext(r)
 	path := r.URL.Path
-	if strings.Contains(path, "/chapters") || strings.Contains(path, "/pages") || strings.HasSuffix(path, "/items/reorder") {
+	if personalKeyFromContext(r) == nil && (strings.Contains(path, "/chapters") || strings.Contains(path, "/pages") || strings.HasSuffix(path, "/items/reorder")) {
 		bookID := strings.SplitN(id, "/", 2)[0]
 		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedBook(user.ID, bookID, fn) }, func(scoped *Server, response http.ResponseWriter) {
 			w := response
@@ -1201,6 +1241,9 @@ func (s *Server) chaptersRouter(w http.ResponseWriter, r *http.Request, bookID s
 			return
 		}
 		ch, err := s.store.CreateChapter(bookID, &req)
+		if keySourceNotFound(w, r, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create chapter")
 			return
@@ -1220,6 +1263,9 @@ func (s *Server) chapterItemRouter(w http.ResponseWriter, r *http.Request, chapt
 			return
 		}
 		ch, err := s.store.UpdateChapter(chapterID, &req)
+		if keySourceNotFound(w, r, err) {
+			return
+		}
 		if err != nil {
 			writeBookOperationError(w, err, "failed to update chapter")
 			return
@@ -1265,7 +1311,10 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 		writeJSON(w, http.StatusCreated, APIResponse{OK: true, Data: cr})
 	case "DELETE":
 		recipeID := r.URL.Query().Get("recipeId")
-		if recipeID == "" {
+		if personalKeyFromContext(r) != nil && r.PathValue("recipeId") != "" {
+			recipeID = r.PathValue("recipeId")
+		}
+		if recipeID == "" && personalKeyFromContext(r) == nil {
 			// Fall back to a path segment: .../recipes/{recipeId}
 			if idx := strings.LastIndex(r.URL.Path, "/recipes/"); idx >= 0 {
 				recipeID = strings.TrimSuffix(r.URL.Path[idx+len("/recipes/"):], "/")
@@ -1286,9 +1335,13 @@ func (s *Server) chapterRecipesRouter(w http.ResponseWriter, r *http.Request, ch
 }
 
 func (s *Server) chapterPagesRouter(w http.ResponseWriter, r *http.Request, chapterID string) {
-	parts := strings.Split(r.URL.Path, "/pages/")
-	if len(parts) > 1 && parts[1] != "" {
-		pageID := parts[1]
+	pageID := r.PathValue("pageId")
+	if personalKeyFromContext(r) == nil {
+		if _, tail, ok := strings.Cut(r.URL.Path, "/pages/"); ok {
+			pageID = strings.Split(tail, "/pages/")[0]
+		}
+	}
+	if pageID != "" {
 		user := getUserFromContext(r)
 		s.runBookScope(w, func(fn func(Store) error) error { return s.store.WithOwnedChapterPage(user.ID, pageID, chapterID, fn) }, func(scoped *Server, response http.ResponseWriter) {
 			w := response
@@ -1737,6 +1790,10 @@ func (s *Server) customFoodItemRouter(w http.ResponseWriter, r *http.Request, id
 		writeJSON(w, http.StatusOK, APIResponse{OK: true, Data: food})
 	case "DELETE":
 		if err := s.store.DeleteCustomFood(user.ID, id); err != nil {
+			if personalKeyFromContext(r) != nil && errors.Is(err, errPersonalForeignDependency) {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusNotFound, "custom food not found")
 			return
 		}

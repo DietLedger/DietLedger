@@ -147,6 +147,10 @@ func (s *Server) recipeBundleImportHandler(w http.ResponseWriter, r *http.Reques
 	result, err := pg.StageRecipeBundleWithDecisions(user.ID, bundle, decisions)
 	if err != nil {
 		if errors.Is(err, ErrExportForbidden) {
+			if personalKeyFromContext(r) != nil {
+				denyPersonalKey(w)
+				return
+			}
 			writeError(w, http.StatusForbidden, "import contains an inaccessible dependency")
 			return
 		}

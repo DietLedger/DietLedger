@@ -1,6 +1,6 @@
 {
   "status": "unreleased",
-  "version": "1.0.0-beta.175",
+  "version": "1.0.0-beta.176",
   "platform": "linux/amd64",
   "sourceCommit": null,
   "images": { "web": null, "api": null },

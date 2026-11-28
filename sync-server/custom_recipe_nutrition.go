@@ -264,7 +264,25 @@ func customRecipeSnapshot(q postgresReader, userID, id string, factor float64, p
 	return &n, nil
 }
 
-func canonicalizeLinkedCustomIngredient(tx *sql.Tx, parentID string, ing *CreateIngredientReq) error {
+func (s *PostgresStore) canonicalizeLinkedCustomIngredient(tx *sql.Tx, parentID string, ing *CreateIngredientReq) error {
+	if s.personalOnly {
+		var owner string
+		if err := tx.QueryRow(`SELECT user_id FROM recipes WHERE id=$1`, parentID).Scan(&owner); err != nil {
+			return err
+		}
+		checked := *s
+		checked.writeTx = tx
+		if err := checked.requirePersonalSource(owner, "recipe", ing.LinkedRecipeID); err != nil {
+			return err
+		}
+		kind := ing.SourceType
+		if kind == "custom_food" {
+			kind = "customFood"
+		}
+		if err := checked.requirePersonalSource(owner, kind, ing.SourceKey); err != nil {
+			return err
+		}
+	}
 	key := ing.LinkedRecipeID
 	if key == nil && ing.SourceType == "recipe" {
 		key = ing.SourceKey
@@ -301,7 +319,33 @@ func canonicalizeLinkedCustomIngredient(tx *sql.Tx, parentID string, ing *Create
 	return nil
 }
 
+func (s *PostgresStore) requirePersonalSource(userID, kind string, id *string) error {
+	if !s.personalOnly || id == nil {
+		return nil
+	}
+	var exists bool
+	var err error
+	switch kind {
+	case "recipe":
+		err = s.reader().QueryRow(`SELECT EXISTS (SELECT 1 FROM recipes WHERE id=$1 AND user_id=$2)`, *id, userID).Scan(&exists)
+	case "customFood":
+		err = s.reader().QueryRow(`SELECT EXISTS (SELECT 1 FROM custom_foods WHERE id=$1 AND (user_id=$2 OR shared_with_community))`, *id, userID).Scan(&exists)
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *PostgresStore) canonicalizeCustomLog(userID string, req *CreateFoodLogRequest) error {
+	if err := s.requirePersonalSource(userID, req.SourceType, req.SourceID); err != nil {
+		return err
+	}
 	if req.SourceType != "recipe" || req.SourceID == nil {
 		return nil
 	}
@@ -339,6 +383,9 @@ func (s *PostgresStore) canonicalizeCustomDayPlan(mealPlanID string, req *Create
 	}
 	var userID string
 	if err := s.reader().QueryRow(`SELECT user_id FROM meal_plans WHERE id=$1`, mealPlanID).Scan(&userID); err != nil {
+		return err
+	}
+	if err := s.requirePersonalSource(userID, "recipe", req.RecipeID); err != nil {
 		return err
 	}
 	n, err := customRecipeSnapshot(s.reader(), userID, *req.RecipeID, req.Servings, true)

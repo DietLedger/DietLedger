@@ -117,6 +117,10 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 		}
 	case VisibilityPrivate:
 		if user == nil || user.ID != shared.UserID {
+			if personalKeyFromContext(r) != nil {
+				writeError(w, http.StatusNotFound, "shared recipe not found")
+				return
+			}
 			writeError(w, http.StatusForbidden, "this recipe is private")
 			return
 		}
@@ -125,7 +129,9 @@ func (s *Server) getShareByToken(w http.ResponseWriter, r *http.Request, shareTo
 		return
 	}
 
-	go s.store.IncrementSharedRecipeViews(shared.ID)
+	if personalKeyFromContext(r) == nil {
+		go s.store.IncrementSharedRecipeViews(shared.ID)
+	}
 	writeJSON(w, http.StatusOK, shared)
 }
 

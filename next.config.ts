@@ -3,6 +3,15 @@ import pkg from './package.json';
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Native key requests must reach Go with their exact path, including the
+  // documented chapters collection slash. Preserve the default web redirect.
+  skipTrailingSlashRedirect: true,
+  async redirects() {
+    return [{
+      source: '/:path+/', destination: '/:path+', permanent: true,
+      missing: [{ type: 'header', key: 'authorization', value: '[Bb][Ee][Aa][Rr][Ee][Rr] dlpk1_.*' }],
+    }];
+  },
   async headers() {
     return [
       {

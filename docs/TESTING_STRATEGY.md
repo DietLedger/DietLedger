@@ -451,6 +451,10 @@ Focus on user-visible outcomes.
 - `src/lib/security-auth-client.test.ts` protects no persistent credentials, single-flight refresh, account-generation-safe delayed retries, shared-cookie principal mismatch rejection without revoking the other user's session, fresh-principal reload bootstrap, and refusal of cookie operations without origin-wide Web Locks. `src/hooks/use-auth.test.tsx` protects visible reload-required handling when legacy-worker retirement cannot be proven. Theme/dietary consumers retain account-generation isolation tests.
 - Real Chromium plus loopback Go contract evidence and the intentionally separate integrated Next/proxy/worker/browser gates are recorded in `specs/security-auth-session-verification.md`. Unit or contract-harness results do not by themselves close the complete browser-security release gate.
 
+## Scoped personal-key checks
+
+`sync-server/personal_key_auth_test.go` verifies discovery and separation from session/public dispatch, legacy refusal, malformed/ambiguous credentials, expired/revoked or removed owners, malformed grants, and verification-store failures. Run PostgreSQL cases only with an isolated, disposable `TEST_DATABASE_URL`; existing reset tests include the personal-key relation and owner-only/rollback assertions. `personal_key_management_test.go` covers password/HTTPS/CSRF admission, expiry, owner list/revocation, and issuance caps. `personal_key_routes_test.go` checks the exact allowlist and UI grant options against the approved spec, with database regressions for cross-owner records, role-gated SQL, and sharing. The web management tests verify one-time display and obsolete account responses. The opt-in built HTTPS harness and its limitations are documented in [the scoped key spec](specs/scoped-personal-sync-api-keys.md).
+
 ## Covered API resource admission and transport
 
 - `sync-server/build_input_contract_test.go` checks ordered Docker-ignore rules include the exact transport source while neighboring legacy APIs/private inputs stay excluded. This is a build-input contract, not a Docker image execution claim.
